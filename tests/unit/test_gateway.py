@@ -1,0 +1,176 @@
+"""M2.1/M2.3 DoD:槽位路由、ModelRun 字段完整、重试、结构化修复、两段式协议。"""
+
+import pytest
+from sqlmodel import Session, select
+from test_schemas import KERNEL
+
+from novel_agent.config import Settings
+from novel_agent.domain.db import build_engine, create_all
+from novel_agent.domain.models import ModelRunRecord
+from novel_agent.domain.schemas import StoryKernel
+from novel_agent.gateway import GatewayError, MockProvider, ModelGateway, ModelRequest
+from novel_agent.gateway.structured import (
+    StructuredOutputError,
+    call_structured,
+    call_two_part,
+    parse_two_part,
+)
+
+
+@pytest.fixture()
+def session(tmp_path):
+    engine = build_engine(tmp_path / "t.db")
+    create_all(engine)
+    with Session(engine) as s:
+        yield s
+
+
+def _gateway(session, provider, **settings_over):
+    settings = Settings(_env_file=None, **settings_over)
+    return ModelGateway(settings, session, {"mock": provider}, max_retries=1)
+
+
+async def test_call_records_model_run_full_fields(session) -> None:
+    """M2.1 DoD:token/耗时/成本/prompt_version/关联版本字段非空。"""
+    mock = MockProvider()
+    gw = _gateway(session, mock)
+    resp = await gw.call(
+        "creative",
+        ModelRequest(user="写一段"),
+        agent_role="writer",
+        prompt_version="writer_v1",
+        chapter_key="v1c001",
+        input_ref="ctx_v1",
+        output_ref="draft_v1",
+    )
+    assert resp.provider == "mock"
+
+    runs = session.exec(select(ModelRunRecord)).all()
+    assert len(runs) == 1
+    r = runs[0]
+    assert r.prompt_version == "writer_v1"
+    assert r.input_tokens > 0 and r.output_tokens > 0
+    assert r.latency_ms >= 0 and r.status == "ok"
+    assert r.input_ref == "ctx_v1" and r.output_ref == "draft_v1"
+    assert r.agent_role == "writer" and r.chapter_key == "v1c001"
+
+
+async def test_retry_then_success_and_exhaustion(session) -> None:
+    class Flaky:
+        def __init__(self, fail_times: int) -> None:
+            self.n = fail_times
+
+        async def complete(self, slot, req, agent_role):
+            if self.n > 0:
+                self.n -= 1
+                raise RuntimeError("网络抖动")
+            return await MockProvider().complete(slot, req, agent_role)
+
+    gw = _gateway(session, Flaky(1))
+    resp = await gw.call(
+        "review", ModelRequest(user="x"), agent_role="r", prompt_version="v1"
+    )
+    assert resp.retries == 1
+    statuses = [r.status for r in session.exec(select(ModelRunRecord)).all()]
+    assert statuses == ["error", "ok"]
+
+    gw2 = _gateway(session, Flaky(99))
+    with pytest.raises(GatewayError, match="重试耗尽"):
+        await gw2.call("review", ModelRequest(user="x"), agent_role="r", prompt_version="v1")
+
+
+async def test_unknown_slot_rejected(session) -> None:
+    gw = _gateway(session, MockProvider())
+    with pytest.raises(GatewayError, match="未知模型槽位"):
+        await gw.call("nonexistent", ModelRequest(user="x"), agent_role="r", prompt_version="v")
+
+
+# ---------- M2.3 结构化三分支 ----------
+
+async def test_structured_direct_pass(session) -> None:
+    import json
+
+    mock = MockProvider()
+    mock.register("planner", lambda req: json.dumps(KERNEL, ensure_ascii=False))
+    gw = _gateway(session, mock)
+    k = await call_structured(
+        gw, "creative", ModelRequest(user="出内核"), StoryKernel,
+        agent_role="planner", prompt_version="v1",
+    )
+    assert k.premise == KERNEL["premise"]
+
+
+async def test_structured_repair_success(session) -> None:
+    import json
+
+    state = {"n": 0}
+
+    def handler(req: ModelRequest) -> str:
+        state["n"] += 1
+        if state["n"] == 1:
+            return "这不是JSON"
+        assert "校验" in req.user  # 修复轮带了错误信息
+        return json.dumps(KERNEL, ensure_ascii=False)
+
+    mock = MockProvider()
+    mock.register("planner", handler)
+    gw = _gateway(session, mock)
+    k = await call_structured(
+        gw, "creative", ModelRequest(user="出内核"), StoryKernel,
+        agent_role="planner", prompt_version="v1",
+    )
+    assert k.logline and state["n"] == 2
+
+
+async def test_structured_final_failure(session) -> None:
+    mock = MockProvider()
+    mock.register("planner", lambda req: "永远不是JSON")
+    gw = _gateway(session, mock)
+    with pytest.raises(StructuredOutputError):
+        await call_structured(
+            gw, "creative", ModelRequest(user="x"), StoryKernel,
+            agent_role="planner", prompt_version="v1",
+        )
+
+
+# ---------- D16 两段式 ----------
+
+GOOD_TWO_PART = """<<<SCENE:s1>>>
+茶楼里灯火通明,说书人一拍醒木。
+<<<END>>>
+<<<SCENE:s2>>>
+散场后他数着铜钱,听见巷口的马蹄声。
+<<<END>>>
+<<<META>>>
+{"chapter_summary": "说书人卷入失火案", "deviation_notes": ""}"""
+
+
+def test_parse_two_part_good() -> None:
+    scenes, meta = parse_two_part(GOOD_TWO_PART, ["s1", "s2"])
+    assert scenes["s1"].startswith("茶楼") and meta["chapter_summary"]
+
+
+def test_parse_two_part_mismatch_and_missing_meta() -> None:
+    from novel_agent.gateway.structured import TwoPartParseError
+
+    with pytest.raises(TwoPartParseError, match="不匹配"):
+        parse_two_part(GOOD_TWO_PART, ["s1", "s2", "s3"])
+    with pytest.raises(TwoPartParseError, match="META"):
+        parse_two_part("<<<SCENE:s1>>>x<<<END>>>", ["s1"])
+
+
+async def test_call_two_part_repair(session) -> None:
+    state = {"n": 0}
+
+    def handler(req: ModelRequest) -> str:
+        state["n"] += 1
+        return "格式全错" if state["n"] == 1 else GOOD_TWO_PART
+
+    mock = MockProvider()
+    mock.register("writer", handler)
+    gw = _gateway(session, mock)
+    scenes, meta = await call_two_part(
+        gw, "creative", ModelRequest(user="写"), ["s1", "s2"],
+        agent_role="writer", prompt_version="v1",
+    )
+    assert set(scenes) == {"s1", "s2"} and state["n"] == 2
