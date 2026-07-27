@@ -92,11 +92,10 @@ def check_scenes(draft: DraftCandidate, cards: list[SceneCard]) -> list[LintFind
     draft_ids = {s.scene_id for s in draft.scenes}
     card_ids = {c.scene_id for c in cards}
     if draft_ids != card_ids:
+        missing = sorted(card_ids - draft_ids)
+        extra = sorted(draft_ids - card_ids)
         out.append(
-            LintFinding(
-                "scene_mismatch",
-                f"场景集不一致: 缺失={sorted(card_ids - draft_ids)} 多余={sorted(draft_ids - card_ids)}",
-            )
+            LintFinding("scene_mismatch", f"场景集不一致: 缺失={missing} 多余={extra}")
         )
     budgets = {c.scene_id: c.word_budget for c in cards}
     for s in draft.scenes:
