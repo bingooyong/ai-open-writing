@@ -129,6 +129,7 @@ class ChapterRecord(SQLModel, table=True):
     status: ChapterStatus = Field(default=ChapterStatus.PLANNED, index=True)
     revision_round: int = Field(default=0)  # Spec §6 N7:谱系内 REVISE_LOCAL 计数,重启不归零
     outline_version: int = Field(default=1)  # bump 触发 N1 重校验(M3.3b)
+    outline: dict = Field(default_factory=dict, sa_column=Column(JSON))  # ChapterOutline 载荷
     target_words: int = 0
     built_on_provisional: bool = Field(default=False)  # D15:STALE 级联判定
     created_at: datetime = Field(default_factory=_now)
