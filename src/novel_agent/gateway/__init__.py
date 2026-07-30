@@ -6,6 +6,7 @@ from novel_agent.gateway.base import (
     ModelRequest,
     ModelResponse,
     Provider,
+    ResponsePolicyError,
 )
 from novel_agent.gateway.providers.mock import MockProvider
 
@@ -16,4 +17,5 @@ __all__ = [
     "ModelRequest",
     "ModelResponse",
     "Provider",
+    "ResponsePolicyError",
 ]

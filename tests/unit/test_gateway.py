@@ -8,7 +8,14 @@ from novel_agent.config import Settings
 from novel_agent.domain.db import build_engine, create_all
 from novel_agent.domain.models import ModelRunRecord
 from novel_agent.domain.schemas import StoryKernel
-from novel_agent.gateway import GatewayError, MockProvider, ModelGateway, ModelRequest
+from novel_agent.gateway import (
+    GatewayError,
+    MockProvider,
+    ModelGateway,
+    ModelRequest,
+    ModelResponse,
+    ResponsePolicyError,
+)
 from novel_agent.gateway.structured import (
     StructuredOutputError,
     call_structured,
@@ -77,6 +84,43 @@ async def test_retry_then_success_and_exhaustion(session) -> None:
     gw2 = _gateway(session, Flaky(99))
     with pytest.raises(GatewayError, match="重试耗尽"):
         await gw2.call("review", ModelRequest(user="x"), agent_role="r", prompt_version="v1")
+
+
+async def test_post_response_policy_error_preserves_usage_without_retry(session) -> None:
+    class RejectReturnedResponse:
+        calls = 0
+
+        async def complete(self, slot, req, agent_role):
+            self.calls += 1
+            response = ModelResponse(
+                text="billable output",
+                input_tokens=321,
+                output_tokens=45,
+                latency_ms=9,
+                provider="mock",
+                model=slot.model,
+            )
+            raise ResponsePolicyError(response, "usage rejected")
+
+    provider = RejectReturnedResponse()
+    gateway = ModelGateway(
+        Settings(_env_file=None), session, {"mock": provider}, max_retries=2
+    )
+
+    with pytest.raises(GatewayError, match="策略拒绝"):
+        await gateway.call(
+            "creative",
+            ModelRequest(user="x"),
+            agent_role="writer",
+            prompt_version="writer_v1",
+        )
+
+    assert provider.calls == 1
+    run = session.exec(select(ModelRunRecord)).one()
+    assert run.status == "error"
+    assert run.input_tokens == 321 and run.output_tokens == 45
+    assert run.latency_ms == 9
+    assert run.error == "ResponsePolicyError: usage rejected"
 
 
 async def test_unknown_slot_rejected(session) -> None:

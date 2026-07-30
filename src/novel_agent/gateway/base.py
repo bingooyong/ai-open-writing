@@ -41,6 +41,14 @@ class GatewayError(Exception):
     """重试耗尽后的最终失败。"""
 
 
+class ResponsePolicyError(Exception):
+    """Provider returned billable usage that a post-response policy rejected."""
+
+    def __init__(self, response: ModelResponse, reason: str) -> None:
+        super().__init__(reason)
+        self.response = response
+
+
 class Provider(Protocol):
     async def complete(self, slot: SlotConfig, req: ModelRequest, agent_role: str) -> ModelResponse:
         """执行一次补全。实现方负责鉴权与协议细节。"""
@@ -137,6 +145,28 @@ class ModelGateway:
                 resp = await asyncio.wait_for(
                     provider.complete(cfg, req, agent_role), timeout=self.timeout_s
                 )
+            except ResponsePolicyError as exc:
+                resp = exc.response
+                resp.retries = attempt
+                last_error = f"ResponsePolicyError: {exc}"
+                self._record(
+                    cfg,
+                    agent_role,
+                    prompt_version,
+                    project_id,
+                    chapter_key,
+                    input_ref,
+                    output_ref,
+                    status="error",
+                    error=last_error,
+                    input_tokens=resp.input_tokens,
+                    output_tokens=resp.output_tokens,
+                    latency_ms=resp.latency_ms,
+                    retries=attempt,
+                )
+                raise GatewayError(
+                    f"槽位 {slot_name}({cfg.provider}/{cfg.model})响应被策略拒绝: {exc}"
+                ) from exc
             except Exception as exc:  # noqa: BLE001 — 网关边界统一兜底
                 last_error = f"{type(exc).__name__}: {exc}"
                 self._record(

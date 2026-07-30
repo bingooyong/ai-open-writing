@@ -41,3 +41,5 @@ AgentScope 2.0.5 要求 ≥3.11;本机 uv 0.11.14 可自动管理解释器,项�
 调用前再核验剩余硬预算和单角色一次上限。报告默认写入
 `artifacts/verification/m26-smoke-<timestamp>.json`，仅包含脱敏元数据、版本引用、
 token/成本/延迟、Schema 校验状态、中文 evidence 定位计数与正文哈希。
+评审可以返回零个 issue；但只要存在 issue，其所有 evidence span 都必须能在
+对应场景正文中定位，否则 smoke 失败并保留脱敏报告。

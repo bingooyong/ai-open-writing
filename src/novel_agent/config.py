@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, SecretStr, model_validator
+from pydantic import BaseModel, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ProviderName = Literal["mock", "openai_compat", "anthropic"]
@@ -29,6 +29,11 @@ class SlotConfig(BaseModel):
     input_price_usd_per_million: float | None = None
     output_price_usd_per_million: float | None = None
 
+    @field_validator("family", mode="before")
+    @classmethod
+    def _canonical_family(cls, value: object) -> object:
+        return value.strip().casefold() if isinstance(value, str) else value
+
     @model_validator(mode="after")
     def _require_key_for_real_provider(self) -> "SlotConfig":
         if self.provider != "mock":
@@ -37,7 +42,7 @@ class SlotConfig(BaseModel):
                     f"provider={self.provider} 需要 api_key"
                     "(通过环境变量 NOVEL_<槽位>__API_KEY 提供)"
                 )
-            if not self.family.strip() or self.family == "mock":
+            if not self.family or self.family == "mock":
                 raise ValueError("真实 provider 必须显式配置非 mock 的 family")
         prices = (self.input_price_usd_per_million, self.output_price_usd_per_million)
         if any(price is not None for price in prices) and any(

@@ -41,6 +41,39 @@ def test_real_provider_requires_explicit_family() -> None:
         SlotConfig(provider="anthropic", model="claude-sonnet", api_key="k")
 
 
+def test_family_is_canonicalized_before_validation_and_comparison() -> None:
+    slot = SlotConfig(
+        provider="anthropic", model="claude-sonnet", family="  ClAuDe  ", api_key="k"
+    )
+    assert slot.family == "claude"
+
+    creative = {
+        "provider": "anthropic",
+        "model": "claude-sonnet",
+        "family": "  Shared-Family ",
+        "api_key": "k",
+    }
+    judge = {
+        "provider": "openai_compat",
+        "model": "gpt-5",
+        "family": "shared-family",
+        "api_key": "k",
+    }
+    with pytest.raises(ValidationError, match="D8"):
+        Settings(_env_file=None, creative=creative, judge=judge)
+
+
+@pytest.mark.parametrize("family", [" MOCK ", "Mock", "\tmOcK\n"])
+def test_real_provider_rejects_mock_family_variants(family: str) -> None:
+    with pytest.raises(ValidationError, match="family"):
+        SlotConfig(
+            provider="openai_compat",
+            model="gpt-5",
+            family=family,
+            api_key="k",
+        )
+
+
 def test_price_override_requires_positive_input_and_output_pair() -> None:
     with pytest.raises(ValidationError, match="input/output"):
         SlotConfig(input_price_usd_per_million=1.0)

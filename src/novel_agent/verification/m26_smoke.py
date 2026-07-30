@@ -28,6 +28,7 @@ from novel_agent.gateway.base import (
     ModelRequest,
     ModelResponse,
     Provider,
+    ResponsePolicyError,
     estimate_cost,
     slot_pricing,
 )
@@ -198,7 +199,10 @@ class _GuardedProvider:
     ) -> ModelResponse:
         self.ledger.before(slot, req, agent_role)
         response = await self.provider.complete(slot, req, agent_role)
-        self.ledger.after(slot, req, response)
+        try:
+            self.ledger.after(slot, req, response)
+        except SmokeGateError as exc:
+            raise ResponsePolicyError(response, str(exc)) from exc
         return response
 
 
@@ -341,12 +345,17 @@ async def run_m26_smoke(
                 review = await run_reviewer(deps, role, draft, ctx)
                 reports.append(review)
                 valid[role.value] = True
-                located = sum(_evidence_locates(issue, draft) for issue in review.issues)
+                locations = [_evidence_locates(issue, draft) for issue in review.issues]
+                located = sum(locations)
                 evidence[role.value] = {
                     "issues": len(review.issues),
                     "located": located,
                     "unlocated": len(review.issues) - located,
                 }
+                if not all(locations):
+                    raise SmokeGateError(
+                        f"review evidence failed localization for {role.value}"
+                    )
             await run_judge(deps, [draft], reports, ctx, absent=[])
             valid["judge"] = True
             all_issues = [issue for report in reports for issue in report.issues]

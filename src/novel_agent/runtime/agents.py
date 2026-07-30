@@ -274,18 +274,21 @@ async def run_writer(
 
 
 def _evidence_locates(issue: ReviewIssue, draft: DraftCandidate) -> bool:
-    """归一化模糊定位(Spec §5):引文去空白标点后是正文子串。"""
+    """所有 evidence span 归一化后均必须能在对应场景定位。"""
     import re
 
     def norm(t: str) -> str:
         return re.sub(r"[\s,。、;:!?「」『』""''\"']", "", t)
 
     scene_texts = {s.scene_id: norm(s.content) for s in draft.scenes}
+    if not issue.evidence:
+        return False
     for ev in issue.evidence:
         body = scene_texts.get(ev.scene_id, "")
-        if body and norm(ev.quote) in body:
-            return True
-    return False
+        quote = norm(ev.quote)
+        if not body or not quote or quote not in body:
+            return False
+    return True
 
 
 async def run_reviewer(

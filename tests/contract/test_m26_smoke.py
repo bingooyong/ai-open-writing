@@ -53,11 +53,18 @@ def _review(role: str) -> str:
 
 class OfflineProvider:
     def __init__(
-        self, *, excessive_usage: bool = False, malformed_kernel: bool = False
+        self,
+        *,
+        excessive_usage: bool = False,
+        malformed_kernel: bool = False,
+        invalid_evidence: bool = False,
+        zero_issues: bool = False,
     ) -> None:
         self.roles: list[str] = []
         self.excessive_usage = excessive_usage
         self.malformed_kernel = malformed_kernel
+        self.invalid_evidence = invalid_evidence
+        self.zero_issues = zero_issues
 
     async def complete(self, slot, req: ModelRequest, agent_role: str) -> ModelResponse:
         self.roles.append(agent_role)
@@ -96,6 +103,22 @@ class OfflineProvider:
         }
         if self.malformed_kernel:
             outputs["kernel_planner"] = "not-json"
+        if self.invalid_evidence:
+            invalid = json.loads(_review("plot"))
+            invalid["issues"][0]["evidence"].append(
+                {"scene_id": "v1c001_s1", "quote": "正文中不存在的引文"}
+            )
+            outputs["plot"] = json.dumps(invalid, ensure_ascii=False)
+        if self.zero_issues:
+            for role in ("red_team", "plot", "character", "continuity", "prose"):
+                outputs[role] = json.dumps(
+                    {
+                        "reviewer_role": role,
+                        "candidate_id": "candidate_1",
+                        "issues": [],
+                    },
+                    ensure_ascii=False,
+                )
         return ModelResponse(
             text=outputs[agent_role],
             input_tokens=100_000 if self.excessive_usage else 100,
@@ -257,6 +280,12 @@ async def test_usage_bound_failure_is_durable_and_never_retries(tmp_path: Path) 
     assert report["status"] == "failed"
     assert report["failure_kind"] == "GatewayError"
     assert report["database"]["model_run_count"] == 1
+    call = report["calls"][0]
+    assert call["status"] == "error"
+    assert call["input_tokens"] == 100_000
+    assert call["output_tokens"] == 50
+    assert call["cost_usd"] == 0.50075
+    assert report["budget"]["actual_cost_usd"] == 0.50075
 
 
 async def test_invalid_structure_never_triggers_a_repair_call(tmp_path: Path) -> None:
@@ -272,3 +301,51 @@ async def test_invalid_structure_never_triggers_a_repair_call(tmp_path: Path) ->
         )
 
     assert provider.roles == ["kernel_planner"]
+
+
+async def test_any_unlocated_evidence_span_fails_with_redacted_report(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    provider = OfflineProvider(invalid_evidence=True)
+    report_path = tmp_path / "invalid-evidence.json"
+
+    with pytest.raises(SmokeExecutionError) as caught:
+        await run_m26_smoke(
+            settings,
+            budget_usd=10.0,
+            report_path=report_path,
+            providers={"openai_compat": provider},
+        )
+
+    assert caught.value.error_kind == "SmokeGateError"
+    assert provider.roles[-1] == "plot"
+    report_text = report_path.read_text(encoding="utf-8")
+    report = json.loads(report_text)
+    assert report["status"] == "failed"
+    assert report["chinese_evidence_location"]["plot"] == {
+        "issues": 1,
+        "located": 0,
+        "unlocated": 1,
+    }
+    assert "正文中不存在的引文" not in report_text
+    assert "SECRET-KEY-MUST-NOT-LEAK" not in report_text
+
+
+async def test_zero_review_issues_are_allowed(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    provider = OfflineProvider(zero_issues=True)
+    report_path = await run_m26_smoke(
+        settings,
+        budget_usd=10.0,
+        report_path=tmp_path / "zero-issues.json",
+        providers={"openai_compat": provider},
+    )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "passed"
+    assert len(provider.roles) == len(PROMPT_ROLES)
+    assert all(
+        counts == {"issues": 0, "located": 0, "unlocated": 0}
+        for counts in report["chinese_evidence_location"].values()
+    )
