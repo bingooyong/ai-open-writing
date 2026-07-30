@@ -29,3 +29,15 @@ AgentScope 2.0.5 要求 ≥3.11;本机 uv 0.11.14 可自动管理解释器,项�
 
 ---
 *后续核验追加写入本文件(M2.4 API 实测、M4.2 验收证据索引)。*
+
+## M2.6 受限真实模型 smoke
+
+`novel smoke-m26` 默认拒绝。只有同时提供 `--confirm-real-models` 与正数
+`--budget-usd` 才会继续；四槽位必须均为真实 provider，真实槽位必须声明
+`family`，且 judge 与 creative 的 family 必须不同。未知型号必须在槽位中显式
+配置每百万 input/output token 价格。
+
+命令在任何 provider 调用前对 12 个 prompt role 做全程最坏成本预检，运行中每次
+调用前再核验剩余硬预算和单角色一次上限。报告默认写入
+`artifacts/verification/m26-smoke-<timestamp>.json`，仅包含脱敏元数据、版本引用、
+token/成本/延迟、Schema 校验状态、中文 evidence 定位计数与正文哈希。

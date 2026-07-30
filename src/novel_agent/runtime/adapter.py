@@ -25,6 +25,8 @@ class RuntimeCall:
     prompt_version: str
     project_id: int | None = None
     chapter_key: str = ""
+    input_ref: str = ""
+    output_ref: str = ""
 
 
 class CognitiveRuntime(Protocol):
@@ -52,6 +54,7 @@ class GatewayRuntimeAdapter:
     """Stage-0 G0 adapter: single-shot calls through the audited ModelGateway."""
 
     gateway: ModelGateway
+    repair_attempts: int = 1
 
     async def structured(
         self,
@@ -69,6 +72,9 @@ class GatewayRuntimeAdapter:
             prompt_version=call.prompt_version,
             project_id=call.project_id,
             chapter_key=call.chapter_key,
+            input_ref=call.input_ref,
+            output_ref=call.output_ref,
+            repair_attempts=self.repair_attempts,
         )
 
     async def two_part(
@@ -87,4 +93,7 @@ class GatewayRuntimeAdapter:
             prompt_version=call.prompt_version,
             project_id=call.project_id,
             chapter_key=call.chapter_key,
+            input_ref=call.input_ref,
+            output_ref=call.output_ref,
+            repair_attempts=self.repair_attempts,
         )

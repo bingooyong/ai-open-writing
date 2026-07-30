@@ -60,11 +60,34 @@ _PRICING: dict[str, tuple[float, float]] = {
 }
 
 
-def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+def model_pricing(model: str) -> tuple[float, float] | None:
     for prefix, (pin, pout) in _PRICING.items():
         if model.lower().startswith(prefix):
-            return round((input_tokens * pin + output_tokens * pout) / 1_000_000, 6)
-    return 0.0
+            return pin, pout
+    return None
+
+
+def slot_pricing(slot: SlotConfig) -> tuple[float, float] | None:
+    if (
+        slot.input_price_usd_per_million is not None
+        and slot.output_price_usd_per_million is not None
+    ):
+        return slot.input_price_usd_per_million, slot.output_price_usd_per_million
+    return model_pricing(slot.model)
+
+
+def estimate_cost(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    *,
+    pricing: tuple[float, float] | None = None,
+) -> float:
+    resolved = pricing or model_pricing(model)
+    if resolved is None:
+        return 0.0
+    pin, pout = resolved
+    return round((input_tokens * pin + output_tokens * pout) / 1_000_000, 6)
 
 
 class ModelGateway:
@@ -163,7 +186,9 @@ class ModelGateway:
             output_tokens=output_tokens,
             latency_ms=latency_ms,
             retries=retries,
-            cost_estimate=estimate_cost(cfg.model, input_tokens, output_tokens),
+            cost_estimate=estimate_cost(
+                cfg.model, input_tokens, output_tokens, pricing=slot_pricing(cfg)
+            ),
             status=status,
             error=error,
             input_ref=input_ref,

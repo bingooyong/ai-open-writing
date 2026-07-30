@@ -25,10 +25,25 @@ def test_real_provider_requires_api_key() -> None:
 
 
 def test_judge_must_differ_from_creative() -> None:
-    """Spec D8:judge 与 creative 禁止同型号。"""
-    slot = {"provider": "openai_compat", "model": "same-model", "api_key": "k"}
+    """Spec D8:judge 与 creative 禁止同模型族。"""
+    slot = {
+        "provider": "openai_compat",
+        "model": "same-model",
+        "family": "same-family",
+        "api_key": "k",
+    }
     with pytest.raises(ValidationError, match="D8"):
         Settings(_env_file=None, creative=slot, judge=slot)
+
+
+def test_real_provider_requires_explicit_family() -> None:
+    with pytest.raises(ValidationError, match="family"):
+        SlotConfig(provider="anthropic", model="claude-sonnet", api_key="k")
+
+
+def test_price_override_requires_positive_input_and_output_pair() -> None:
+    with pytest.raises(ValidationError, match="input/output"):
+        SlotConfig(input_price_usd_per_million=1.0)
 
 
 def test_revision_rounds_not_configurable() -> None:

@@ -23,15 +23,27 @@ class SlotConfig(BaseModel):
 
     provider: ProviderName = "mock"
     model: str = "mock-model"
+    family: str = "mock"
     api_key: SecretStr | None = None
     base_url: str | None = None
+    input_price_usd_per_million: float | None = None
+    output_price_usd_per_million: float | None = None
 
     @model_validator(mode="after")
     def _require_key_for_real_provider(self) -> "SlotConfig":
-        if self.provider != "mock" and self.api_key is None:
-            raise ValueError(
-                f"provider={self.provider} 需要 api_key(通过环境变量 NOVEL_<槽位>__API_KEY 提供)"
-            )
+        if self.provider != "mock":
+            if self.api_key is None:
+                raise ValueError(
+                    f"provider={self.provider} 需要 api_key"
+                    "(通过环境变量 NOVEL_<槽位>__API_KEY 提供)"
+                )
+            if not self.family.strip() or self.family == "mock":
+                raise ValueError("真实 provider 必须显式配置非 mock 的 family")
+        prices = (self.input_price_usd_per_million, self.output_price_usd_per_million)
+        if any(price is not None for price in prices) and any(
+            price is None or price <= 0 for price in prices
+        ):
+            raise ValueError("价格覆盖必须同时提供正数 input/output USD per million")
         return self
 
 
@@ -65,12 +77,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _judge_must_differ_from_creative(self) -> "Settings":
-        """Spec D8:Judge 与 Writer 须不同模型族;至少禁止完全同型号。"""
+        """Spec D8:Judge 与 Writer 须不同模型族。"""
         j, c = self.judge, self.creative
-        if j.provider != "mock" and c.provider != "mock" and j.model == c.model:
+        if j.provider != "mock" and c.provider != "mock" and j.family == c.family:
             raise ValueError(
-                "judge 与 creative 不得使用同一型号(Spec D8);"
-                "请为 NOVEL_JUDGE__MODEL 配置不同模型族的型号"
+                "judge.family 与 creative.family 不得相同(Spec D8);"
+                "请显式配置不同模型族"
             )
         return self
 

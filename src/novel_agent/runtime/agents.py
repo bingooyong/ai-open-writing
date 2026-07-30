@@ -184,6 +184,7 @@ class AgentDeps:
     prompts_dir: Path | None = None
     project_id: int | None = None
     runtime: CognitiveRuntime | None = None
+    verification_run_id: str = ""
 
     def __post_init__(self) -> None:
         if self.runtime is None:
@@ -191,6 +192,12 @@ class AgentDeps:
 
     def prompt(self, role: str) -> PromptSpec:
         return load_prompt(role, self.prompts_dir)
+
+    def version_refs(self, role: str) -> tuple[str, str]:
+        if not self.verification_run_id:
+            return "", ""
+        base = f"m26:{self.verification_run_id}:{role}"
+        return f"{base}:input:v1", f"{base}:output:v1"
 
 
 @dataclass(frozen=True)
@@ -204,6 +211,7 @@ class CognitiveAgent(Generic[OutputT]):
 
     async def run(self, request: ModelRequest, *, chapter_key: str = "") -> OutputT:
         spec = self.deps.prompt(self.role)
+        input_ref, output_ref = self.deps.version_refs(self.role)
         runtime = self.deps.runtime
         if runtime is None:  # narrowed defensively for static type checkers
             raise RuntimeError("认知任务 runtime 未初始化")
@@ -216,6 +224,8 @@ class CognitiveAgent(Generic[OutputT]):
                 prompt_version=spec.prompt_version,
                 project_id=self.deps.project_id,
                 chapter_key=chapter_key,
+                input_ref=input_ref,
+                output_ref=output_ref,
             ),
         )
 
@@ -237,6 +247,7 @@ async def run_writer(
     runtime = deps.runtime
     if runtime is None:
         raise RuntimeError("认知任务 runtime 未初始化")
+    input_ref, output_ref = deps.version_refs("writer")
     scenes, meta = await runtime.two_part(
         spec.slot,
         req,
@@ -246,6 +257,8 @@ async def run_writer(
             prompt_version=spec.prompt_version,
             project_id=deps.project_id,
             chapter_key=ctx.chapter_key,
+            input_ref=input_ref,
+            output_ref=output_ref,
         ),
     )
     return DraftCandidate(
@@ -435,6 +448,7 @@ async def run_reviser(
     runtime = deps.runtime
     if runtime is None:
         raise RuntimeError("认知任务 runtime 未初始化")
+    input_ref, output_ref = deps.version_refs("reviser")
     scenes, meta = await runtime.two_part(
         spec.slot,
         req,
@@ -444,6 +458,8 @@ async def run_reviser(
             prompt_version=spec.prompt_version,
             project_id=deps.project_id,
             chapter_key=ctx.chapter_key,
+            input_ref=input_ref,
+            output_ref=output_ref,
         ),
     )
     return draft.model_copy(

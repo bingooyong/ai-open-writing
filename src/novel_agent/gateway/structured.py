@@ -52,11 +52,13 @@ async def call_structured(
     last_err: Exception | None = None
     text = resp.text
 
-    for _ in range(repair_attempts + 1):
+    for attempt in range(repair_attempts + 1):
         try:
             return schema.model_validate(json.loads(_extract_json(text)))
         except (json.JSONDecodeError, ValidationError) as exc:
             last_err = exc
+        if attempt == repair_attempts:
+            break
         # 修复轮:回传校验错误,要求只输出修正后的 JSON
         repair_req = ModelRequest(
             system=req.system,
@@ -72,10 +74,9 @@ async def call_structured(
         resp = await gateway.call(slot_name, repair_req, **meta)  # type: ignore[arg-type]
         text = resp.text
 
-    try:
-        return schema.model_validate(json.loads(_extract_json(text)))
-    except (json.JSONDecodeError, ValidationError) as exc:
-        raise StructuredOutputError(f"{schema.__name__} 校验失败(修复后仍不合法): {exc}") from exc
+    raise StructuredOutputError(
+        f"{schema.__name__} 校验失败(修复后仍不合法): {last_err}"
+    ) from last_err
 
 
 # ---------- D16 两段式协议 ----------
@@ -152,11 +153,13 @@ async def call_two_part(
     text = resp.text
     last_err: Exception | None = None
 
-    for _ in range(repair_attempts + 1):
+    for attempt in range(repair_attempts + 1):
         try:
             return parse_two_part(text, expected_scene_ids)
         except TwoPartParseError as exc:
             last_err = exc
+        if attempt == repair_attempts:
+            break
         repair_req = ModelRequest(
             system=req.system,
             user=(
@@ -170,7 +173,4 @@ async def call_two_part(
         resp = await gateway.call(slot_name, repair_req, **meta_kwargs)  # type: ignore[arg-type]
         text = resp.text
 
-    try:
-        return parse_two_part(text, expected_scene_ids)
-    except TwoPartParseError as exc:
-        raise StructuredOutputError(f"两段式解析失败(修复后仍不合法): {exc}") from exc
+    raise StructuredOutputError(f"两段式解析失败(修复后仍不合法): {last_err}") from last_err
