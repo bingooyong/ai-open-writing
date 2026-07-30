@@ -93,7 +93,19 @@ def parse_two_part(text: str, expected_scene_ids: list[str]) -> tuple[dict[str, 
 
     校验:场景 id 集合与场景卡一致;正文非空;META 可解析。
     """
-    scenes = {m.group("sid").strip(): m.group("body").strip() for m in _SCENE_RE.finditer(text)}
+    blocks = [
+        (match.group("sid").strip(), match.group("body").strip())
+        for match in _SCENE_RE.finditer(text)
+    ]
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for scene_id, _ in blocks:
+        if scene_id in seen:
+            duplicates.add(scene_id)
+        seen.add(scene_id)
+    if duplicates:
+        raise TwoPartParseError(f"场景块重复: {sorted(duplicates)}")
+    scenes = dict(blocks)
     missing = [sid for sid in expected_scene_ids if sid not in scenes]
     extra = [sid for sid in scenes if sid not in expected_scene_ids]
     if missing or extra:
@@ -111,6 +123,8 @@ def parse_two_part(text: str, expected_scene_ids: list[str]) -> tuple[dict[str, 
         meta = json.loads(_extract_json(raw))
     except json.JSONDecodeError as exc:
         raise TwoPartParseError(f"META JSON 解析失败: {exc}") from exc
+    if not isinstance(meta, dict):
+        raise TwoPartParseError("META JSON 必须是对象")
     return scenes, meta
 
 

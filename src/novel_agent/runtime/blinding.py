@@ -35,12 +35,24 @@ def unblind(mapping: dict[str, str], candidate_id: str) -> str:
 
 def anonymize_issues(issues: list[ReviewIssue]) -> list[dict]:
     """剥离评审身份字段(PRD §9.4 规则2)。产物为进入 Judge 的意见集。"""
+    anonymized, _ = anonymize_issues_with_mapping(issues)
+    return anonymized
+
+
+def anonymize_issues_with_mapping(
+    issues: list[ReviewIssue],
+) -> tuple[list[dict], dict[str, str]]:
+    """Blind reviewer identity in fields and IDs, retaining code-only reconciliation."""
     out = []
-    for issue in issues:
+    mapping: dict[str, str] = {}
+    for index, issue in enumerate(issues, start=1):
+        anonymous_id = f"issue_{index}"
         d = issue.model_dump()
         d.pop("reviewer_role", None)
+        d["issue_id"] = anonymous_id
         out.append(d)
-    return out
+        mapping[anonymous_id] = issue.issue_id
+    return out, mapping
 
 
 def assert_no_leak(text: str, forbidden_tokens: list[str]) -> None:

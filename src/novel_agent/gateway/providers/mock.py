@@ -1,11 +1,12 @@
 """mock provider(M2.2):按 agent_role 返回可注入的 fixture,支撑全链路离线测试。"""
 
-from collections.abc import Callable
+import inspect
+from collections.abc import Awaitable, Callable
 
 from novel_agent.config import SlotConfig
 from novel_agent.gateway.base import ModelRequest, ModelResponse
 
-Handler = Callable[[ModelRequest], str]
+Handler = Callable[[ModelRequest], str | Awaitable[str]]
 
 
 class MockProvider:
@@ -29,7 +30,8 @@ class MockProvider:
     ) -> ModelResponse:
         self.calls.append((agent_role, req))
         handler = self._handlers.get(agent_role)
-        text = handler(req) if handler else f'{{"echo": "{agent_role}"}}'
+        result = handler(req) if handler else f'{{"echo": "{agent_role}"}}'
+        text = await result if inspect.isawaitable(result) else result
         return ModelResponse(
             text=text,
             input_tokens=len(req.system) + len(req.user),
