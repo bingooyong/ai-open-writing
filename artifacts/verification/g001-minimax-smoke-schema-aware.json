@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.0",
+  "verification": "M2.6-real-model-smoke",
+  "run_id": "20260808T130224164587Z",
+  "created_at": "2026-08-08T13:02:24.164587+00:00",
+  "status": "failed",
+  "failure_kind": "GatewayError",
+  "failure_detail": {
+    "category": "runtime_error",
+    "field_paths": []
+  },
+  "budget": {
+    "hard_limit_usd": 1.0,
+    "preflight_worst_case_usd": 0.3672,
+    "actual_cost_usd": 0.008078
+  },
+  "role_call_limit": 1,
+  "calls": [
+    {
+      "prompt_role": "kernel_planner",
+      "agent_role": "kernel_planner",
+      "slot": "creative",
+      "provider": "anthropic",
+      "model": "MiniMax-M2.7",
+      "family": "minimax-m2",
+      "prompt_version": "kernel_planner_v1",
+      "input_tokens": 67,
+      "output_tokens": 1601,
+      "latency_ms": 41734,
+      "cost_usd": 0.001941,
+      "status": "ok",
+      "structured_output_valid": true,
+      "input_ref": "m26:20260808T130224164587Z:kernel_planner:input:v1",
+      "output_ref": "m26:20260808T130224164587Z:kernel_planner:output:v1"
+    },
+    {
+      "prompt_role": "character_planner",
+      "agent_role": "character_planner",
+      "slot": "creative",
+      "provider": "anthropic",
+      "model": "MiniMax-M2.7",
+      "family": "minimax-m2",
+      "prompt_version": "character_planner_v1",
+      "input_tokens": 2613,
+      "output_tokens": 4461,
+      "latency_ms": 136302,
+      "cost_usd": 0.006137,
+      "status": "ok",
+      "structured_output_valid": true,
+      "input_ref": "m26:20260808T130224164587Z:character_planner:input:v1",
+      "output_ref": "m26:20260808T130224164587Z:character_planner:output:v1"
+    },
+    {
+      "prompt_role": "outline_planner",
+      "agent_role": "outline_planner",
+      "slot": "creative",
+      "provider": "anthropic",
+      "model": "MiniMax-M2.7",
+      "family": "minimax-m2",
+      "prompt_version": "outline_planner_v1",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "latency_ms": 281737,
+      "cost_usd": 0.0,
+      "status": "error",
+      "structured_output_valid": null,
+      "input_ref": "m26:20260808T130224164587Z:outline_planner:input:v1",
+      "output_ref": "m26:20260808T130224164587Z:outline_planner:output:v1"
+    }
+  ],
+  "missing_roles": [
+    "outline_planner",
+    "writer",
+    "red_team",
+    "plot",
+    "character",
+    "continuity",
+    "prose",
+    "judge",
+    "reviser",
+    "canon_curator"
+  ],
+  "chinese_evidence_location": {},
+  "draft_fingerprint": {
+    "sha256": null,
+    "utf8_bytes": 0
+  },
+  "database": {
+    "path": "data/novel.db",
+    "model_run_count": 3
+  }
+}

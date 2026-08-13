@@ -4,12 +4,47 @@
 此前全链路走 mock。密钥仅从 SlotConfig(env 注入)读取。
 """
 
+import json
 import time
+from typing import Any
 
 import httpx
 
 from novel_agent.config import SlotConfig
 from novel_agent.gateway.base import ModelRequest, ModelResponse
+
+REAL_REQUEST_TIMEOUT_S = 600.0
+
+
+def _unwrap_structured_tool_input(
+    value: dict[str, Any], schema: dict[str, Any] | None
+) -> dict[str, Any]:
+    if not schema:
+        return value
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return value
+    candidate = value
+    for _ in range(3):
+        if len(candidate) != 1:
+            return candidate
+        key, nested = next(iter(candidate.items()))
+        if key in properties:
+            return candidate
+        if isinstance(nested, str):
+            try:
+                parsed: object = json.loads(nested)
+            except json.JSONDecodeError:
+                return value
+            if not isinstance(parsed, dict):
+                return value
+            nested = parsed
+        if not isinstance(nested, dict):
+            return value
+        if set(nested).intersection(properties):
+            return nested
+        candidate = nested
+    return value
 
 
 class OpenAICompatProvider:
@@ -33,7 +68,7 @@ class OpenAICompatProvider:
             body["response_format"] = {"type": "json_object"}
 
         start = time.monotonic()
-        async with httpx.AsyncClient(timeout=280.0) as client:
+        async with httpx.AsyncClient(timeout=REAL_REQUEST_TIMEOUT_S) as client:
             r = await client.post(
                 f"{slot.base_url.rstrip('/')}/chat/completions",
                 headers={"Authorization": f"Bearer {slot.api_key.get_secret_value()}"},
@@ -69,9 +104,20 @@ class AnthropicProvider:
         }
         if req.system:
             body["system"] = req.system
+        if req.json_mode and req.json_schema is not None:
+            body["tools"] = [
+                {
+                    "name": "return_structured_output",
+                    "description": (
+                        "Return the requested output as a JSON object matching this schema."
+                    ),
+                    "input_schema": req.json_schema,
+                }
+            ]
+            body["tool_choice"] = {"type": "auto"}
 
         start = time.monotonic()
-        async with httpx.AsyncClient(timeout=280.0) as client:
+        async with httpx.AsyncClient(timeout=REAL_REQUEST_TIMEOUT_S) as client:
             r = await client.post(
                 f"{(slot.base_url or self.BASE).rstrip('/')}/v1/messages",
                 headers={
@@ -83,8 +129,25 @@ class AnthropicProvider:
             r.raise_for_status()
             data = r.json()
         usage = data.get("usage", {})
-        text = "".join(
-            b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"
+        content = data.get("content", [])
+        tool_inputs = [
+            block.get("input")
+            for block in content
+            if block.get("type") == "tool_use"
+            and block.get("name") == "return_structured_output"
+            and isinstance(block.get("input"), dict)
+        ]
+        text = (
+            json.dumps(
+                _unwrap_structured_tool_input(tool_inputs[0], req.json_schema),
+                ensure_ascii=False,
+            )
+            if tool_inputs
+            else "".join(
+                block.get("text", "")
+                for block in content
+                if block.get("type") == "text"
+            )
         )
         return ModelResponse(
             text=text,

@@ -1,0 +1,167 @@
+{
+  "schema_version": "1.0",
+  "verification": "M2.6-real-model-smoke",
+  "run_id": "20260808T143155886809Z",
+  "created_at": "2026-08-08T14:31:55.886809+00:00",
+  "status": "failed",
+  "failure_kind": "SmokeGateError",
+  "failure_detail": {
+    "category": "runtime_error",
+    "field_paths": []
+  },
+  "budget": {
+    "hard_limit_usd": 1.0,
+    "preflight_worst_case_usd": 0.7344,
+    "actual_cost_usd": 0.040204
+  },
+  "role_call_limit": 2,
+  "calls": [
+    {
+      "prompt_role": "kernel_planner",
+      "agent_role": "kernel_planner",
+      "slot": "creative",
+      "provider": "anthropic",
+      "model": "MiniMax-M2.7",
+      "family": "minimax-m2",
+      "prompt_version": "kernel_planner_v1",
+      "input_tokens": 1572,
+      "output_tokens": 1308,
+      "latency_ms": 32309,
+      "cost_usd": 0.002041,
+      "status": "ok",
+      "structured_output_valid": false,
+      "input_ref": "m26:20260808T143155886809Z:kernel_planner:input:v1",
+      "output_ref": "m26:20260808T143155886809Z:kernel_planner:output:v1"
+    },
+    {
+      "prompt_role": "kernel_planner",
+      "agent_role": "kernel_planner",
+      "slot": "creative",
+      "provider": "anthropic",
+      "model": "MiniMax-M2.7",
+      "family": "minimax-m2",
+      "prompt_version": "kernel_planner_v1",
+      "input_tokens": 2038,
+      "output_tokens": 1022,
+      "latency_ms": 16142,
+      "cost_usd": 0.001838,
+      "status": "ok",
+      "structured_output_valid": true,
+      "input_ref": "m26:20260808T143155886809Z:kernel_planner:input:v1",
+      "output_ref": "m26:20260808T143155886809Z:kernel_planner:output:v1"
+    },
+    {
+      "prompt_role": "character_planner",
+      "agent_role": "character_planner",
+      "slot": "creative",
+      "provider": "anthropic",
+      "model": "MiniMax-M2.7",
+      "family": "minimax-m2",
+      "prompt_version": "character_planner_v1",
+      "input_tokens": 2581,
+      "output_tokens": 3859,
+      "latency_ms": 90812,
+      "cost_usd": 0.005405,
+      "status": "ok",
+      "structured_output_valid": true,
+      "input_ref": "m26:20260808T143155886809Z:character_planner:input:v1",
+      "output_ref": "m26:20260808T143155886809Z:character_planner:output:v1"
+    },
+    {
+      "prompt_role": "outline_planner",
+      "agent_role": "outline_planner",
+      "slot": "creative",
+      "provider": "anthropic",
+      "model": "MiniMax-M2.7",
+      "family": "minimax-m2",
+      "prompt_version": "outline_planner_v1",
+      "input_tokens": 8280,
+      "output_tokens": 7951,
+      "latency_ms": 150945,
+      "cost_usd": 0.012025,
+      "status": "ok",
+      "structured_output_valid": true,
+      "input_ref": "m26:20260808T143155886809Z:outline_planner:input:v1",
+      "output_ref": "m26:20260808T143155886809Z:outline_planner:output:v1"
+    },
+    {
+      "prompt_role": "writer",
+      "agent_role": "writer_a",
+      "slot": "creative",
+      "provider": "anthropic",
+      "model": "MiniMax-M2.7",
+      "family": "minimax-m2",
+      "prompt_version": "writer_v1",
+      "input_tokens": 5841,
+      "output_tokens": 3399,
+      "latency_ms": 80802,
+      "cost_usd": 0.005831,
+      "status": "ok",
+      "structured_output_valid": true,
+      "input_ref": "m26:20260808T143155886809Z:writer:input:v1",
+      "output_ref": "m26:20260808T143155886809Z:writer:output:v1"
+    },
+    {
+      "prompt_role": "red_team",
+      "agent_role": "red_team",
+      "slot": "review",
+      "provider": "anthropic",
+      "model": "MiniMax-M2.7",
+      "family": "minimax-m2",
+      "prompt_version": "red_team_v1",
+      "input_tokens": 10703,
+      "output_tokens": 2993,
+      "latency_ms": 82280,
+      "cost_usd": 0.006803,
+      "status": "ok",
+      "structured_output_valid": true,
+      "input_ref": "m26:20260808T143155886809Z:red_team:input:v1",
+      "output_ref": "m26:20260808T143155886809Z:red_team:output:v1"
+    },
+    {
+      "prompt_role": "plot",
+      "agent_role": "plot",
+      "slot": "review",
+      "provider": "anthropic",
+      "model": "MiniMax-M2.7",
+      "family": "minimax-m2",
+      "prompt_version": "plot_v1",
+      "input_tokens": 7117,
+      "output_tokens": 3438,
+      "latency_ms": 97341,
+      "cost_usd": 0.006261,
+      "status": "ok",
+      "structured_output_valid": true,
+      "input_ref": "m26:20260808T143155886809Z:plot:input:v1",
+      "output_ref": "m26:20260808T143155886809Z:plot:output:v1"
+    }
+  ],
+  "missing_roles": [
+    "character",
+    "continuity",
+    "prose",
+    "judge",
+    "reviser",
+    "canon_curator"
+  ],
+  "chinese_evidence_location": {
+    "red_team": {
+      "issues": 0,
+      "located": 0,
+      "unlocated": 0
+    },
+    "plot": {
+      "issues": 5,
+      "located": 3,
+      "unlocated": 2
+    }
+  },
+  "draft_fingerprint": {
+    "sha256": "2413fa4d9434c1251ecb34eef7ec844ca55b14d92d7b34d72fc14aaca5546b62",
+    "utf8_bytes": 13833
+  },
+  "database": {
+    "path": "data/novel.db",
+    "model_run_count": 7
+  }
+}

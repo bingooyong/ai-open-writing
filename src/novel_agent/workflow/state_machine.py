@@ -58,5 +58,12 @@ def transition(
     """校验并执行状态转移,返回新状态。"""
     current = repo.get_chapter(project_id, chapter_key).status
     assert_transition(current, to)
+    if to is S.DRAFTING:
+        try:
+            repo.get_outline(project_id, chapter_key)
+        except Exception as exc:
+            raise IllegalTransition("写前守卫拒绝进入 DRAFTING: 缺少有效章纲") from exc
+        if not repo.list_scene_cards(project_id, chapter_key):
+            raise IllegalTransition("写前守卫拒绝进入 DRAFTING: 缺少场景卡")
     repo.set_status(project_id, chapter_key, to)
     return to

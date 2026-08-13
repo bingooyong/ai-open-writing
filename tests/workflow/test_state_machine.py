@@ -1,10 +1,14 @@
 """M1.4:状态机转移合法性(含 D15 STALE 规则)。"""
 
 import pytest
+from test_schemas import OUTLINE, SCENE
 
+from novel_agent.domain.db import build_engine, create_all, session_scope
+from novel_agent.domain.repos import PlanningRepo
+from novel_agent.domain.schemas import ChapterOutline, SceneCard
 from novel_agent.domain.schemas.base import ChapterStatus as S
 from novel_agent.workflow.errors import IllegalTransition
-from novel_agent.workflow.state_machine import assert_transition
+from novel_agent.workflow.state_machine import assert_transition, transition
 
 
 def test_happy_path_chain() -> None:
@@ -51,3 +55,37 @@ def test_stale_rules() -> None:
     # STALE 恢复
     assert_transition(S.STALE, S.PLANNED)
     assert_transition(S.STALE, S.DRAFTING)
+
+
+@pytest.mark.parametrize("has_outline,has_scene_cards", [(False, True), (True, False)])
+def test_drafting_transition_rejects_missing_write_plan(
+    tmp_path, has_outline: bool, has_scene_cards: bool
+) -> None:
+    """N1 must prevent drafting when either the chapter outline or scene cards are absent."""
+    engine = build_engine(tmp_path / "guard.db")
+    create_all(engine)
+    with session_scope(engine) as session:
+        repo = PlanningRepo(session)
+        project_id = repo.create_project("写前守卫").id
+        outline = ChapterOutline.model_validate(OUTLINE)
+        repo.create_chapter(project_id, outline, order_index=1)
+        if not has_outline:
+            repo.get_chapter(project_id, "v1c001").outline = {}
+        if has_scene_cards:
+            repo.save_scene_cards(project_id, "v1c001", [SceneCard.model_validate(SCENE)])
+
+        with pytest.raises(IllegalTransition, match="写前守卫"):
+            transition(repo, project_id, "v1c001", S.DRAFTING)
+        assert repo.get_chapter(project_id, "v1c001").status is S.PLANNED
+
+
+def test_drafting_transition_accepts_valid_outline_and_scene_cards(tmp_path) -> None:
+    engine = build_engine(tmp_path / "guard-valid.db")
+    create_all(engine)
+    with session_scope(engine) as session:
+        repo = PlanningRepo(session)
+        project_id = repo.create_project("写前守卫").id
+        repo.create_chapter(project_id, ChapterOutline.model_validate(OUTLINE), order_index=1)
+        repo.save_scene_cards(project_id, "v1c001", [SceneCard.model_validate(SCENE)])
+
+        assert transition(repo, project_id, "v1c001", S.DRAFTING) is S.DRAFTING

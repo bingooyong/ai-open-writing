@@ -45,6 +45,12 @@ from novel_agent.runtime.prompts import PromptSpec, load_prompt
 
 # 不可缺席评审(Spec §6 N5)
 CRITICAL_REVIEWERS = frozenset({ReviewerRole.CONTINUITY, ReviewerRole.RED_TEAM})
+EVIDENCE_FUZZY_THRESHOLD = 0.80
+EVIDENCE_REPAIR_MAX_TOKENS = 4_000
+EVIDENCE_REPAIR_INSTRUCTIONS = (
+    "连续正文引文修复要求：每条 evidence.quote 必须从对应场景复制连续的正文原文，"
+    "至少12个汉字，不得概括、改写、拼接或引用场景卡；无法逐字定位的问题请删除。"
+)
 OutputT = TypeVar("OutputT", bound=BaseModel)
 
 
@@ -209,7 +215,13 @@ class CognitiveAgent(Generic[OutputT]):
     task: CognitiveTask
     output_schema: type[OutputT]
 
-    async def run(self, request: ModelRequest, *, chapter_key: str = "") -> OutputT:
+    async def run(
+        self,
+        request: ModelRequest,
+        *,
+        chapter_key: str = "",
+        repair_instructions: str | None = None,
+    ) -> OutputT:
         spec = self.deps.prompt(self.role)
         input_ref, output_ref = self.deps.version_refs(self.role)
         runtime = self.deps.runtime
@@ -227,6 +239,7 @@ class CognitiveAgent(Generic[OutputT]):
                 input_ref=input_ref,
                 output_ref=output_ref,
             ),
+            repair_instructions=repair_instructions,
         )
 
 
@@ -275,10 +288,30 @@ async def run_writer(
 
 def _evidence_locates(issue: ReviewIssue, draft: DraftCandidate) -> bool:
     """所有 evidence span 归一化后均必须能在对应场景定位。"""
-    import re
+    import difflib
+    import unicodedata
 
     def norm(t: str) -> str:
-        return re.sub(r"[\s,。、;:!?「」『』""''\"']", "", t)
+        normalized = unicodedata.normalize("NFKC", t)
+        return "".join(
+            char
+            for char in normalized
+            if not char.isspace() and not unicodedata.category(char).startswith("P")
+        )
+
+    def locates(quote: str, body: str) -> bool:
+        if quote in body:
+            return True
+        if len(quote) < 8:
+            return False
+        for width in range(max(1, len(quote) - 2), min(len(body), len(quote) + 2) + 1):
+            for start in range(len(body) - width + 1):
+                candidate = body[start : start + width]
+                if difflib.SequenceMatcher(
+                    None, quote, candidate, autojunk=False
+                ).ratio() >= EVIDENCE_FUZZY_THRESHOLD:
+                    return True
+        return False
 
     scene_texts = {s.scene_id: norm(s.content) for s in draft.scenes}
     if not issue.evidence:
@@ -286,7 +319,7 @@ def _evidence_locates(issue: ReviewIssue, draft: DraftCandidate) -> bool:
     for ev in issue.evidence:
         body = scene_texts.get(ev.scene_id, "")
         quote = norm(ev.quote)
-        if not body or not quote or quote not in body:
+        if not body or not quote or not locates(quote, body):
             return False
     return True
 
@@ -296,22 +329,35 @@ async def run_reviewer(
     role: ReviewerRole,
     draft: DraftCandidate,
     ctx: ChapterContextPackage,
+    *,
+    evidence_repair: bool = False,
 ) -> ReviewReport:
     """单评审:独立上下文;无证据/定位失败的 issue 降权标记(不过滤,Spec §7)。"""
     spec = deps.prompt(role.value)
     issue_schema = json.dumps(ReviewIssue.model_json_schema(), ensure_ascii=False)
+    user = (
+        f"{_review_ctx_text(role, ctx)}\n\n# 待审正文(候选 {draft.candidate_id})\n"
+        + "\n\n".join(f"[场景 {s.scene_id}]\n{s.content}" for s in draft.scenes)
+    )
+    if evidence_repair:
+        user = (
+            "# 证据修复轮\n"
+            "上一轮评审包含无法在正文定位的引文。请重新检查全部问题：每条 evidence.quote "
+            "必须从对应场景复制连续的正文原文，至少12个汉字，不得概括、改写、拼接或引用场景卡；"
+            "无法逐字定位的问题请删除，不要为了保留问题而编造引文。\n\n"
+            + user
+        )
     req = ModelRequest(
         system=spec.render(issue_schema=issue_schema, candidate_id=draft.candidate_id),
-        user=(
-            f"{_review_ctx_text(role, ctx)}\n\n# 待审正文(候选 {draft.candidate_id})\n"
-            + "\n\n".join(f"[场景 {s.scene_id}]\n{s.content}" for s in draft.scenes)
-        ),
-        max_tokens=8000,
+        user=user,
+        max_tokens=EVIDENCE_REPAIR_MAX_TOKENS if evidence_repair else 8_000,
         temperature=0.3,
     )
     task = CognitiveTask.RED_TEAM if role is ReviewerRole.RED_TEAM else CognitiveTask.REVIEW
     report = await CognitiveAgent(deps, role.value, task, ReviewReport).run(
-        req, chapter_key=ctx.chapter_key
+        req,
+        chapter_key=ctx.chapter_key,
+        repair_instructions=EVIDENCE_REPAIR_INSTRUCTIONS,
     )
     # 强制归位:role/candidate 以调度方为准;证据定位失败 → 降权
     fixed_issues = []
@@ -382,7 +428,7 @@ async def run_judge(
 
     user = "\n\n".join(
         [
-            _ctx_text(ctx),
+            _review_ctx_text(ReviewerRole.PLOT, ctx),
             "# 候选稿\n"
             + "\n\n".join(
                 f"[{c.candidate_id}]\n" + c.full_text() for c in candidates
@@ -566,7 +612,7 @@ async def run_outline_planner(
     req = ModelRequest(
         system=spec.render(schema=schema, volume_id=volume_id, n=str(chapters_needed)),
         user=f"# 故事内核\n{kernel_text}\n\n# 角色\n{characters_text}\n\n{unit_part}",
-        max_tokens=12000,
+        max_tokens=16000,
     )
     out = await CognitiveAgent(deps, "outline_planner", CognitiveTask.PLANNING, _PlanOut).run(
         req

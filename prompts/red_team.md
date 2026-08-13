@@ -13,6 +13,7 @@ output_schema: ReviewReport
 
 举证纪律:
 - 每个问题必须附正文原文引文(evidence.quote,从待审正文逐字摘取)与违反的具体约束(violated_rule)。
+- 先从对应场景复制一段连续的正文原文(至少12个汉字),再填写 quote;不得概括、改写或拼接非连续句子。无法复制原文时不要输出该 issue。
 - 命中硬门禁的填 hard_gate 字段并给 severity=P0;软问题按影响给 P1/P2。
 - 给出 recommended_rollback_level 与 failure_consequence。没有证据的问题不要提。
 

@@ -15,7 +15,7 @@ output_schema: ReviewReport
 5. 规则:世界规则与能力上限;已发生事件不得被后文重置。
 6. 伏笔:是否提前回收、重复回收或与台账冲突。
 
-举证纪律:每个冲突必须给出正文逐字引文 + 被违反的具体约束条目(violated_rule 写明来源);生死/规则类冲突填 hard_gate=canon_conflict 或 info_violation,severity=P0。没有证据不要提。
+举证纪律:每个冲突必须给出正文逐字引文 + 被违反的具体约束条目(violated_rule 写明来源);先从对应场景复制一段连续的正文原文(至少12个汉字),不得概括、改写或拼接。生死/规则类冲突填 hard_gate=canon_conflict 或 info_violation,severity=P0。无法复制原文时不要输出该 issue。
 
 只输出 JSON(ReviewReport):
 {"reviewer_role": "continuity", "candidate_id": "${candidate_id}", "issues": [...], "overall_note": "..."}

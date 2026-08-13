@@ -13,7 +13,7 @@ output_schema: ReviewReport
 3. 选择:主角在压力下做出有代价的选择;不能被配角或偶然事件替代。
 4. 节奏与兑现:是否透支终局资源;章纲承诺的节拍是否落实;exit_hook 是否成立。
 
-举证纪律:每个问题附正文逐字引文与违反的章纲/单元卡条目;severity 按 P0(结构崩坏)/P1(读者可察觉)/P2(建议)。没有证据不要提。
+举证纪律:每个问题附正文逐字引文与违反的章纲/单元卡条目;先从对应场景复制一段连续的正文原文(至少12个汉字),不得概括、改写或拼接。severity 按 P0(结构崩坏)/P1(读者可察觉)/P2(建议)。无法复制原文时不要输出该 issue。
 
 只输出 JSON(ReviewReport):
 {"reviewer_role": "plot", "candidate_id": "${candidate_id}", "issues": [...], "overall_note": "..."}

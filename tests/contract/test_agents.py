@@ -10,6 +10,7 @@ from novel_agent.config import Settings
 from novel_agent.domain.db import build_engine, create_all
 from novel_agent.domain.schemas import (
     ChapterContextPackage,
+    CharacterCard,
     DraftCandidate,
     ReviewerRole,
     ReviewIssue,
@@ -18,6 +19,7 @@ from novel_agent.domain.schemas import (
 from novel_agent.gateway import MockProvider, ModelGateway
 from novel_agent.runtime.agents import (
     AgentDeps,
+    _evidence_locates,
     run_canon_curator,
     run_judge,
     run_kernel_planner,
@@ -137,6 +139,51 @@ async def test_reviewer_downweights_unlocatable_evidence(deps) -> None:
     assert all(i.issue_id.startswith("plot_") for i in report.issues)
 
 
+def test_evidence_location_allows_small_normalized_quote_drift() -> None:
+    draft = DraftCandidate.model_validate(
+        {
+            "candidate_id": "candidate_1",
+            "chapter_key": "v1c001",
+            "chapter_summary": "说书人开场",
+            "scenes": [
+                {
+                    "scene_id": "v1c001_s1",
+                    "content": "茶楼里灯火通明，说书人一拍醒木，满堂皆静。",
+                }
+            ],
+        }
+    )
+    issue = ReviewIssue.model_validate(
+        {
+            "issue_id": "plot_1",
+            "reviewer_role": "plot",
+            "claim": "开场依赖静态描写",
+            "evidence": [
+                {
+                    "scene_id": "v1c001_s1",
+                    "quote": "茶楼灯火通明；说书人一拍醒木",
+                }
+            ],
+            "violated_rule": "推进规则",
+            "severity": "P2",
+            "failure_consequence": "推进偏慢",
+            "recommended_rollback_level": "prose",
+            "confidence": 0.8,
+        }
+    )
+
+    assert _evidence_locates(issue, draft) is True
+
+    drifted = issue.model_copy(
+        update={
+            "evidence": [
+                issue.evidence[0].model_copy(update={"quote": "说书人抬手醒木满堂皆静"})
+            ]
+        }
+    )
+    assert _evidence_locates(drifted, draft) is True
+
+
 async def test_review_round_absence_policy(deps) -> None:
     draft = await run_writer(deps, _ctx(), writer_id="writer_a")
 
@@ -160,6 +207,24 @@ async def test_judge_receives_anonymized_and_verdict(deps) -> None:
     # Judge 收到的 user 内容不含 reviewer_role 字段(匿名化)
     judge_calls = [req for role, req in deps.mock.calls if role == "judge"]
     assert judge_calls and "reviewer_role" not in judge_calls[-1].user
+
+
+async def test_judge_uses_bounded_context_slice(deps) -> None:
+    ctx = _ctx().model_copy(
+        update={
+            "characters": [
+                CharacterCard.model_validate(
+                    {**CHARACTER, "name": "JUDGE_CONTEXT_SHOULD_NOT_INCLUDE_THIS"}
+                )
+            ]
+        }
+    )
+    draft = await run_writer(deps, ctx, writer_id="writer_a")
+    report = await run_reviewer(deps, ReviewerRole.PLOT, draft, ctx)
+    await run_judge(deps, [draft], [report], ctx, absent=[])
+
+    judge_request = [req for role, req in deps.mock.calls if role == "judge"][-1]
+    assert "JUDGE_CONTEXT_SHOULD_NOT_INCLUDE_THIS" not in judge_request.user
 
 
 async def test_red_team_issue_id_is_blinded_and_restored_for_rulings(deps) -> None:

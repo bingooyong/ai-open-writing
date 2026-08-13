@@ -36,20 +36,23 @@ class ChapterContextPackage(VersionedSchema):
     chapter_key: str = Field(min_length=1)
     canon_version: str = Field(min_length=1, description="构建所基于的 canon 快照版本")
     task_brief: str = Field(min_length=1, description="本章任务说明")
-    outline: ChapterOutline
-    scene_cards: list[SceneCard] = Field(min_length=1)
+    hard_constraints: list[CanonFact] = Field(default_factory=list, description="相关正史硬约束")
     kernel_summary: str = Field(min_length=1, description="故事内核+读者契约摘要")
     volume_summary: str = Field(min_length=1)
     unit_card: PlotUnitCard
-    hard_constraints: list[CanonFact] = Field(default_factory=list, description="相关正史硬约束")
+    outline: ChapterOutline
+    scene_cards: list[SceneCard] = Field(min_length=1)
     previous_ending: str = Field(default="", description="上一章结尾原文窗口")
     earlier_summaries: list[str] = Field(default_factory=list, description="更早章节分层摘要")
+    retrieval_facts: list[str] = Field(
+        default_factory=list, description="与本章实体和伏笔相关的检索片段"
+    )
     characters: list[CharacterCard] = Field(default_factory=list, description="本章出场角色")
     entity_states: list[CanonFact] = Field(default_factory=list, description="出场实体动态状态")
     active_threads: list[ThreadStatus] = Field(default_factory=list)
     style_rules: str = Field(default="", description="作者批准的风格规则")
-    boundaries: list[str] = Field(default_factory=list, description="do_not_write 等内容边界")
     prior_feedback: str = Field(default="", description="上一轮审校意见(修订时)")
+    boundaries: list[str] = Field(default_factory=list, description="do_not_write 等内容边界")
 
     def has_provisional(self) -> bool:
         """是否依赖了提案态 canon(D15:用于 STALE 级联判定)。"""

@@ -134,8 +134,14 @@ async def test_unknown_slot_rejected(session) -> None:
 async def test_structured_direct_pass(session) -> None:
     import json
 
+    def handler(req: ModelRequest) -> str:
+        assert req.json_mode is True
+        assert req.json_schema == StoryKernel.model_json_schema()
+        assert req.temperature == 0.0
+        return json.dumps(KERNEL, ensure_ascii=False)
+
     mock = MockProvider()
-    mock.register("planner", lambda req: json.dumps(KERNEL, ensure_ascii=False))
+    mock.register("planner", handler)
     gw = _gateway(session, mock)
     k = await call_structured(
         gw, "creative", ModelRequest(user="出内核"), StoryKernel,
@@ -154,6 +160,7 @@ async def test_structured_repair_success(session) -> None:
         if state["n"] == 1:
             return "这不是JSON"
         assert "校验" in req.user  # 修复轮带了错误信息
+        assert req.json_schema == StoryKernel.model_json_schema()
         return json.dumps(KERNEL, ensure_ascii=False)
 
     mock = MockProvider()

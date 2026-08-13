@@ -192,6 +192,16 @@ class CanonRepo:
             )
         ).first()
 
+    def list_threads(self, project_id: int) -> list[PlotThreadRecord]:
+        """按业务键稳定读取项目伏笔状态。"""
+        return list(
+            self.s.exec(
+                select(PlotThreadRecord)
+                .where(PlotThreadRecord.project_id == project_id)
+                .order_by(PlotThreadRecord.thread_id)  # type: ignore[arg-type]
+            ).all()
+        )
+
     # ---- D15:provisional 生命周期 ----
 
     def promote_provisional(self, project_id: int, chapter_key: str) -> None:

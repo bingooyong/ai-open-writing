@@ -1,0 +1,16 @@
+{
+  "kind": "mark_blocked_superseded",
+  "source": "finding",
+  "targetGoalId": "G002-m3-1",
+  "after": {
+    "children": [
+      {
+        "title": "实现 M3.1 上下文组装与写前守卫（顺序恢复）",
+        "objective": "实现 ContextBuilder 严格按 PRD §12.2 顺序构造 ChapterContextPackage，支持 committed/provisional 明示、预算裁剪优先级和 N1 无章纲/场景卡拒绝进入 DRAFTING。验收：顺序、内容、裁剪边界、provisional 标记及写前守卫单元测试通过，并保持全量质量基线。"
+      }
+    ]
+  },
+  "evidence": "G001 is now checkpointed complete. G002 previously failed only because OMX selected it while G001 was incomplete; its failureReason explicitly states no G002 implementation was started. OMX 0.20.5 --retry-failed now selects pending G004 before earlier failed G002, reproducing the scheduler ordering mismatch. Strict brief order requires M3.1 before M3.2/M3.3.",
+  "rationale": "Preserve the historical G002 audit record and restore the identical M3.1 objective as a schedule-eligible replacement at the original G002 position; no acceptance criteria or verification gates are weakened.",
+  "idempotencyKey": "g002-strict-order-recovery-20260812"
+}

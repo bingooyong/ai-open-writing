@@ -38,6 +38,7 @@ class CognitiveRuntime(Protocol):
         request: ModelRequest,
         output_schema: type[OutputT],
         call: RuntimeCall,
+        repair_instructions: str | None = None,
     ) -> OutputT: ...
 
     async def two_part(
@@ -62,6 +63,7 @@ class GatewayRuntimeAdapter:
         request: ModelRequest,
         output_schema: type[OutputT],
         call: RuntimeCall,
+        repair_instructions: str | None = None,
     ) -> OutputT:
         return await call_structured(
             self.gateway,
@@ -75,6 +77,7 @@ class GatewayRuntimeAdapter:
             input_ref=call.input_ref,
             output_ref=call.output_ref,
             repair_attempts=self.repair_attempts,
+            repair_instructions=repair_instructions,
         )
 
     async def two_part(

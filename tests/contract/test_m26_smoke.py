@@ -12,7 +12,7 @@ from novel_agent.cli.main import app
 from novel_agent.config import Settings, SlotConfig
 from novel_agent.domain.db import build_engine
 from novel_agent.domain.models import ModelRunRecord
-from novel_agent.gateway.base import ModelRequest, ModelResponse
+from novel_agent.gateway.base import ModelGateway, ModelRequest, ModelResponse
 from novel_agent.verification.m26_smoke import (
     PROMPT_ROLES,
     SmokeExecutionError,
@@ -57,17 +57,35 @@ class OfflineProvider:
         *,
         excessive_usage: bool = False,
         malformed_kernel: bool = False,
+        malformed_kernel_once: bool = False,
+        transient_failure_role: str | None = None,
+        invalid_character_structure: bool = False,
         invalid_evidence: bool = False,
+        invalid_evidence_once: bool = False,
+        invalid_evidence_twice: bool = False,
+        malformed_plot_once: bool = False,
         zero_issues: bool = False,
     ) -> None:
         self.roles: list[str] = []
+        self.max_tokens: dict[str, list[int]] = {}
         self.excessive_usage = excessive_usage
         self.malformed_kernel = malformed_kernel
+        self.malformed_kernel_once = malformed_kernel_once
+        self.transient_failure_role = transient_failure_role
+        self.transient_failure_seen = False
+        self.invalid_character_structure = invalid_character_structure
         self.invalid_evidence = invalid_evidence
+        self.invalid_evidence_once = invalid_evidence_once
+        self.invalid_evidence_twice = invalid_evidence_twice
+        self.malformed_plot_once = malformed_plot_once
         self.zero_issues = zero_issues
 
     async def complete(self, slot, req: ModelRequest, agent_role: str) -> ModelResponse:
         self.roles.append(agent_role)
+        self.max_tokens.setdefault(agent_role, []).append(req.max_tokens)
+        if self.transient_failure_role == agent_role and not self.transient_failure_seen:
+            self.transient_failure_seen = True
+            raise TimeoutError("temporary provider timeout")
         outputs = {
             "kernel_planner": json.dumps(
                 {
@@ -101,9 +119,30 @@ class OfflineProvider:
                 ensure_ascii=False,
             ),
         }
-        if self.malformed_kernel:
+        if self.malformed_kernel or (
+            self.malformed_kernel_once and self.roles.count("kernel_planner") == 1
+        ):
             outputs["kernel_planner"] = "not-json"
-        if self.invalid_evidence:
+        if self.invalid_character_structure:
+            invalid_character = {**CHARACTER, "identity": {"raw": "RAW-MODEL-OUTPUT"}}
+            outputs["character_planner"] = json.dumps(
+                {"characters": [invalid_character]}, ensure_ascii=False
+            )
+        evidence_repair_requested = (
+            "上一轮评审包含无法在正文定位的引文" in req.user
+            or "连续正文引文修复要求" in req.user
+        )
+        if self.malformed_plot_once and agent_role == "plot" and (
+            self.roles.count("plot") == 1 or not evidence_repair_requested
+        ):
+            outputs["plot"] = "not-json"
+        if self.invalid_evidence or (
+            self.invalid_evidence_once and not evidence_repair_requested
+        ) or (
+            self.invalid_evidence_twice
+            and agent_role == "plot"
+            and self.roles.count("plot") <= 2
+        ):
             invalid = json.loads(_review("plot"))
             invalid["issues"][0]["evidence"].append(
                 {"scene_id": "v1c001_s1", "quote": "正文中不存在的引文"}
@@ -185,7 +224,7 @@ def test_explicit_price_override_authorizes_unknown_model(tmp_path: Path) -> Non
             "output_price_usd_per_million": 2.0,
         }
     )
-    assert validate_m26_settings(settings, 10.0) > 0
+    assert validate_m26_settings(settings, 20.0) > 0
 
 
 async def test_full_smoke_is_bounded_persisted_and_redacted(tmp_path: Path) -> None:
@@ -195,7 +234,7 @@ async def test_full_smoke_is_bounded_persisted_and_redacted(tmp_path: Path) -> N
 
     result = await run_m26_smoke(
         settings,
-        budget_usd=10.0,
+        budget_usd=20.0,
         report_path=report_path,
         providers={"openai_compat": provider},
     )
@@ -218,8 +257,10 @@ async def test_full_smoke_is_bounded_persisted_and_redacted(tmp_path: Path) -> N
     report_text = report_path.read_text(encoding="utf-8")
     report = json.loads(report_text)
     assert report["status"] == "passed"
+    assert report["role_call_limit"] == 2
     assert report["missing_roles"] == []
     assert len(report["calls"]) == len(PROMPT_ROLES)
+    assert provider.max_tokens["outline_planner"] == [16_000]
     assert {call["prompt_role"] for call in report["calls"]} == set(PROMPT_ROLES)
     assert all(call["structured_output_valid"] for call in report["calls"])
     required = {
@@ -261,6 +302,47 @@ async def test_full_smoke_is_bounded_persisted_and_redacted(tmp_path: Path) -> N
     )
 
 
+async def test_smoke_uses_provider_timeout_for_gateway_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, float] = {}
+    original_init = ModelGateway.__init__
+
+    def capture_timeout(self, *args, **kwargs) -> None:
+        captured["timeout_s"] = kwargs["timeout_s"]
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(ModelGateway, "__init__", capture_timeout)
+    await run_m26_smoke(
+        _settings(tmp_path),
+        budget_usd=20.0,
+        report_path=tmp_path / "timeout.json",
+        providers={"openai_compat": OfflineProvider()},
+    )
+
+    assert captured["timeout_s"] == 600.0
+
+
+async def test_smoke_retries_one_transient_provider_failure(
+    tmp_path: Path,
+) -> None:
+    provider = OfflineProvider(transient_failure_role="outline_planner")
+    report_path = await run_m26_smoke(
+        _settings(tmp_path),
+        budget_usd=20.0,
+        report_path=tmp_path / "transient.json",
+        providers={"openai_compat": provider},
+    )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    outline_calls = [
+        call for call in report["calls"] if call["prompt_role"] == "outline_planner"
+    ]
+    assert len(outline_calls) == 2
+    assert outline_calls[0]["status"] == "error"
+    assert outline_calls[1]["structured_output_valid"] is True
+
+
 async def test_usage_bound_failure_is_durable_and_never_retries(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     provider = OfflineProvider(excessive_usage=True)
@@ -269,7 +351,7 @@ async def test_usage_bound_failure_is_durable_and_never_retries(tmp_path: Path) 
     with pytest.raises(SmokeExecutionError) as caught:
         await run_m26_smoke(
             settings,
-            budget_usd=10.0,
+            budget_usd=20.0,
             report_path=report_path,
             providers={"openai_compat": provider},
         )
@@ -288,19 +370,101 @@ async def test_usage_bound_failure_is_durable_and_never_retries(tmp_path: Path) 
     assert report["budget"]["actual_cost_usd"] == 0.50075
 
 
-async def test_invalid_structure_never_triggers_a_repair_call(tmp_path: Path) -> None:
+async def test_invalid_structure_stops_after_one_bounded_repair_call(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     provider = OfflineProvider(malformed_kernel=True)
+    report_path = tmp_path / "invalid.json"
 
     with pytest.raises(SmokeExecutionError):
         await run_m26_smoke(
             settings,
-            budget_usd=10.0,
-            report_path=tmp_path / "invalid.json",
+            budget_usd=20.0,
+            report_path=report_path,
             providers={"openai_compat": provider},
         )
 
-    assert provider.roles == ["kernel_planner"]
+    assert provider.roles == ["kernel_planner", "kernel_planner"]
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["failure_detail"] == {
+        "category": "json_decode",
+        "field_paths": [],
+        "reason": "Expecting value",
+        "line": 1,
+        "column": 1,
+        "error_offset": 0,
+        "document_chars": 8,
+        "at_end": False,
+    }
+
+
+async def test_successful_repair_marks_only_the_valid_call(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    provider = OfflineProvider(malformed_kernel_once=True)
+    report_path = await run_m26_smoke(
+        settings,
+        budget_usd=20.0,
+        report_path=tmp_path / "repaired.json",
+        providers={"openai_compat": provider},
+    )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    kernel_calls = [
+        call for call in report["calls"] if call["prompt_role"] == "kernel_planner"
+    ]
+    assert [call["structured_output_valid"] for call in kernel_calls] == [False, True]
+    assert report["role_call_limit"] == 2
+
+
+async def test_schema_repair_carries_evidence_localization_requirements(
+    tmp_path: Path,
+) -> None:
+    provider = OfflineProvider(malformed_plot_once=True)
+    report_path = await run_m26_smoke(
+        _settings(tmp_path),
+        budget_usd=20.0,
+        report_path=tmp_path / "schema-repair-evidence.json",
+        providers={"openai_compat": provider},
+    )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "passed"
+    assert provider.roles.count("plot") == 2
+    assert report["chinese_evidence_location"]["plot"] == {
+        "issues": 1,
+        "located": 1,
+        "unlocated": 0,
+    }
+
+
+async def test_structured_failure_reports_only_redacted_validation_paths(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    provider = OfflineProvider(invalid_character_structure=True)
+    report_path = tmp_path / "invalid-character.json"
+
+    with pytest.raises(SmokeExecutionError):
+        await run_m26_smoke(
+            settings,
+            budget_usd=20.0,
+            report_path=report_path,
+            providers={"openai_compat": provider},
+        )
+
+    report_text = report_path.read_text(encoding="utf-8")
+    report = json.loads(report_text)
+    assert report["failure_detail"] == {
+        "category": "pydantic_validation",
+        "field_paths": ["characters.0.identity"],
+        "issues": [
+            {
+                "field_path": "characters.0.identity",
+                "error_type": "string_type",
+            }
+        ],
+    }
+    assert "RAW-MODEL-OUTPUT" not in report_text
+    assert "SECRET-KEY-MUST-NOT-LEAK" not in report_text
 
 
 async def test_any_unlocated_evidence_span_fails_with_redacted_report(
@@ -313,16 +477,35 @@ async def test_any_unlocated_evidence_span_fails_with_redacted_report(
     with pytest.raises(SmokeExecutionError) as caught:
         await run_m26_smoke(
             settings,
-            budget_usd=10.0,
+            budget_usd=20.0,
             report_path=report_path,
             providers={"openai_compat": provider},
         )
 
     assert caught.value.error_kind == "SmokeGateError"
-    assert provider.roles[-1] == "plot"
+    assert provider.roles[-1] == "canon_curator"
     report_text = report_path.read_text(encoding="utf-8")
     report = json.loads(report_text)
     assert report["status"] == "failed"
+    assert report["failure_detail"]["category"] == "evidence_localization"
+    assert report["missing_roles"] == []
+    assert provider.roles == [
+        "kernel_planner",
+        "character_planner",
+        "outline_planner",
+        "writer_a",
+        "red_team",
+        "plot",
+        "plot",
+        "plot",
+        "plot",
+        "character",
+        "continuity",
+        "prose",
+        "judge",
+        "reviser",
+        "canon_curator",
+    ]
     assert report["chinese_evidence_location"]["plot"] == {
         "issues": 1,
         "located": 0,
@@ -332,12 +515,56 @@ async def test_any_unlocated_evidence_span_fails_with_redacted_report(
     assert "SECRET-KEY-MUST-NOT-LEAK" not in report_text
 
 
+async def test_unlocated_evidence_gets_one_bounded_semantic_repair(
+    tmp_path: Path,
+) -> None:
+    provider = OfflineProvider(invalid_evidence_once=True)
+    report_path = await run_m26_smoke(
+        _settings(tmp_path),
+        budget_usd=20.0,
+        report_path=tmp_path / "repaired-evidence.json",
+        providers={"openai_compat": provider},
+    )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "passed"
+    assert provider.roles.count("plot") == 2
+    assert provider.max_tokens["plot"] == [8_000, 4_000]
+    assert report["chinese_evidence_location"]["plot"] == {
+        "issues": 1,
+        "located": 1,
+        "unlocated": 0,
+    }
+
+
+async def test_unlocated_evidence_uses_at_most_three_reviewer_calls(
+    tmp_path: Path,
+) -> None:
+    provider = OfflineProvider(invalid_evidence_twice=True)
+    report_path = await run_m26_smoke(
+        _settings(tmp_path),
+        budget_usd=20.0,
+        report_path=tmp_path / "third-evidence-repair.json",
+        providers={"openai_compat": provider},
+    )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "passed"
+    assert provider.roles.count("plot") == 3
+    assert provider.max_tokens["plot"] == [8_000, 4_000, 4_000]
+    assert report["chinese_evidence_location"]["plot"] == {
+        "issues": 1,
+        "located": 1,
+        "unlocated": 0,
+    }
+
+
 async def test_zero_review_issues_are_allowed(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     provider = OfflineProvider(zero_issues=True)
     report_path = await run_m26_smoke(
         settings,
-        budget_usd=10.0,
+        budget_usd=20.0,
         report_path=tmp_path / "zero-issues.json",
         providers={"openai_compat": provider},
     )

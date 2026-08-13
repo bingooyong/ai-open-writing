@@ -6,7 +6,7 @@ debug_log=True 时由调用方显式开启并自担风险)。
 
 import asyncio
 import time
-from typing import Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session
@@ -23,6 +23,7 @@ class ModelRequest(BaseModel):
     max_tokens: int = 4096
     temperature: float = 0.7
     json_mode: bool = False
+    json_schema: dict[str, Any] | None = None
 
 
 class ModelResponse(BaseModel):

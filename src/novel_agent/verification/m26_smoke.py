@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
 from sqlmodel import Session, select
 
 from novel_agent.config import Settings, SlotConfig
@@ -32,9 +33,14 @@ from novel_agent.gateway.base import (
     estimate_cost,
     slot_pricing,
 )
-from novel_agent.gateway.providers.real import AnthropicProvider, OpenAICompatProvider
+from novel_agent.gateway.providers.real import (
+    REAL_REQUEST_TIMEOUT_S,
+    AnthropicProvider,
+    OpenAICompatProvider,
+)
 from novel_agent.runtime.adapter import GatewayRuntimeAdapter
 from novel_agent.runtime.agents import (
+    EVIDENCE_REPAIR_MAX_TOKENS,
     AgentDeps,
     _evidence_locates,
     run_canon_curator,
@@ -65,7 +71,7 @@ PROMPT_ROLES = (
 MAX_OUTPUT_TOKENS = {
     "kernel_planner": 8_000,
     "character_planner": 10_000,
-    "outline_planner": 12_000,
+    "outline_planner": 16_000,
     "writer": 16_000,
     "red_team": 8_000,
     "plot": 8_000,
@@ -80,6 +86,24 @@ MAX_OUTPUT_TOKENS = {
 # The fixed allowance covers message framing and provider-side chat wrappers.
 MAX_INPUT_TOKENS_PER_CALL = 64_000
 MESSAGE_OVERHEAD_TOKENS = 1_024
+ROLE_CALL_LIMIT = 2
+REVIEWER_ROLE_CALL_LIMIT = 4
+REVIEWER_PROMPT_ROLES = frozenset({"red_team", "plot", "character", "continuity", "prose"})
+
+
+def _role_call_limit(prompt_role: str) -> int:
+    return REVIEWER_ROLE_CALL_LIMIT if prompt_role in REVIEWER_PROMPT_ROLES else ROLE_CALL_LIMIT
+
+
+def _role_preflight_output_bounds(prompt_role: str) -> tuple[int, ...]:
+    if prompt_role in REVIEWER_PROMPT_ROLES:
+        return (
+            MAX_OUTPUT_TOKENS[prompt_role],
+            MAX_OUTPUT_TOKENS[prompt_role],
+            EVIDENCE_REPAIR_MAX_TOKENS,
+            EVIDENCE_REPAIR_MAX_TOKENS,
+        )
+    return (MAX_OUTPUT_TOKENS[prompt_role],) * ROLE_CALL_LIMIT
 
 
 class SmokeGateError(RuntimeError):
@@ -123,12 +147,13 @@ def validate_m26_settings(settings: Settings, budget_usd: float) -> float:
     worst_case = 0.0
     for role in PROMPT_ROLES:
         slot = getattr(settings, _role_slot(role))
-        worst_case += estimate_cost(
-            slot.model,
-            MAX_INPUT_TOKENS_PER_CALL,
-            MAX_OUTPUT_TOKENS[role],
-            pricing=_price(slot),
-        )
+        for output_tokens in _role_preflight_output_bounds(role):
+            worst_case += estimate_cost(
+                slot.model,
+                MAX_INPUT_TOKENS_PER_CALL,
+                output_tokens,
+                pricing=_price(slot),
+            )
     worst_case = round(worst_case, 6)
     if worst_case > budget_usd:
         raise SmokeGateError(
@@ -149,8 +174,11 @@ class _BudgetLedger:
         prompt_role = "writer" if agent_role == "writer_a" else agent_role
         if prompt_role not in PROMPT_ROLES:
             raise SmokeGateError(f"unexpected smoke role: {agent_role}")
-        if self.calls.get(prompt_role, 0) >= 1:
-            raise SmokeGateError(f"role {prompt_role} exceeded one provider call")
+        limit = _role_call_limit(prompt_role)
+        if self.calls.get(prompt_role, 0) >= limit:
+            raise SmokeGateError(
+                f"role {prompt_role} exceeded {limit} provider calls"
+            )
         input_bound = len((req.system + req.user).encode("utf-8")) + MESSAGE_OVERHEAD_TOKENS
         if input_bound > MAX_INPUT_TOKENS_PER_CALL:
             raise SmokeGateError(f"role {prompt_role} input exceeds conservative bound")
@@ -228,6 +256,65 @@ def _write_report(path: Path, report: dict[str, Any]) -> None:
     temp.replace(path)
 
 
+def _redacted_failure_detail(exc: Exception) -> dict[str, Any]:
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ValidationError):
+            paths = []
+            issues = []
+            for error in current.errors():
+                segments = [
+                    str(item)
+                    if isinstance(item, int)
+                    or (
+                        isinstance(item, str)
+                        and item.isascii()
+                        and item.isidentifier()
+                        and len(item) <= 64
+                    )
+                    else "<redacted>"
+                    for item in error["loc"]
+                ]
+                path = ".".join(segments)
+                paths.append(path)
+                error_type = error["type"]
+                issues.append(
+                    {
+                        "field_path": path,
+                        "error_type": error_type
+                        if error_type.isascii()
+                        and error_type.isidentifier()
+                        and len(error_type) <= 64
+                        else "<redacted>",
+                    }
+                )
+            return {
+                "category": "pydantic_validation",
+                "field_paths": sorted(set(paths))[:20],
+                "issues": sorted(
+                    issues, key=lambda item: (item["field_path"], item["error_type"])
+                )[:20],
+            }
+        if isinstance(current, json.JSONDecodeError):
+            document_chars = len(current.doc)
+            return {
+                "category": "json_decode",
+                "field_paths": [],
+                "reason": current.msg
+                if current.msg.isascii() and len(current.msg) <= 80
+                else "<redacted>",
+                "line": current.lineno,
+                "column": current.colno,
+                "error_offset": current.pos,
+                "document_chars": document_chars,
+                "at_end": current.pos >= max(document_chars - 1, 0),
+            }
+        current = current.__cause__ or current.__context__
+    return {"category": "runtime_error", "field_paths": []}
+
+
 def _run_entry(run: ModelRunRecord, settings: Settings, valid: bool | None) -> dict[str, Any]:
     prompt_role = "writer" if run.agent_role == "writer_a" else run.agent_role
     slot_name = _role_slot(prompt_role)
@@ -249,6 +336,24 @@ def _run_entry(run: ModelRunRecord, settings: Settings, valid: bool | None) -> d
         "input_ref": run.input_ref,
         "output_ref": run.output_ref,
     }
+
+
+def _run_entries(
+    runs: list[ModelRunRecord], settings: Settings, valid: dict[str, bool]
+) -> list[dict[str, Any]]:
+    last_run_ids: dict[str, int | None] = {}
+    for run in runs:
+        role = "writer" if run.agent_role == "writer_a" else run.agent_role
+        last_run_ids[role] = run.id
+
+    entries = []
+    for run in runs:
+        role = "writer" if run.agent_role == "writer_a" else run.agent_role
+        is_valid = valid.get(role)
+        if is_valid and run.id != last_run_ids[role]:
+            is_valid = False
+        entries.append(_run_entry(run, settings, is_valid))
+    return entries
 
 
 def _synthetic_issue(draft_text: str, scene_id: str) -> ReviewIssue:
@@ -275,7 +380,7 @@ async def run_m26_smoke(
     report_path: Path | None = None,
     providers: Mapping[str, Provider] | None = None,
 ) -> Path:
-    """Run all M2.6 prompt roles once and write a durable redacted report.
+    """Run all M2.6 prompt roles within bounded repair limits.
 
     ``providers`` exists solely as an offline test seam. The CLI never supplies it.
     """
@@ -289,6 +394,8 @@ async def run_m26_smoke(
     valid: dict[str, bool] = {}
     evidence: dict[str, dict[str, int]] = {}
     failure_kind: str | None = None
+    failure_detail: dict[str, Any] | None = None
+    evidence_failed = False
 
     with Session(engine) as session:
         ledger = _BudgetLedger(budget_usd, run_id, session)
@@ -296,10 +403,16 @@ async def run_m26_smoke(
             name: _GuardedProvider(provider, ledger)
             for name, provider in base_providers.items()
         }
-        gateway = ModelGateway(settings, session, guarded, max_retries=0)
+        gateway = ModelGateway(
+            settings,
+            session,
+            guarded,
+            max_retries=1,
+            timeout_s=REAL_REQUEST_TIMEOUT_S,
+        )
         deps = AgentDeps(
             gateway=gateway,
-            runtime=GatewayRuntimeAdapter(gateway, repair_attempts=0),
+            runtime=GatewayRuntimeAdapter(gateway, repair_attempts=1),
             verification_run_id=run_id,
         )
         try:
@@ -343,9 +456,18 @@ async def run_m26_smoke(
                 ReviewerRole.PROSE,
             ):
                 review = await run_reviewer(deps, role, draft, ctx)
+                locations = [_evidence_locates(issue, draft) for issue in review.issues]
+                while (
+                    locations
+                    and not all(locations)
+                    and ledger.calls.get(role.value, 0) < _role_call_limit(role.value)
+                ):
+                    review = await run_reviewer(
+                        deps, role, draft, ctx, evidence_repair=True
+                    )
+                    locations = [_evidence_locates(issue, draft) for issue in review.issues]
                 reports.append(review)
                 valid[role.value] = True
-                locations = [_evidence_locates(issue, draft) for issue in review.issues]
                 located = sum(locations)
                 evidence[role.value] = {
                     "issues": len(review.issues),
@@ -353,9 +475,7 @@ async def run_m26_smoke(
                     "unlocated": len(review.issues) - located,
                 }
                 if not all(locations):
-                    raise SmokeGateError(
-                        f"review evidence failed localization for {role.value}"
-                    )
+                    evidence_failed = True
             await run_judge(deps, [draft], reports, ctx, absent=[])
             valid["judge"] = True
             all_issues = [issue for report in reports for issue in report.issues]
@@ -375,6 +495,10 @@ async def run_m26_smoke(
             valid["canon_curator"] = True
         except Exception as exc:  # noqa: BLE001 - report boundary intentionally redacts details
             failure_kind = type(exc).__name__
+            failure_detail = _redacted_failure_detail(exc)
+        if failure_kind is None and evidence_failed:
+            failure_kind = "SmokeGateError"
+            failure_detail = {"category": "evidence_localization", "field_paths": []}
 
         runs = [
             run
@@ -388,20 +512,17 @@ async def run_m26_smoke(
             "created_at": now.isoformat(),
             "status": "passed" if failure_kind is None else "failed",
             "failure_kind": failure_kind,
+            "failure_detail": failure_detail,
             "budget": {
                 "hard_limit_usd": budget_usd,
                 "preflight_worst_case_usd": worst_case,
                 "actual_cost_usd": round(sum(run.cost_estimate for run in runs), 6),
             },
-            "role_call_limit": 1,
-            "calls": [
-                _run_entry(
-                    run,
-                    settings,
-                    valid.get("writer" if run.agent_role == "writer_a" else run.agent_role),
-                )
-                for run in runs
-            ],
+            "role_call_limit": ROLE_CALL_LIMIT,
+            "role_call_limits": {
+                role: _role_call_limit(role) for role in PROMPT_ROLES
+            },
+            "calls": _run_entries(runs, settings, valid),
             "missing_roles": [role for role in PROMPT_ROLES if role not in valid],
             "chinese_evidence_location": evidence,
             "draft_fingerprint": {

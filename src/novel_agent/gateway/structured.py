@@ -44,10 +44,17 @@ async def call_structured(
     schema: type[T],
     *,
     repair_attempts: int = 1,
+    repair_instructions: str | None = None,
     **meta: object,
 ) -> T:
     """强制 JSON → Pydantic 校验 → 失败带错误信息修复重试 → 仍失败上抛。"""
-    req = req.model_copy(update={"json_mode": True})
+    req = req.model_copy(
+        update={
+            "json_mode": True,
+            "json_schema": schema.model_json_schema(),
+            "temperature": 0.0,
+        }
+    )
     resp = await gateway.call(slot_name, req, **meta)  # type: ignore[arg-type]
     last_err: Exception | None = None
     text = resp.text
@@ -65,11 +72,13 @@ async def call_structured(
             user=(
                 f"你上一次的输出无法通过 Schema 校验。错误信息:\n{last_err}\n\n"
                 f"上一次输出:\n{text}\n\n"
-                "请只输出修正后的 JSON,不要任何解释。"
+                + (f"{repair_instructions}\n\n" if repair_instructions else "")
+                + "请只输出修正后的 JSON,不要任何解释。"
             ),
             max_tokens=req.max_tokens,
             temperature=0.0,
             json_mode=True,
+            json_schema=req.json_schema,
         )
         resp = await gateway.call(slot_name, repair_req, **meta)  # type: ignore[arg-type]
         text = resp.text

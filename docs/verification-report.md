@@ -38,8 +38,23 @@ AgentScope 2.0.5 要求 ≥3.11;本机 uv 0.11.14 可自动管理解释器,项�
 配置每百万 input/output token 价格。
 
 命令在任何 provider 调用前对 12 个 prompt role 做全程最坏成本预检，运行中每次
-调用前再核验剩余硬预算和单角色一次上限。报告默认写入
+调用前再核验剩余硬预算和逐角色调用上限；普通角色最多 2 次，评审角色最多 4 次
+(仍低于 M2.6 要求的每角色 5 次上限)。报告默认写入
 `artifacts/verification/m26-smoke-<timestamp>.json`，仅包含脱敏元数据、版本引用、
 token/成本/延迟、Schema 校验状态、中文 evidence 定位计数与正文哈希。
 评审可以返回零个 issue；但只要存在 issue，其所有 evidence span 都必须能在
 对应场景正文中定位，否则 smoke 失败并保留脱敏报告。
+
+### G001 M2.6 真实模型验收（2026-08-12）
+
+- 脱敏报告：`artifacts/verification/g001-minimax-evidence-repair6.json`
+- run id：`20260812T154730321414Z`
+- 结果：12 个 prompt role 全部完成，`missing_roles=[]`；18 条 ModelRun 均含
+  prompt version、输入/输出 token、延迟、成本及非空输入/输出版本引用。
+- 结构化输出：每个角色的最终调用均通过 Schema 或两段式输出校验；修复调用仍受
+  逐角色上限控制（普通角色 2 次，评审角色 4 次，均不超过 M2.6 的 5 次上限）。
+- 中文 evidence：RedTeam/Plot/Character/Continuity/Prose 的未定位计数均为 0；
+  Plot 的 2 条和 Prose 的 1 条 issue 引文均能定位，零 issue 的评审按契约允许。
+- 预算：保守预检 `$0.984`，硬上限 `$1.00`，实际成本 `$0.096965`。
+- 脱敏审计：报告未包含密钥、完整提示词、待审正文或原稿。
+- 完成后基线：`113 passed`；Ruff 全绿；mypy 对 44 个 source files 全绿。

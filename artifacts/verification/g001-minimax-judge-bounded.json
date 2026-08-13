@@ -1,0 +1,100 @@
+{
+  "schema_version": "1.0",
+  "verification": "M2.6-real-model-smoke",
+  "run_id": "20260808T155954182218Z",
+  "created_at": "2026-08-08T15:59:54.182218+00:00",
+  "status": "failed",
+  "failure_kind": "StructuredOutputError",
+  "failure_detail": {
+    "category": "pydantic_validation",
+    "field_paths": [
+      "candidates",
+      "differentiation_notes",
+      "return",
+      "value"
+    ],
+    "issues": [
+      {
+        "field_path": "candidates",
+        "error_type": "missing"
+      },
+      {
+        "field_path": "differentiation_notes",
+        "error_type": "missing"
+      },
+      {
+        "field_path": "return",
+        "error_type": "extra_forbidden"
+      },
+      {
+        "field_path": "value",
+        "error_type": "extra_forbidden"
+      }
+    ]
+  },
+  "budget": {
+    "hard_limit_usd": 1.0,
+    "preflight_worst_case_usd": 0.7344,
+    "actual_cost_usd": 0.004103
+  },
+  "role_call_limit": 2,
+  "calls": [
+    {
+      "prompt_role": "kernel_planner",
+      "agent_role": "kernel_planner",
+      "slot": "creative",
+      "provider": "anthropic",
+      "model": "MiniMax-M2.7",
+      "family": "minimax-m2",
+      "prompt_version": "kernel_planner_v1",
+      "input_tokens": 1570,
+      "output_tokens": 570,
+      "latency_ms": 18470,
+      "cost_usd": 0.001155,
+      "status": "ok",
+      "structured_output_valid": null,
+      "input_ref": "m26:20260808T155954182218Z:kernel_planner:input:v1",
+      "output_ref": "m26:20260808T155954182218Z:kernel_planner:output:v1"
+    },
+    {
+      "prompt_role": "kernel_planner",
+      "agent_role": "kernel_planner",
+      "slot": "creative",
+      "provider": "anthropic",
+      "model": "MiniMax-M2.7",
+      "family": "minimax-m2",
+      "prompt_version": "kernel_planner_v1",
+      "input_tokens": 699,
+      "output_tokens": 2282,
+      "latency_ms": 48791,
+      "cost_usd": 0.002948,
+      "status": "ok",
+      "structured_output_valid": null,
+      "input_ref": "m26:20260808T155954182218Z:kernel_planner:input:v1",
+      "output_ref": "m26:20260808T155954182218Z:kernel_planner:output:v1"
+    }
+  ],
+  "missing_roles": [
+    "kernel_planner",
+    "character_planner",
+    "outline_planner",
+    "writer",
+    "red_team",
+    "plot",
+    "character",
+    "continuity",
+    "prose",
+    "judge",
+    "reviser",
+    "canon_curator"
+  ],
+  "chinese_evidence_location": {},
+  "draft_fingerprint": {
+    "sha256": null,
+    "utf8_bytes": 0
+  },
+  "database": {
+    "path": "data/novel.db",
+    "model_run_count": 2
+  }
+}

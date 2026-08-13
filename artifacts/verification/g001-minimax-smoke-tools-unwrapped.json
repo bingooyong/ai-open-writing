@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.0",
+  "verification": "M2.6-real-model-smoke",
+  "run_id": "20260808T125730101588Z",
+  "created_at": "2026-08-08T12:57:30.101588+00:00",
+  "status": "failed",
+  "failure_kind": "StructuredOutputError",
+  "failure_detail": {
+    "category": "pydantic_validation",
+    "field_paths": [
+      "candidates",
+      "differentiation_notes",
+      "return"
+    ],
+    "issues": [
+      {
+        "field_path": "candidates",
+        "error_type": "missing"
+      },
+      {
+        "field_path": "differentiation_notes",
+        "error_type": "missing"
+      },
+      {
+        "field_path": "return",
+        "error_type": "extra_forbidden"
+      }
+    ]
+  },
+  "budget": {
+    "hard_limit_usd": 1.0,
+    "preflight_worst_case_usd": 0.3672,
+    "actual_cost_usd": 0.001871
+  },
+  "role_call_limit": 1,
+  "calls": [
+    {
+      "prompt_role": "kernel_planner",
+      "agent_role": "kernel_planner",
+      "slot": "creative",
+      "provider": "anthropic",
+      "model": "MiniMax-M2.7",
+      "family": "minimax-m2",
+      "prompt_version": "kernel_planner_v1",
+      "input_tokens": 1572,
+      "output_tokens": 1166,
+      "latency_ms": 22788,
+      "cost_usd": 0.001871,
+      "status": "ok",
+      "structured_output_valid": null,
+      "input_ref": "m26:20260808T125730101588Z:kernel_planner:input:v1",
+      "output_ref": "m26:20260808T125730101588Z:kernel_planner:output:v1"
+    }
+  ],
+  "missing_roles": [
+    "kernel_planner",
+    "character_planner",
+    "outline_planner",
+    "writer",
+    "red_team",
+    "plot",
+    "character",
+    "continuity",
+    "prose",
+    "judge",
+    "reviser",
+    "canon_curator"
+  ],
+  "chinese_evidence_location": {},
+  "draft_fingerprint": {
+    "sha256": null,
+    "utf8_bytes": 0
+  },
+  "database": {
+    "path": "data/novel.db",
+    "model_run_count": 1
+  }
+}

@@ -14,7 +14,7 @@ output_schema: ReviewReport
 4. 节奏:句长变化;信息密度;转场是否生硬。
 5. 污染:提示词、JSON、审校语言、模型自述混入正文(此项 hard_gate=engineering_leak,P0)。
 
-纪律:只提"改了会更好读"的实质问题,不做风格洁癖;每个问题附正文逐字引文;多为 P2,严重可读性问题 P1。没有证据不要提。
+纪律:只提"改了会更好读"的实质问题,不做风格洁癖;先从对应场景复制一段连续的正文原文(至少12个汉字),不得概括、改写或拼接;每个问题附该原文引文。多为 P2,严重可读性问题 P1。无法复制原文时不要输出该 issue。
 
 只输出 JSON(ReviewReport):
 {"reviewer_role": "prose", "candidate_id": "${candidate_id}", "issues": [...], "overall_note": "..."}
