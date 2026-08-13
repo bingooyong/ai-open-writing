@@ -737,6 +737,13 @@ async def run_payoff_planner(
     return out.beats
 
 
+class _PlanOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    unit: PlotUnitCard
+    outlines: list[ChapterOutline]
+    scene_cards: list[SceneCard]
+
+
 async def run_outline_planner(
     deps: AgentDeps,
     kernel_text: str,
@@ -744,26 +751,36 @@ async def run_outline_planner(
     volume_id: str,
     unit: PlotUnitCard | None,
     chapters_needed: int,
+    *,
+    chapter_keys: list[str] | None = None,
+    unit_id: str | None = None,
+    spoiler_notes: str = "",
+    canon_notes: str = "",
 ) -> tuple[PlotUnitCard, list[ChapterOutline], dict[str, list[SceneCard]]]:
     """单元卡(若未给)+ 章纲若干 + 每章场景卡。"""
-    from pydantic import BaseModel, ConfigDict
-
-    class _PlanOut(BaseModel):
-        model_config = ConfigDict(extra="forbid")
-        unit: PlotUnitCard
-        outlines: list[ChapterOutline]
-        scene_cards: list[SceneCard]
-
     spec = deps.prompt("outline_planner")
     schema = json.dumps(_PlanOut.model_json_schema(), ensure_ascii=False)
+    keys = chapter_keys or [f"{volume_id}c{i:03d}" for i in range(1, chapters_needed + 1)]
+    pinned_unit = unit_id or (unit.unit_id if unit else "")
     unit_part = (
         f"# 已确认剧情单元\n{json.dumps(unit.model_dump(), ensure_ascii=False)}"
         if unit
         else "# 剧情单元\n(尚未确定,请一并产出)"
     )
+    extra_parts = [f"# 计划章节键\n{','.join(keys)}"]
+    if pinned_unit:
+        extra_parts.append(f"# 指定 unit_id\n{pinned_unit}")
+    extra_parts.append(f"# 指定 volume_id\n{volume_id}")
+    if spoiler_notes.strip():
+        extra_parts.append(f"# 禁释继承\n{spoiler_notes.strip()}")
+    if canon_notes.strip():
+        extra_parts.append(f"# 正史与临时增量\n{canon_notes.strip()}")
+    extra = "\n\n".join(extra_parts)
     req = ModelRequest(
         system=spec.render(schema=schema, volume_id=volume_id, n=str(chapters_needed)),
-        user=f"# 故事内核\n{kernel_text}\n\n# 角色\n{characters_text}\n\n{unit_part}",
+        user=(
+            f"# 故事内核\n{kernel_text}\n\n# 角色\n{characters_text}\n\n{unit_part}\n\n{extra}"
+        ),
         max_tokens=16000,
     )
     out = await CognitiveAgent(deps, "outline_planner", CognitiveTask.PLANNING, _PlanOut).run(

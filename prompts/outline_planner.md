@@ -15,6 +15,8 @@ output_schema: PlotUnitCard + list[ChapterOutline] + list[SceneCard]
 5. word_budget 之和贴近章纲 target_words。
 6. 首章前 500 字所在场景必须有可见事件与差异化元素。
 7. 每个章纲必须引用至少一个冲突 cited_conflict_ids 或爽点 cited_beat_ids。
+8. 遵守用户消息中的计划章节键、指定 unit_id/volume_id;继承「禁释继承」列表到 reveal_forbidden,不得写入 reveal_allowed,也不得写进 core_event。
+9. 正史与临时增量(含 D15 provisional)视为已发生事实,后续章纲不得与之冲突。
 
 只输出符合以下 JSON Schema 的对象,不要任何其他文字:
 ${schema}

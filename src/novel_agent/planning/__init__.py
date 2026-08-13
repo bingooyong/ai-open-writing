@@ -8,13 +8,16 @@ from novel_agent.planning.chain import (
     run_planning_chain,
 )
 from novel_agent.planning.conversation import BibleResult, run_bible_conversation
+from novel_agent.planning.volume import PlanMoreResult, plan_more
 
 __all__ = [
     "BibleResult",
+    "PlanMoreResult",
     "PlanningAborted",
     "PlanningError",
     "PlanningGates",
     "PlanningResult",
+    "plan_more",
     "run_bible_conversation",
     "run_planning_chain",
 ]

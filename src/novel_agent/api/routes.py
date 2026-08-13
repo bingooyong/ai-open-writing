@@ -10,6 +10,7 @@ from novel_agent.api.deps import get_app_settings, get_session, require_chapter,
 from novel_agent.api.schemas import (
     EditOutlineBody,
     LockedRangesBody,
+    PlanMoreBody,
     ProjectCreate,
     ProjectPatch,
     ResumeBody,
@@ -28,6 +29,7 @@ from novel_agent.planning.outline_tree import assemble_outline_tree
 from novel_agent.planning.rounds import bible_snapshot, confirm_round, generate_pending_round
 from novel_agent.planning.runtime import build_planning_deps
 from novel_agent.planning.settings import desk_settings
+from novel_agent.planning.volume import PlanMoreError, plan_more
 from novel_agent.production.batch import BatchError, resume_project, run_write_batch
 from novel_agent.production.export import export_project
 from novel_agent.production.loop import ChapterLoopError, ChapterLoopGates, run_chapter_loop
@@ -285,6 +287,43 @@ def get_outline_tree(
     return assemble_outline_tree(planning, project_id)
 
 
+@router.post("/projects/{project_id}/plan-more")
+async def plan_more_endpoint(
+    project_id: int,
+    body: PlanMoreBody = Body(default_factory=PlanMoreBody),
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> dict[str, object]:
+    planning = PlanningRepo(session)
+    require_project(planning, project_id)
+    deps = build_planning_deps(settings, session, project_id)
+    try:
+        result = await plan_more(
+            planning,
+            BibleRepo(session),
+            CanonRepo(session),
+            deps,
+            project_id,
+            PlanningGates.auto(),
+            window=body.window or settings.rolling_window,
+            chapters=body.chapters,
+            open_volume=body.open_volume,
+        )
+    except PlanningAborted as exc:
+        raise _planning_http(exc) from exc
+    except (PlanMoreError, PlanningError) as exc:
+        raise _planning_http(exc) from exc
+    return {
+        "project_id": result.project_id,
+        "volume_id": result.volume_id,
+        "unit_id": result.unit_id,
+        "chapter_keys": result.chapter_keys,
+        "opened_new_volume": result.opened_new_volume,
+        "skipped": result.skipped,
+        "outline_tree": assemble_outline_tree(planning, project_id),
+    }
+
+
 @router.get("/projects/{project_id}/chapters/{chapter_key}/outline.yaml")
 def get_outline_yaml(
     project_id: int, chapter_key: str, session: Session = Depends(get_session)
@@ -429,6 +468,7 @@ async def write_batch(
             chapter_count=payload.chapters,
             yes=payload.yes,
             settings=settings,
+            from_chapter=payload.from_chapter,
         )
     except (BatchError, ChapterLoopError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

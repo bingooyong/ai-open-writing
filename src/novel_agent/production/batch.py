@@ -11,6 +11,7 @@ from sqlmodel import Session
 from novel_agent.config import Settings
 from novel_agent.domain.repos import CanonRepo, OpsRepo, PlanningRepo, ProductionRepo
 from novel_agent.domain.schemas import ChapterStatus, VerdictType
+from novel_agent.planning.volume import PlanMoreError, select_write_batch_keys
 from novel_agent.production.loop import (
     ChapterLoopGates,
     ChapterLoopResult,
@@ -34,11 +35,15 @@ class BatchResult:
 
 
 def select_batch_chapters(
-    planning: PlanningRepo, project_id: int, chapter_count: int
+    planning: PlanningRepo,
+    project_id: int,
+    chapter_count: int,
+    *,
+    from_chapter: str | None = None,
 ) -> list[str]:
-    ordered = planning.list_chapters(project_id)[:chapter_count]
-    skip = {ChapterStatus.CANON_LOCKED, ChapterStatus.EXPORTED}
-    return [chapter.chapter_key for chapter in ordered if chapter.status not in skip]
+    return select_write_batch_keys(
+        planning, project_id, chapter_count, from_chapter=from_chapter
+    )
 
 
 def unfinished_chapter_keys(planning: PlanningRepo, project_id: int) -> list[str]:
@@ -81,11 +86,19 @@ async def run_write_batch(
     yes: bool = False,
     settings: Settings | None = None,
     git_root: Path | None = None,
+    from_chapter: str | None = None,
 ) -> BatchResult:
     if chapter_count < 3 or chapter_count > 5:
         raise BatchError("write-batch 的 --chapters 必须是 3~5")
     planning = PlanningRepo(session)
-    keys = select_batch_chapters(planning, project_id, chapter_count)
+    try:
+        keys = select_batch_chapters(
+            planning, project_id, chapter_count, from_chapter=from_chapter
+        )
+    except PlanMoreError as exc:
+        raise BatchError(str(exc)) from exc
+    if not keys:
+        raise BatchError("没有可写的已规划章节;请先 plan-more")
     batch_id = uuid.uuid4().hex[:12]
     OpsRepo(session).create_workflow_run(project_id, "batch", batch_id=batch_id)
     session.commit()

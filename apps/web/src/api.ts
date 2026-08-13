@@ -182,12 +182,31 @@ export const api = {
     parse<LoopResult>(
       fetch(`/projects/${id}/chapters/${chapterKey}/approve`, { method: "POST" }),
     ),
-  writeBatch: (id: number, chapters = 3, yes = false) =>
+  writeBatch: (id: number, chapters = 3, yes = false, fromChapter?: string) =>
     parse<{ results: LoopResult[] }>(
       fetch(`/projects/${id}/write-batch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chapters, yes }),
+        body: JSON.stringify({
+          chapters,
+          yes,
+          from_chapter: fromChapter ?? null,
+        }),
+      }),
+    ),
+  planMore: (id: number, body?: { window?: number; chapters?: number; open_volume?: boolean }) =>
+    parse<{
+      project_id: number;
+      volume_id: string;
+      unit_id: string;
+      chapter_keys: string[];
+      opened_new_volume: boolean;
+      skipped: string[];
+    }>(
+      fetch(`/projects/${id}/plan-more`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body ?? { window: 5 }),
       }),
     ),
   resume: (id: number) =>

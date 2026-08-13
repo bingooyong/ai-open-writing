@@ -7,6 +7,7 @@
   M3.3b        edit-outline
   M3.4         review-batch / approve
   M3.5         write-batch / resume / export
+  卷工厂        plan-more
   M4           smoke-stage0
   Stage 1      serve
 """
@@ -40,6 +41,12 @@ from novel_agent.planning.chain import (
 )
 from novel_agent.planning.conversation import BibleResult, run_bible_conversation
 from novel_agent.planning.runtime import build_planning_deps
+from novel_agent.planning.volume import (
+    DEFAULT_WINDOW,
+    PlanMoreError,
+    PlanMoreResult,
+    plan_more,
+)
 from novel_agent.production.batch import BatchError, resume_project, run_write_batch
 from novel_agent.production.export import export_project
 from novel_agent.production.loop import ChapterLoopError, ChapterLoopGates, run_chapter_loop
@@ -182,15 +189,18 @@ def _cli_gates(yes: bool, select: int) -> PlanningGates:
     return PlanningGates(select_kernel=select_kernel, confirm=confirm)
 
 
-def _echo_planning_result(result: PlanningResult | BibleResult) -> None:
+def _echo_planning_result(result: PlanningResult | BibleResult | PlanMoreResult) -> None:
     typer.echo(f"project_id={result.project_id}")
-    typer.echo(f"kernel_version={result.kernel_version}")
-    typer.echo(f"characters={','.join(result.character_ids)}")
     typer.echo(f"volume={result.volume_id}")
     typer.echo(f"unit={result.unit_id}")
     typer.echo(f"chapters={','.join(result.chapter_keys)}")
     if result.skipped:
         typer.echo(f"skipped={','.join(result.skipped)}")
+    if isinstance(result, PlanMoreResult):
+        typer.echo(f"opened_new_volume={str(result.opened_new_volume).lower()}")
+        return
+    typer.echo(f"kernel_version={result.kernel_version}")
+    typer.echo(f"characters={','.join(result.character_ids)}")
 
 
 def _text_from_stored_brief(stored: str, spark: str) -> str:
@@ -369,6 +379,64 @@ def plan(
         result = asyncio.run(
             _run_chain(session, deps, resolved, yes, select, volume_id, chapters)
         )
+        session.commit()
+    _echo_planning_result(result)
+
+
+@app.command("plan-more")
+def plan_more_cmd(
+    project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
+    window: Annotated[
+        int, typer.Option("--window", help="保持的已规划未锁定章数")
+    ] = DEFAULT_WINDOW,
+    chapters: Annotated[
+        int | None, typer.Option("--chapters", help="本次生成章数;缺省则补满窗口")
+    ] = None,
+    open_volume: Annotated[
+        bool, typer.Option("--open-volume", help="开下一卷(v2…)而不是续写当前卷")
+    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="非交互确认写入")] = False,
+) -> None:
+    """滚动窗口缩小时续规划下一截章纲/场景卡;单元已锁定或 --open-volume 时开新卷。"""
+    _require_yes_or_tty(yes)
+    if window < 1:
+        typer.echo("拒绝: --window 必须 >= 1", err=True)
+        raise typer.Exit(2)
+    if chapters is not None and chapters < 1:
+        typer.echo("拒绝: --chapters 必须 >= 1", err=True)
+        raise typer.Exit(2)
+
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        try:
+            repo.get_project(project_id)
+        except NoResultFound:
+            typer.echo(f"拒绝: 项目不存在 project_id={project_id}", err=True)
+            raise typer.Exit(2) from None
+        deps = build_planning_deps(settings, session, project_id)
+        try:
+            result = asyncio.run(
+                plan_more(
+                    repo,
+                    BibleRepo(session),
+                    CanonRepo(session),
+                    deps,
+                    project_id,
+                    _cli_gates(yes, 1),
+                    window=window or settings.rolling_window,
+                    chapters=chapters,
+                    open_volume=True if open_volume else None,
+                )
+            )
+        except PlanningAborted as exc:
+            typer.echo(f"已中止规划阶段 {exc.stage};project_id={exc.project_id}", err=True)
+            raise typer.Exit(1) from None
+        except (PlanMoreError, PlanningError) as exc:
+            typer.echo(f"续规划失败: {exc}", err=True)
+            raise typer.Exit(1) from None
         session.commit()
     _echo_planning_result(result)
 
@@ -768,6 +836,9 @@ def write_batch(
     project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
     chapters: Annotated[int, typer.Option("--chapters", help="连跑章数(3~5)")] = 3,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="PASS 后自动批准并提交正史")] = False,
+    from_chapter: Annotated[
+        str, typer.Option("--from-chapter", help="从指定章起写;缺省则跳过已锁定章")
+    ] = "",
 ) -> None:
     """3~5 章顺序连跑;后章可读前章 provisional canon overlay(D15)。"""
     if chapters < 3 or chapters > 5:
@@ -793,6 +864,7 @@ def write_batch(
                     chapter_count=chapters,
                     yes=yes,
                     settings=settings,
+                    from_chapter=from_chapter or None,
                 )
             )
         except (BatchError, ChapterLoopError) as exc:

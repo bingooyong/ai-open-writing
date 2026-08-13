@@ -15,6 +15,7 @@ type OutlineTreeProps = {
   onSelectChapter: (chapterKey: string) => void;
   onYamlChange: (value: string) => void;
   onSaveYaml: () => void;
+  onPlanMore?: () => void;
 };
 
 export function OutlineTree({
@@ -25,6 +26,7 @@ export function OutlineTree({
   onSelectChapter,
   onYamlChange,
   onSaveYaml,
+  onPlanMore,
 }: OutlineTreeProps) {
   const nodes = useMemo(() => (tree ? toOutlineNodes(tree) : []), [tree]);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(["kernel"]));
@@ -62,6 +64,13 @@ export function OutlineTree({
 
   return (
     <div className="outline-desk">
+      {onPlanMore ? (
+        <div className="row" style={{ marginBottom: "0.6rem" }}>
+          <button className="btn" disabled={busy} type="button" onClick={onPlanMore}>
+            续规划
+          </button>
+        </div>
+      ) : null}
       <div className="tree">
         {rows.map((row) => {
           const active = row.chapterKey === selectedChapterKey;

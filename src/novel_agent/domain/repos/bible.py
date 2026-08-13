@@ -82,6 +82,7 @@ class BibleRepo:
         ).all()
         for rec in existing:
             self.s.delete(rec)
+        self.s.flush()
         for conflict in conflicts:
             self.s.add(
                 ConflictRecord(
@@ -106,6 +107,7 @@ class BibleRepo:
         ).all()
         for rec in existing:
             self.s.delete(rec)
+        self.s.flush()
         for beat in beats:
             self.s.add(
                 PayoffBeatRecord(

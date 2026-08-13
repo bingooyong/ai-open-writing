@@ -40,6 +40,36 @@ const dto: OutlineTreeDto = {
         },
       ],
     },
+    {
+      volume_id: "v2",
+      title: "卷二",
+      status: "draft",
+      payload: { goal: "还债" },
+      units: [
+        {
+          unit_id: "u2",
+          status: "confirmed",
+          payload: { promise_or_debt: "还清故事债" },
+          chapters: [
+            {
+              chapter_key: "v2c001",
+              title: "第1章",
+              status: "PLANNED",
+              order_index: 6,
+              outline: { chapter_key: "v2c001", core_event: "新卷开场", title: "第1章" },
+              scenes: [
+                {
+                  scene_id: "v2c001_s1",
+                  chapter_key: "v2c001",
+                  goal: "立新契",
+                  pov: "苏晚生",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
   ],
 };
 
@@ -50,7 +80,7 @@ describe("toOutlineNodes", () => {
     const kernel = nodes[0];
     expect(kernel.level).toBe("kernel");
     expect(kernel.label).toContain("说书人发现故事会成真");
-    expect(kernel.children).toHaveLength(1);
+    expect(kernel.children).toHaveLength(2);
     const volume = kernel.children[0];
     expect(volume.level).toBe("volume");
     expect(volume.id).toBe("v1");
@@ -62,6 +92,10 @@ describe("toOutlineNodes", () => {
     expect(chapter.chapterKey).toBe("v1c001");
     expect(chapter.children[0]?.level).toBe("scene");
     expect(chapter.children[0]?.id).toBe("v1c001_s1");
+    const volume2 = kernel.children[1];
+    expect(volume2.id).toBe("v2");
+    expect(volume2.children[0]?.id).toBe("u2");
+    expect(volume2.children[0]?.children[0]?.chapterKey).toBe("v2c001");
   });
 
   it("flattens visible rows for the tree rail", () => {
@@ -71,6 +105,7 @@ describe("toOutlineNodes", () => {
       "volume",
       "unit",
       "chapter",
+      "volume",
     ]);
   });
 });
