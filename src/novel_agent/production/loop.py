@@ -18,6 +18,7 @@ from novel_agent.domain.canon_writer import CanonWriter
 from novel_agent.domain.models import DraftVersionRecord
 from novel_agent.domain.repos import CanonRepo, OpsRepo, PlanningRepo, ProductionRepo
 from novel_agent.domain.schemas import (
+    CanonDelta,
     ChapterContextPackage,
     ChapterStatus,
     DraftCandidate,
@@ -181,6 +182,7 @@ async def run_chapter_loop(
     gates: ChapterLoopGates | None = None,
     settings: Settings | None = None,
     git_root: Path | None = None,
+    include_provisional: bool = False,
 ) -> ChapterLoopResult:
     """驱动一章走完 N1→N9;PASS 且批准后提交正史,其余路径在门禁处停下。"""
     gates = gates or ChapterLoopGates.hold()
@@ -201,8 +203,6 @@ async def run_chapter_loop(
     except Exception as exc:
         raise ChapterLoopError(f"项目或章节不存在: {project_id}/{chapter_key}") from exc
 
-    if chapter.status is ChapterStatus.STALE:
-        raise ChapterLoopError("STALE 章节请先重规划或重跑(M3.5)")
     if chapter.status is ChapterStatus.EXPORTED:
         raise ChapterLoopError("章节已导出,单章循环不再推进")
 
@@ -224,13 +224,17 @@ async def run_chapter_loop(
 
     def ctx(*, prior_feedback: str = "") -> ChapterContextPackage:
         outline = planning.get_outline(project_id, chapter_key)
-        return builder.build(
+        package = builder.build(
             project_id,
             chapter_key,
             task_brief=f"撰写{chapter.title or chapter_key}：{outline.core_event}",
             volume_summary=_volume_summary(planning, project_id, outline.volume_id),
             prior_feedback=prior_feedback,
+            include_provisional=include_provisional,
         )
+        if package.has_provisional():
+            planning.set_built_on_provisional(project_id, chapter_key, True)
+        return package
 
     try:
         stopped_at, reason = await _advance(
@@ -352,6 +356,10 @@ async def _advance(
             continue
         if status is ChapterStatus.NEEDS_REPLAN:
             return "n6_judge", "REPLAN 升级人工,等待 edit-outline"
+        if status is ChapterStatus.STALE:
+            transition(planning, project_id, chapter_key, ChapterStatus.DRAFTING)
+            session.commit()
+            continue
         if status is ChapterStatus.HUMAN_REVIEW:
             latest = production.latest_verdict(chapter_key)
             if latest is None or latest.verdict is not VerdictType.PASS:
@@ -794,13 +802,18 @@ async def _n9(
     key = f"canon|{chapter_key}|{state.draft_id}"
 
     async def fn() -> dict:
+        canon_repo = CanonRepo(ops.s)
+        existing = canon_repo.get_by_idempotency_key(key)
+        writer = CanonWriter(ops.s, project_id, git_root=git_root)
+        if existing is not None and existing.provisional:
+            delta = CanonDelta.model_validate(existing.payload)
+            rec = writer.finalize(delta, key, chapter_key)
+            return {"delta_id": rec.id, "idempotency_key": key}
         draft = draft_from_record(production.get_draft(state.draft_id))  # type: ignore[arg-type]
         package = ctx_factory()
-        canon_ver = CanonRepo(ops.s).current_canon_version(project_id)
+        canon_ver = canon_repo.current_canon_version(project_id)
         delta = await run_canon_curator(deps, draft, package, canon_ver)
-        rec = CanonWriter(ops.s, project_id, git_root=git_root).finalize(
-            delta, key, chapter_key
-        )
+        rec = writer.finalize(delta, key, chapter_key)
         return {"delta_id": rec.id, "idempotency_key": key}
 
     return await run_node_async(
@@ -826,3 +839,35 @@ def _load_review_round(ops: OpsRepo, draft_id: int) -> tuple[list[ReviewReport],
         else:
             reports.append(ReviewReport.model_validate(hit.output_snapshot))
     return reports, absent
+
+
+async def stage_chapter_overlay(
+    session: Session,
+    deps: AgentDeps,
+    project_id: int,
+    chapter_key: str,
+) -> None:
+    """批次连跑:在 HUMAN_REVIEW 停下后注入 provisional canon(D15)。"""
+    planning = PlanningRepo(session)
+    production = ProductionRepo(session)
+    canon = CanonRepo(session)
+    draft_rec = production.latest_chapter_draft(project_id, chapter_key)
+    if draft_rec is None or draft_rec.id is None:
+        return
+    key = f"canon|{chapter_key}|{draft_rec.id}"
+    if canon.get_by_idempotency_key(key) is not None:
+        return
+    draft = draft_from_record(draft_rec)
+    builder = ContextBuilder(planning, canon)
+    outline = planning.get_outline(project_id, chapter_key)
+    chapter = planning.get_chapter(project_id, chapter_key)
+    package = builder.build(
+        project_id,
+        chapter_key,
+        task_brief=f"撰写{chapter.title or chapter_key}：{outline.core_event}",
+        volume_summary=_volume_summary(planning, project_id, outline.volume_id),
+        include_provisional=True,
+    )
+    canon_ver = canon.current_canon_version(project_id)
+    delta = await run_canon_curator(deps, draft, package, canon_ver)
+    CanonWriter(session, project_id).stage_provisional(delta, key)

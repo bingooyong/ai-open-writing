@@ -258,6 +258,15 @@ class CanonRepo:
         ).all():
             self.s.delete(rec)
             n += 1
+        for rel in self.s.exec(
+            select(RelationshipStateRecord).where(
+                RelationshipStateRecord.project_id == project_id,
+                RelationshipStateRecord.source_chapter == chapter_key,
+                RelationshipStateRecord.provisional == True,  # noqa: E712
+            )
+        ).all():
+            self.s.delete(rel)
+            n += 1
         for delta in self.s.exec(
             select(CanonDeltaRecord).where(
                 CanonDeltaRecord.project_id == project_id,

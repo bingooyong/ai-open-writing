@@ -106,6 +106,25 @@ class OpsRepo:
 
     # ---- 节点(幂等/快照/租约,Spec §6 通用机制) ----
 
+    def void_succeeded_nodes_for_chapter(self, chapter_key: str) -> int:
+        """作废该章已成功节点,迫使后续 resume 重跑 N1/N2/N3。"""
+        recs = self.s.exec(
+            select(NodeRunRecord).where(NodeRunRecord.status == "succeeded")
+        ).all()
+        n = 0
+        for rec in recs:
+            key = rec.idempotency_key
+            snap = rec.input_snapshot or {}
+            if (
+                snap.get("chapter_key") == chapter_key
+                or key.startswith(f"{chapter_key}|")
+                or key.startswith(f"canon|{chapter_key}|")
+            ):
+                rec.status = "voided"
+                self.s.add(rec)
+                n += 1
+        return n
+
     def find_success_node(self, idempotency_key: str) -> NodeRunRecord | None:
         """幂等命中:同 key 已成功 → 直接复用 output_snapshot,不重跑。"""
         return self.s.exec(

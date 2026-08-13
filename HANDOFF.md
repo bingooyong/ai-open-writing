@@ -1,19 +1,16 @@
 # Project Handoff
 
-## 2026-08-13 - M3.3 chapter loop on Story Bible main
+## 2026-08-13 - M3.3b / M3.4 / M3.5 production CLI on Story Bible main
 
 ### Current target
 
 Complete Stage 0 of the local-first AI long-form novel agent described in
 `.omc/autopilot/spec.md` and `.omc/plans/autopilot-impl.md`.
 
-The repository is at **M3.3 (single-chapter N1→N9 loop)** on top of
-**Story Bible from a Spark**. M0, M1, M2 (including ContextBuilder / M2.6
-real-model smoke evidence), M3.1-equivalent context assembly, M3.2
-planning-chain, Story Bible conversation, and M3.3 chapter loop are complete.
-**Story Bible conversation is the planning entry**; `run_planning_chain` (M3.2)
-remains a callable subroutine (`novel plan`). M3.3b, M3.4, M3.5, and M4 have
-not started.
+The repository is at **M3.5 (batch + resume + export)** on top of Story Bible,
+M3.3 (single-chapter N1→N9), M3.3b (`edit-outline`), and M3.4 (human gate).
+M0, M1, M2, M3.1-equivalent context assembly, M3.2 planning-chain, and Story
+Bible conversation remain complete. **Next is M4 Stage 0 acceptance.**
 
 ### Resume here
 
@@ -28,6 +25,8 @@ uv run mypy src
 uv run novel init "说书人传奇" --brief "说书人发现故事会成真" --yes
 uv run novel graph --project-id 1 --format json
 uv run novel write-chapter --project-id 1 --chapter-key v1c001 --yes
+uv run novel write-batch --project-id 1 --chapters 3 --yes
+uv run novel export --project-id 1 --format md --out /tmp/book.md
 ```
 
 ### Stable architecture and decisions
@@ -74,10 +73,14 @@ uv run novel write-chapter --project-id 1 --chapter-key v1c001 --yes
 - Story Bible: R0–R5 conversation, bible schemas/tables/repo, lint, structure/conflict/payoff
   planners, graph projector/export.
 - M3.3: single-chapter N1→N9 loop wired to the existing FSM.
+- M3.3b: `novel edit-outline` YAML 导出/导入, bump `outline_ver`, 旧谱系作废, 回 N1。
+- M3.4: `novel review-batch` / `novel approve` 人工门禁;批准走 CanonWriter。
+- M3.5: `novel write-batch` (D15 overlay + STALE 级联) / `resume` / `export`。
 
 Relevant commits, newest first:
 
 ```text
+267183d feat(M3.3): 单章循环 N1→N9 接 FSM (#4)
 dc465d6 feat: Story Bible from a Spark (R0–R5 conversation + canon graph) (#5)
 4c2368d feat(M3.2): 规划链 CLI (init/plan) 与 mock 入库契约 (#2)
 36cbc81 feat(M2.6): context 构建器、真实模型 smoke 收尾与 M2 验证证据归档
@@ -119,14 +122,57 @@ dc465d6 feat: Story Bible from a Spark (R0–R5 conversation + canon graph) (#5)
   suite; do not run it unless you intend to spend. Mock merge gate is the four
   integration paths in `tests/workflow/test_chapter_loop.py`.
 
+### M3.3b edit-outline
+
+- `novel edit-outline <chapter> --project-id ID` (or `--chapter-key`).
+- `--out path.yaml` exports chapter outline + scene cards (non-TTY OK).
+- `--from-file path.yaml --yes` imports after human edit, validates
+  ChapterOutline/SceneCard, bumps `outline_ver`, voids old draft lineage,
+  resets `revision_round`, returns the chapter to `PLANNED` (N1).
+- Non-TTY without `--from-file`/`--out`/`--yes` exits 2.
+- After a `REPLAN_*` verdict (`NEEDS_REPLAN`), edit-outline then
+  `write-chapter` continues from N1 on a new lineage.
+
+### M3.4 human gate
+
+- `novel review-batch --project-id ID [--chapter-key KEY] [--yes]`: list
+  `HUMAN_REVIEW` chapters (draft + issues + verdict). `--yes` auto-approves
+  PASS chapters (same spirit as `write-chapter --yes`).
+- `--reject --chapter-key KEY --yes`: 退回 → `NEEDS_REPLAN` (then edit-outline);
+  D15 cascade marks later STALEABLE chapters `STALE` and discards their
+  provisional deltas.
+- `--lock-range TEXT --chapter-key KEY --yes`: write `locked_ranges` on the
+  latest draft (paragraph rewrite marks).
+- `novel approve --project-id ID --chapter-key KEY --yes`: N8 approval + N9
+  CanonWriter commit → `CANON_LOCKED`, canon rows, git checkpoint when
+  `git_root` is provided to CanonWriter.
+- Non-TTY without `--yes` exits 2. `write-chapter --yes` still auto-passes N8.
+
+### M3.5 batch + resume + export
+
+- `novel write-batch --project-id ID [--chapters 3] [--yes]`: 3–5 chapters
+  sequential. Later chapters read provisional canon overlay (`include_provisional`).
+  Without `--yes`, each PASS chapter stops at `HUMAN_REVIEW` and stages overlay
+  via `CanonWriter.stage_provisional`. With `--yes`, each chapter auto-approves
+  to `CANON_LOCKED`.
+- Rejecting chapter k cascades: chapters k+1..n that are STALEABLE become
+  `STALE`; their drafts and provisional deltas are invalidated.
+- `novel resume --project-id ID [--chapter-key KEY] [--yes]`: resume from last
+  SUCCESS node (FSM idempotency). Omitting `--chapter-key` resumes unfinished
+  chapters in order.
+- `novel export --project-id ID --format txt|md [--out path]`: Stage 0 min
+  export of drafted/approved chapter text.
+- Mock DoD: 3-chapter batch; interrupt/resume does not rerun N3; reject ch1 →
+  ch2/ch3 STALE; export files contain chapter text.
+
 ### Fresh validation evidence
 
-Collected on 2026-08-13 after rebasing M3.3 onto Story Bible main:
+Collected on 2026-08-13 after M3.3b / M3.4 / M3.5:
 
 ```text
-uv run pytest -q       -> 160 passed
+uv run pytest -q       -> 176 passed
 uv run ruff check .    -> All checks passed
-uv run mypy src        -> Success: no issues found in 62 source files
+uv run mypy src        -> Success: no issues found in 66 source files
 ```
 
 Offline Story Bible contracts (mock only, no network): spark → R0 brief → kernel →
@@ -165,12 +211,10 @@ The local `.env` contains credentials and must never be printed or committed.
 
 ### Next implementation sequence
 
-1. M3.3b `novel edit-outline` YAML 导出/导入, bump outline_ver, 回 N1。
-   REPLAN 裁决后经 edit-outline 修改再续跑的集成测试。
-2. M3.4 `novel review-batch` / `novel approve`(canon 提交 + git 检查点)。
-   N8 人工门禁的完整 CLI;批准后 chapter→CANON_LOCKED。
-3. M3.5 `novel write-batch`(D15 provisional overlay) / `resume` / `export`。
-4. M4 回归集、Judge 校准、三章真实模型验收。
+1. M4.1 回归集落地: R1~R6 样本 + `pytest tests/regression`。
+2. M4.2 真实模型验证: 微型项目 3 章待审稿 + 植入缺陷阻断。
+3. M4.3 Judge 校准 (R5/R6) 与匿名化断言。
+4. M4.4 README / verification-report 定稿, 阶段0 退出评审。
 
 ### Important paths
 
@@ -184,11 +228,19 @@ The local `.env` contains credentials and must never be printed or committed.
 - Story Bible conversation: `src/novel_agent/planning/conversation.py`
 - M3.2 chain (subroutine): `src/novel_agent/planning/chain.py`
 - Chapter loop: `src/novel_agent/production/loop.py`
+- Outline edit: `src/novel_agent/production/outline.py`
+- Human gate: `src/novel_agent/production/review.py`
+- Batch / D15 cascade: `src/novel_agent/production/batch.py`
+- Export: `src/novel_agent/production/export.py`
 - CLI: `src/novel_agent/cli/main.py`
-  (`init` / `bible` / `plan` / `graph` / `write-chapter` / `smoke-chapter`)
+  (`init` / `bible` / `plan` / `graph` / `write-chapter` / `smoke-chapter` /
+  `edit-outline` / `review-batch` / `approve` / `write-batch` / `resume` / `export`)
 - Bible contracts: `tests/contract/test_story_bible.py`
 - Graph contracts: `tests/contract/test_graph_projector.py`
 - Chapter-loop contracts: `tests/workflow/test_chapter_loop.py`
+- Edit-outline contracts: `tests/workflow/test_edit_outline.py`
+- Human-gate contracts: `tests/workflow/test_human_gate.py`
+- Batch/export contracts: `tests/workflow/test_batch_export.py`
 - Planning contracts: `tests/contract/test_planning_chain.py`
 - Runtime agents: `src/novel_agent/runtime/agents.py`
 - Runtime boundary: `src/novel_agent/runtime/adapter.py`
