@@ -175,6 +175,16 @@ class BibleRepo:
         if rec is not None:
             self.s.delete(rec)
 
+    def get_pending_round(self, project_id: int) -> dict | None:
+        project = self.s.get_one(ProjectRecord, project_id)
+        raw = project.bible_pending or {}
+        return raw if raw else None
+
+    def set_pending_round(self, project_id: int, pending: dict | None) -> None:
+        project = self.s.get_one(ProjectRecord, project_id)
+        project.bible_pending = pending or {}
+        self.s.add(project)
+
     def round_complete(self, project_id: int) -> set[str]:
         done: set[str] = set()
         if self.get_brief(project_id) is not None:

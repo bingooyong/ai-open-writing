@@ -1,0 +1,259 @@
+:root {
+  --paper: #dce4ee;
+  --sheet: #f4f7fa;
+  --ink: #182231;
+  --muted: #5c6a7c;
+  --rule: #93a0b3;
+  --teal: #1a6d63;
+  --teal-ink: #0f3f3a;
+  --amber: #b6791a;
+  --alias: #6a7586;
+  --danger: #8f3d3d;
+  --font-display: "Source Serif 4", "Noto Serif SC", serif;
+  --font-body: "IBM Plex Sans", "Noto Sans SC", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.app {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 1rem 1.25rem 0.75rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.masthead h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.65rem;
+  letter-spacing: 0.08em;
+}
+
+.masthead .eyebrow {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.desk {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 280px;
+  min-height: 0;
+}
+
+.rail,
+.inspector {
+  background: var(--sheet);
+  border-right: 1px solid var(--rule);
+  padding: 1rem;
+  overflow: auto;
+}
+
+.inspector {
+  border-right: 0;
+  border-left: 1px solid var(--rule);
+}
+
+.stage {
+  display: grid;
+  grid-template-rows: minmax(180px, 0.9fr) minmax(280px, 1.1fr);
+  min-height: 0;
+}
+
+.panel {
+  padding: 1rem 1.1rem;
+  overflow: auto;
+}
+
+.panel + .panel {
+  border-top: 1px dashed var(--rule);
+}
+
+h2 {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.project-card,
+.slug {
+  border: 1px solid var(--rule);
+  background: #fff;
+  padding: 0.65rem 0.75rem;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.project-card.active,
+.slug.active {
+  border-color: var(--teal);
+  box-shadow: inset 3px 0 0 var(--teal);
+}
+
+.project-card small,
+.muted {
+  color: var(--muted);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.stack input,
+.stack textarea {
+  border: 1px solid var(--rule);
+  background: #fff;
+  padding: 0.45rem 0.55rem;
+  color: var(--ink);
+}
+
+.row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.btn {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--sheet);
+  padding: 0.35rem 0.7rem;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--ink);
+}
+
+.btn.teal {
+  background: var(--teal);
+  border-color: var(--teal-ink);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.round-card {
+  border-left: 3px solid var(--teal);
+  background: #fff;
+  padding: 0.75rem 0.85rem;
+  margin-bottom: 0.65rem;
+}
+
+.round-card pre {
+  white-space: pre-wrap;
+  font-size: 0.78rem;
+  margin: 0.4rem 0 0;
+  color: var(--ink);
+}
+
+.panorama {
+  min-height: 260px;
+  height: 100%;
+  background:
+    linear-gradient(180deg, rgba(24, 34, 49, 0.03), transparent 40%),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 31px,
+      rgba(147, 160, 179, 0.18) 32px
+    );
+}
+
+.panorama.empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.tracks {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.tracks li {
+  border-bottom: 1px solid var(--rule);
+  padding: 0.45rem 0;
+  font-size: 0.82rem;
+}
+
+.chapter-rail {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.7rem 1rem;
+  border-top: 2px solid var(--ink);
+  background: #e8eef4;
+}
+
+.slug {
+  min-width: 148px;
+  font-variant-numeric: tabular-nums;
+}
+
+.slug .key {
+  font-family: var(--font-display);
+  font-size: 1rem;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 0.82rem;
+}
+
+.range {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.range input {
+  width: 7rem;
+  border: 1px solid var(--rule);
+  padding: 0.2rem 0.35rem;
+}

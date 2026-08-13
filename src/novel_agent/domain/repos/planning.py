@@ -1,5 +1,7 @@
 """规划链仓储:项目/内核/角色/卷/单元/章纲/场景卡。"""
 
+from datetime import UTC, datetime
+
 from sqlmodel import Session, select
 
 from novel_agent.domain.models import (
@@ -46,6 +48,35 @@ class PlanningRepo:
 
     def get_project(self, project_id: int) -> ProjectRecord:
         return self.s.get_one(ProjectRecord, project_id)
+
+    def list_projects(self) -> list[ProjectRecord]:
+        return list(self.s.exec(select(ProjectRecord).order_by(ProjectRecord.id)).all())  # type: ignore[arg-type]
+
+    def update_project(
+        self,
+        project_id: int,
+        *,
+        title: str | None = None,
+        genre: str | None = None,
+        spark: str | None = None,
+    ) -> ProjectRecord:
+        rec = self.get_project(project_id)
+        if title is not None:
+            rec.title = title
+        if genre is not None:
+            rec.genre = genre
+        if spark is not None:
+            rec.spark = spark
+        rec.updated_at = datetime.now(UTC)
+        self.s.add(rec)
+        return rec
+
+    def archive_project(self, project_id: int) -> ProjectRecord:
+        rec = self.get_project(project_id)
+        rec.status = "archived"
+        rec.updated_at = datetime.now(UTC)
+        self.s.add(rec)
+        return rec
 
     # ---- 故事内核 ----
 

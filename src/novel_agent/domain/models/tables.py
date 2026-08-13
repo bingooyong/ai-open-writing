@@ -32,6 +32,7 @@ class ProjectRecord(SQLModel, table=True):
     channel_profile: dict = Field(default_factory=dict, sa_column=Column(JSON))
     spark: str = ""
     brief: str = ""
+    bible_pending: dict = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
