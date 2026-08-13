@@ -304,7 +304,23 @@ def test_bible_lint_relationship_without_evidence_fails() -> None:
         state="胁迫",
         evidence="书局执事以纵火案上门",
     )
-    assert lint_bible(relationship_proposals=[ok]).passed
+    assert lint_bible(
+        relationship_proposals=[ok]
+    ).passed
+
+
+def _bible_deps(session, mock=None):
+    from novel_agent.config import Settings
+    from novel_agent.gateway import MockProvider, ModelGateway
+    from novel_agent.planning.mock_fixtures import register_planning_defaults
+    from novel_agent.runtime.agents import AgentDeps
+
+    mock = mock or MockProvider()
+    register_planning_defaults(mock)
+    return AgentDeps(
+        gateway=ModelGateway(Settings(_env_file=None), session, {"mock": mock}),
+        project_id=None,
+    ), mock
 
 
 def test_structure_conflict_payoff_prompts_have_frontmatter() -> None:
@@ -363,3 +379,172 @@ async def test_structure_conflict_payoff_planners_return_valid_schemas(engine) -
         rolling_keys=keys,
     )
     assert report.passed
+
+
+async def test_bible_conversation_persists_full_r0_to_r5(engine) -> None:
+    from sqlmodel import Session
+
+    from novel_agent.domain.repos import BibleRepo, CanonRepo, PlanningRepo
+    from novel_agent.planning.chain import PlanningGates
+    from novel_agent.planning.conversation import run_bible_conversation
+
+    with Session(engine) as session:
+        planning = PlanningRepo(session)
+        project = planning.create_project("说书人传奇", boundaries=["禁无代价全能"])
+        session.commit()
+        deps, _mock = _bible_deps(session)
+        deps.project_id = project.id
+        result = await run_bible_conversation(
+            planning,
+            BibleRepo(session),
+            CanonRepo(session),
+            deps,
+            spark="说书人发现故事会成真",
+            gates=PlanningGates.auto(),
+        )
+        session.commit()
+
+        bible = BibleRepo(session)
+        brief = bible.get_brief(project.id)
+        assert brief is not None
+        assert brief.genre == ""
+        assert brief.audience == ""
+        assert brief.do_not_write == ["禁无代价全能"]
+        assert bible.get_structure_map(project.id) is not None
+        assert bible.list_conflicts(project.id)
+        assert bible.list_payoff_beats(project.id)
+        assert result.chapter_keys == [f"v1c{i:03d}" for i in range(1, 6)]
+        rel = CanonRepo(session).get_relationship(project.id, "ch_su", "ch_shuju")
+        assert rel is not None
+        assert rel.provisional is True
+        assert rel.source_chapter == "planning"
+        assert rel.evidence.strip()
+        for key in result.chapter_keys:
+            outline = planning.get_outline(project.id, key)
+            assert outline.cited_conflict_ids or outline.cited_beat_ids
+        assert bible.round_complete(project.id) == {"R0", "R1", "R2", "R3", "R4", "R5"}
+
+
+async def test_bible_conversation_abort_r3_keeps_kernel(engine) -> None:
+    from sqlmodel import Session
+
+    from novel_agent.domain.repos import BibleRepo, CanonRepo, PlanningRepo
+    from novel_agent.planning.chain import PlanningAborted, PlanningGates
+    from novel_agent.planning.conversation import run_bible_conversation
+
+    with Session(engine) as session:
+        planning = PlanningRepo(session)
+        project = planning.create_project("中止R3", boundaries=["禁无代价全能"])
+        session.commit()
+        deps, _mock = _bible_deps(session)
+        deps.project_id = project.id
+
+        def confirm(prompt: str) -> bool:
+            return "角色" not in prompt
+
+        with pytest.raises(PlanningAborted, match="R3"):
+            await run_bible_conversation(
+                planning,
+                BibleRepo(session),
+                CanonRepo(session),
+                deps,
+                spark="火花",
+                gates=PlanningGates(select_kernel=lambda _c: 0, confirm=confirm),
+            )
+        session.commit()
+        assert planning.get_approved_kernel(project.id) is not None
+        assert BibleRepo(session).get_structure_map(project.id) is not None
+        assert planning.list_characters(project.id) == []
+        assert planning.list_chapters(project.id) == []
+
+
+async def test_bible_conversation_resume_after_r3_skips_r0_to_r3(engine) -> None:
+    from sqlmodel import Session
+
+    from novel_agent.domain.repos import BibleRepo, CanonRepo, PlanningRepo
+    from novel_agent.gateway import MockProvider
+    from novel_agent.planning.chain import PlanningAborted, PlanningGates
+    from novel_agent.planning.conversation import run_bible_conversation
+    from novel_agent.planning.mock_fixtures import register_planning_defaults
+
+    with Session(engine) as session:
+        planning = PlanningRepo(session)
+        bible = BibleRepo(session)
+        canon = CanonRepo(session)
+        project = planning.create_project("续跑", boundaries=["禁无代价全能"])
+        session.commit()
+        deps, _mock = _bible_deps(session)
+        deps.project_id = project.id
+
+        def confirm(prompt: str) -> bool:
+            return "冲突" not in prompt
+
+        with pytest.raises(PlanningAborted, match="R4"):
+            await run_bible_conversation(
+                planning,
+                bible,
+                canon,
+                deps,
+                spark="火花",
+                gates=PlanningGates(select_kernel=lambda _c: 0, confirm=confirm),
+            )
+        session.commit()
+        assert "R3" in bible.round_complete(project.id)
+        assert "R4" not in bible.round_complete(project.id)
+
+        mock = MockProvider()
+        register_planning_defaults(mock)
+        deps, _ = _bible_deps(session, mock)
+        deps.project_id = project.id
+        result = await run_bible_conversation(
+            planning,
+            bible,
+            canon,
+            deps,
+            spark="火花",
+            gates=PlanningGates.auto(),
+        )
+        assert set(result.skipped) >= {"R0", "R1", "R2", "R3"}
+        assert "R4" not in result.skipped
+        assert len(planning.list_chapters(project.id)) == 5
+
+
+async def test_bible_conversation_r5_lint_failure_does_not_persist_outlines(engine) -> None:
+    import json
+
+    from sqlmodel import Session
+
+    from novel_agent.domain.repos import BibleRepo, CanonRepo, PlanningRepo
+    from novel_agent.gateway import MockProvider
+    from novel_agent.planning.chain import PlanningError, PlanningGates
+    from novel_agent.planning.conversation import run_bible_conversation
+    from novel_agent.planning.mock_fixtures import planning_outline_payload
+
+    mock = MockProvider()
+    with Session(engine) as session:
+        planning = PlanningRepo(session)
+        project = planning.create_project("lint失败", boundaries=["禁无代价全能"])
+        session.commit()
+        deps, mock = _bible_deps(session, mock)
+        deps.project_id = project.id
+
+        def bad_outline(_req):
+            payload = planning_outline_payload()
+            for outline in payload["outlines"]:
+                outline["cited_conflict_ids"] = []
+                outline["cited_beat_ids"] = []
+            return json.dumps(payload, ensure_ascii=False)
+
+        mock.register("outline_planner", bad_outline)
+        with pytest.raises(PlanningError, match="lint"):
+            await run_bible_conversation(
+                planning,
+                BibleRepo(session),
+                CanonRepo(session),
+                deps,
+                spark="火花",
+                gates=PlanningGates.auto(),
+            )
+        session.commit()
+        assert planning.list_chapters(project.id) == []
+        assert BibleRepo(session).list_conflicts(project.id)
