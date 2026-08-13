@@ -225,3 +225,83 @@ def test_resolve_brief_migrates_channel_profile_fallback(engine) -> None:
         project = repo.get_project(pid)
         assert project.brief == "旧渠道简报"
         assert project.spark == "旧渠道简报"
+
+
+def _large_payoff(beat_id: str, pressure: str, order: int) -> PayoffBeat:
+    return PayoffBeat.model_validate(
+        _payoff(
+            beat_id=beat_id,
+            scale="large",
+            pressure_before=pressure,
+            chapter_key=f"v1c{order:03d}",
+            order_index=order,
+        )
+    )
+
+
+def test_bible_lint_golden_three_rejects_lore_only_chapter_one() -> None:
+    from novel_agent.lint.bible import lint_bible
+
+    lore = dict(
+        promise="世界观与历史沿革介绍",
+        escalation="地理志与设定介绍",
+        payoff_or_hook="传说考据未完",
+    )
+    bad = StructureMap.model_validate(_structure_map(golden_three=[lore, _GOLDEN, _GOLDEN]))
+    report = lint_bible(structure=bad)
+    assert not report.passed
+    assert any(f.code == "golden_three" for f in report.findings)
+
+    good = StructureMap.model_validate(_structure_map())
+    assert lint_bible(structure=good).passed
+
+
+def test_bible_lint_payoff_spacing_treats_whitespace_pressure_as_empty() -> None:
+    from novel_agent.lint.bible import lint_bible
+
+    beats = [
+        _large_payoff("a", "   ", 1),
+        _large_payoff("b", "\n\t", 2),
+        _large_payoff("c", "", 3),
+    ]
+    report = lint_bible(payoff_beats=beats)
+    assert not report.passed
+    assert any(f.code == "payoff_spacing" for f in report.findings)
+
+    ok = [
+        _large_payoff("a", "被当众点名", 1),
+        _large_payoff("b", "妹妹被扣", 2),
+        _large_payoff("c", "卖身契压顶", 3),
+    ]
+    assert lint_bible(payoff_beats=ok).passed
+
+
+def test_bible_lint_orphan_conflict_at_r5() -> None:
+    from novel_agent.lint.bible import lint_bible
+
+    missing = Conflict.model_validate(_conflict(payoff_chapter_key=""))
+    outside = Conflict.model_validate(_conflict(conflict_id="cf_x", payoff_chapter_key="v1c099"))
+    rolling = [f"v1c{i:03d}" for i in range(1, 6)]
+    report = lint_bible(conflicts=[missing, outside], rolling_keys=rolling)
+    assert not report.passed
+    assert sum(1 for f in report.findings if f.code == "orphan_conflict") == 2
+
+    ok = Conflict.model_validate(_conflict())
+    assert lint_bible(conflicts=[ok], rolling_keys=rolling).passed
+
+
+def test_bible_lint_relationship_without_evidence_fails() -> None:
+    from novel_agent.domain.schemas import RelationshipProposal
+    from novel_agent.lint.bible import lint_bible
+
+    empty = RelationshipProposal(parties=["ch_su", "ch_shuju"], state="胁迫", evidence="  ")
+    report = lint_bible(relationship_proposals=[empty])
+    assert not report.passed
+    assert any(f.code == "relationship_evidence" for f in report.findings)
+
+    ok = RelationshipProposal(
+        parties=["ch_su", "ch_shuju"],
+        state="胁迫",
+        evidence="书局执事以纵火案上门",
+    )
+    assert lint_bible(relationship_proposals=[ok]).passed
