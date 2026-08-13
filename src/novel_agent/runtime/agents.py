@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, assert_never
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -22,6 +22,7 @@ from novel_agent.domain.schemas import (
     ChapterContextPackage,
     ChapterOutline,
     CharacterCard,
+    ConceptJudgeVerdict,
     Conflict,
     DraftCandidate,
     JudgeVerdict,
@@ -35,6 +36,7 @@ from novel_agent.domain.schemas import (
     RevisionOrder,
     SceneCard,
     SceneDraft,
+    StoryKernel,
     StructureMap,
 )
 from novel_agent.gateway.base import ModelGateway, ModelRequest
@@ -133,9 +135,6 @@ def _ctx_text(ctx: ChapterContextPackage) -> str:
 
 def _review_ctx_text(role: ReviewerRole, ctx: ChapterContextPackage) -> str:
     """Return the minimum role-specific context required by Spec section 7."""
-    if role is ReviewerRole.RED_TEAM:
-        return _ctx_text(ctx)
-
     task = f"# 任务\n{ctx.task_brief}"
     hard_constraints = "# 硬约束\n" + "\n".join(
         f"- {'[提案态] ' if fact.provisional else ''}{fact.content}"
@@ -147,61 +146,80 @@ def _review_ctx_text(role: ReviewerRole, ctx: ChapterContextPackage) -> str:
         json.dumps(card.model_dump(), ensure_ascii=False) for card in ctx.scene_cards
     )
 
-    if role is ReviewerRole.PLOT:
-        return "\n\n".join(
-            [
-                task,
-                hard_constraints,
-                f"# 剧情单元\n{json.dumps(ctx.unit_card.model_dump(), ensure_ascii=False)}",
-                outline,
-                scenes,
-                boundaries,
-            ]
-        )
-    if role is ReviewerRole.CHARACTER:
-        characters = "# 出场角色档案\n" + "\n".join(
-            json.dumps(character.model_dump(), ensure_ascii=False)
-            for character in ctx.characters
-        )
-        return "\n\n".join(
-            [task, hard_constraints, outline, scenes, characters, boundaries]
-        )
-    if role is ReviewerRole.CONTINUITY:
-        parts = [task, hard_constraints, outline, scenes]
-        if ctx.previous_ending:
-            parts.append(f"# 上一章结尾\n{ctx.previous_ending}")
-        if ctx.earlier_summaries:
-            parts.append("# 更早章节摘要\n" + "\n".join(ctx.earlier_summaries))
-        if ctx.characters:
-            parts.append(
-                "# 出场角色档案\n"
-                + "\n".join(
-                    json.dumps(character.model_dump(), ensure_ascii=False)
-                    for character in ctx.characters
-                )
+    match role:
+        case ReviewerRole.RED_TEAM:
+            return _ctx_text(ctx)
+        case ReviewerRole.PLOT:
+            return "\n\n".join(
+                [
+                    task,
+                    hard_constraints,
+                    f"# 剧情单元\n{json.dumps(ctx.unit_card.model_dump(), ensure_ascii=False)}",
+                    outline,
+                    scenes,
+                    boundaries,
+                ]
             )
-        if ctx.entity_states:
-            parts.append(
-                "# 实体当前状态\n"
-                + "\n".join(
-                    f"- {'[提案态] ' if fact.provisional else ''}{fact.content}"
-                    for fact in ctx.entity_states
-                )
+        case ReviewerRole.CHARACTER:
+            characters = "# 出场角色档案\n" + "\n".join(
+                json.dumps(character.model_dump(), ensure_ascii=False)
+                for character in ctx.characters
             )
-        if ctx.active_threads:
-            parts.append(
-                "# 相关伏笔\n"
-                + "\n".join(
-                    f"- {thread.thread_id}: {thread.summary}({thread.status})"
-                    for thread in ctx.active_threads
-                )
+            return "\n\n".join(
+                [task, hard_constraints, outline, scenes, characters, boundaries]
             )
-        parts.append(boundaries)
-        return "\n\n".join(parts)
-
-    return "\n\n".join(
-        [task, f"# 风格规则\n{ctx.style_rules}", boundaries]
-    )
+        case ReviewerRole.CONTINUITY:
+            parts = [task, hard_constraints, outline, scenes]
+            if ctx.previous_ending:
+                parts.append(f"# 上一章结尾\n{ctx.previous_ending}")
+            if ctx.earlier_summaries:
+                parts.append("# 更早章节摘要\n" + "\n".join(ctx.earlier_summaries))
+            if ctx.characters:
+                parts.append(
+                    "# 出场角色档案\n"
+                    + "\n".join(
+                        json.dumps(character.model_dump(), ensure_ascii=False)
+                        for character in ctx.characters
+                    )
+                )
+            if ctx.entity_states:
+                parts.append(
+                    "# 实体当前状态\n"
+                    + "\n".join(
+                        f"- {'[提案态] ' if fact.provisional else ''}{fact.content}"
+                        for fact in ctx.entity_states
+                    )
+                )
+            if ctx.active_threads:
+                parts.append(
+                    "# 相关伏笔\n"
+                    + "\n".join(
+                        f"- {thread.thread_id}: {thread.summary}({thread.status})"
+                        for thread in ctx.active_threads
+                    )
+                )
+            parts.append(boundaries)
+            return "\n\n".join(parts)
+        case ReviewerRole.PROSE:
+            return "\n\n".join(
+                [task, f"# 风格规则\n{ctx.style_rules}", boundaries]
+            )
+        case ReviewerRole.READER_ADVOCATE:
+            return "\n\n".join(
+                [
+                    task,
+                    f"# 故事内核与读者契约\n{ctx.kernel_summary}",
+                    f"# 本卷\n{ctx.volume_summary}",
+                    outline,
+                    scenes,
+                    "# 读者体验焦点\n黄金三章承诺、爽点节奏、章尾 exit_hook、无聊段与信息负担",
+                    boundaries,
+                ]
+            )
+        case ReviewerRole.SOURCE:
+            return "\n\n".join([_ctx_text(ctx), "# 来源合规\n仅依据上下文包中的边界与正文举证"])
+        case _:
+            assert_never(role)
 
 
 @dataclass
@@ -272,9 +290,16 @@ async def run_writer(
     """两段式输出(D16)→ 组装 DraftCandidate(candidate_id 临时用 writer_id,盲化在调度层)。"""
     spec = deps.prompt("writer")
     scene_ids = [c.scene_id for c in ctx.scene_cards]
+    user = _ctx_text(ctx)
+    if writer_id == "writer_b":
+        user = (
+            "# 差异化指令\n你是第二写手。在遵守全部硬约束的前提下,给出与主候选不同切入的正文"
+            "(节奏、场面选择或对白策略不同),不得更换故事事实。\n\n"
+            + user
+        )
     req = ModelRequest(
         system=spec.render(format_instructions=TWO_PART_FORMAT_INSTRUCTIONS),
-        user=_ctx_text(ctx),
+        user=user,
         max_tokens=16000,
     )
     runtime = deps.runtime
@@ -485,6 +510,43 @@ async def run_judge(
     return verdict.model_copy(update={"rulings": restored_rulings})
 
 
+async def run_concept_judge(
+    deps: AgentDeps,
+    *,
+    kernel: StoryKernel,
+    structure: StructureMap,
+    after_round: str,
+    conflicts: list[Conflict] | None = None,
+    payoffs: list[PayoffBeat] | None = None,
+) -> ConceptJudgeVerdict:
+    """规划对抗裁判:对内核/结构(及可选冲突引擎)给出 PASS/REVISE/REJECT。"""
+    spec = deps.prompt("concept_judge")
+    verdict_schema = json.dumps(ConceptJudgeVerdict.model_json_schema(), ensure_ascii=False)
+    parts = [
+        f"# 裁决节点\n{after_round}",
+        f"# 故事内核\n{json.dumps(kernel.model_dump(), ensure_ascii=False)}",
+        f"# 结构图\n{json.dumps(structure.model_dump(), ensure_ascii=False)}",
+    ]
+    if conflicts is not None:
+        parts.append(
+            "# 冲突\n" + json.dumps([item.model_dump() for item in conflicts], ensure_ascii=False)
+        )
+    if payoffs is not None:
+        parts.append(
+            "# 爽点\n" + json.dumps([item.model_dump() for item in payoffs], ensure_ascii=False)
+        )
+    req = ModelRequest(
+        system=spec.render(verdict_schema=verdict_schema),
+        user="\n\n".join(parts),
+        max_tokens=4000,
+        temperature=0.2,
+    )
+    verdict = await CognitiveAgent(
+        deps, "concept_judge", CognitiveTask.JUDGING, ConceptJudgeVerdict
+    ).run(req)
+    return verdict.model_copy(update={"after_round": after_round})
+
+
 # ---------- Reviser ----------
 
 
@@ -605,14 +667,15 @@ async def run_people_planner(
     ).run(req)
 
 
-async def run_structure_planner(deps: AgentDeps, kernel_text: str, brief: str) -> StructureMap:
+async def run_structure_planner(
+    deps: AgentDeps, kernel_text: str, brief: str, *, repair_notes: str = ""
+) -> StructureMap:
     spec = deps.prompt("structure_planner")
     schema = json.dumps(StructureMap.model_json_schema(), ensure_ascii=False)
-    req = ModelRequest(
-        system=spec.render(schema=schema),
-        user=f"# 创作简报\n{brief}\n\n# 已确认故事内核\n{kernel_text}",
-        max_tokens=8000,
-    )
+    user = f"# 创作简报\n{brief}\n\n# 已确认故事内核\n{kernel_text}"
+    if repair_notes.strip():
+        user = f"# 修订要求\n{repair_notes.strip()}\n\n{user}"
+    req = ModelRequest(system=spec.render(schema=schema), user=user, max_tokens=8000)
     return await CognitiveAgent(
         deps, "structure_planner", CognitiveTask.PLANNING, StructureMap
     ).run(req)
@@ -623,16 +686,21 @@ async def run_conflict_planner(
     kernel_text: str,
     characters_text: str,
     chapter_keys: list[str],
+    *,
+    repair_notes: str = "",
 ) -> list[Conflict]:
     spec = deps.prompt("conflict_planner")
     schema = json.dumps(_ConflictList.model_json_schema(), ensure_ascii=False)
     keys = ",".join(chapter_keys)
+    user = (
+        f"# 故事内核\n{kernel_text}\n\n# 角色\n{characters_text}\n\n"
+        f"# 计划章节键\n{keys}"
+    )
+    if repair_notes.strip():
+        user = f"# 修订要求\n{repair_notes.strip()}\n\n{user}"
     req = ModelRequest(
         system=spec.render(schema=schema, chapter_keys=keys),
-        user=(
-            f"# 故事内核\n{kernel_text}\n\n# 角色\n{characters_text}\n\n"
-            f"# 计划章节键\n{keys}"
-        ),
+        user=user,
         max_tokens=8000,
     )
     out = await CognitiveAgent(
@@ -646,16 +714,21 @@ async def run_payoff_planner(
     kernel_text: str,
     conflicts_text: str,
     chapter_keys: list[str],
+    *,
+    repair_notes: str = "",
 ) -> list[PayoffBeat]:
     spec = deps.prompt("payoff_planner")
     schema = json.dumps(_PayoffBeatList.model_json_schema(), ensure_ascii=False)
     keys = ",".join(chapter_keys)
+    user = (
+        f"# 故事内核\n{kernel_text}\n\n# 冲突\n{conflicts_text}\n\n"
+        f"# 计划章节键\n{keys}"
+    )
+    if repair_notes.strip():
+        user = f"# 修订要求\n{repair_notes.strip()}\n\n{user}"
     req = ModelRequest(
         system=spec.render(schema=schema, chapter_keys=keys),
-        user=(
-            f"# 故事内核\n{kernel_text}\n\n# 冲突\n{conflicts_text}\n\n"
-            f"# 计划章节键\n{keys}"
-        ),
+        user=user,
         max_tokens=8000,
     )
     out = await CognitiveAgent(

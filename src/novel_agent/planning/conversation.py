@@ -12,6 +12,7 @@ from novel_agent.domain.repos.planning import PlanningRepo
 from novel_agent.domain.schemas import CharacterCard, StoryBrief, StoryKernel
 from novel_agent.lint import LintReport
 from novel_agent.lint.bible import lint_bible
+from novel_agent.planning.adversary import ensure_concept_judge
 from novel_agent.planning.chain import (
     PlanningAborted,
     PlanningError,
@@ -74,8 +75,9 @@ async def run_bible_conversation(
     *,
     volume_id: str = "v1",
     chapters_needed: int = 5,
+    skip_concept_judge: bool = False,
 ) -> BibleResult:
-    """R0 简报 → R1 内核 → R2 结构 → R3 人物关系 → R4 冲突爽点 → R5 滚动章纲。
+    """R0→R1→R2→Concept Judge→R3→R4→Judge→R5。
 
     已完成轮次跳过。每轮确认后立即 commit。R5 lint 失败不入库章纲。
     """
@@ -97,12 +99,32 @@ async def run_bible_conversation(
     if "kernel" in skipped:
         skipped[skipped.index("kernel")] = "R1"
     await _ensure_r2(bible, deps, project_id, kernel, brief, gates, skipped)
+    await ensure_concept_judge(
+        bible,
+        planning,
+        deps,
+        project_id,
+        "R2",
+        skip=skip_concept_judge,
+        volume_id=volume_id,
+        chapters_needed=chapters_needed,
+    )
     characters = await _ensure_r3(
         planning, bible, canon, deps, project_id, kernel, brief, gates, skipped
     )
     keys = planned_chapter_keys(volume_id, chapters_needed)
     await _ensure_r4(
         bible, deps, project_id, kernel, characters, keys, gates, skipped
+    )
+    await ensure_concept_judge(
+        bible,
+        planning,
+        deps,
+        project_id,
+        "R4",
+        skip=skip_concept_judge,
+        volume_id=volume_id,
+        chapters_needed=chapters_needed,
     )
     unit_id, chapter_keys = await _ensure_r5(
         planning,
@@ -117,6 +139,8 @@ async def run_bible_conversation(
         gates,
         skipped,
     )
+    if skip_concept_judge:
+        skipped.append("concept_judge")
     return BibleResult(
         project_id=project_id,
         kernel_version=kernel_version,

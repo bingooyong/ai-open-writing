@@ -68,6 +68,7 @@ DEFAULT_FORBIDDEN = [
     "writer_a",
     "writer_b",
     "reviewer_role",
+    "reader_advocate",
     "red_team",
     "claude-",
     "gpt-",

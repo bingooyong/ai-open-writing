@@ -330,3 +330,16 @@ def register_planning_defaults(mock: MockProvider) -> None:
         "outline_planner",
         lambda _req: json.dumps(planning_outline_payload(), ensure_ascii=False),
     )
+    mock.register(
+        "concept_judge",
+        lambda _req: json.dumps(
+            {
+                "verdict": "PASS",
+                "after_round": "R2",
+                "reasons": ["内核与黄金三章可以支撑开书"],
+                "repair_notes": "",
+                "repair_attempted": False,
+            },
+            ensure_ascii=False,
+        ),
+    )

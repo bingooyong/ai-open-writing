@@ -1,6 +1,6 @@
 # novel-agent
 
-本地优先的 AI 长篇小说创作智能体。阶段 0 为 CLI 工作流；阶段 1 slice 2 为本地 Web 写作台（同一 SQLite、同一编排器）：对话、五级大纲树、批次审稿、关系全景、章节轨。
+本地优先的 AI 长篇小说创作智能体。阶段 0 为 CLI 工作流；阶段 1 slice 3 在写作台上加入 Concept Judge 与额外评审（Writer B / Reader Advocate）。桌面仍为对话、五级大纲树、批次审稿、关系全景、章节轨。
 
 Python 3.11+，用 [uv](https://docs.astral.sh/uv/) 管理依赖。默认四槽位均为 mock，不访问网络、不产生费用。
 
@@ -23,6 +23,7 @@ npm install
 
 ```bash
 uv run novel init "说书人传奇" --brief "说书人发现故事会成真" --yes
+# 默认开 Concept Judge；CI 可加 --skip-concept-judge
 uv run novel write-batch --project-id 1 --chapters 3 --yes
 uv run novel export --project-id 1 --format md --out /tmp/book.md
 ```
@@ -42,9 +43,9 @@ uv run novel serve          # http://127.0.0.1:8765
 cd apps/web && npm run dev  # http://localhost:18765 ，Vite 代理 /projects 到 API
 ```
 
-不要用 Vite 默认端口 5173（会和本机其它服务冲突）。`novel doctor` 会打印 `api_url` 与 `desk_url`。`POST /projects` 带 spark 且 `auto_bible=true`（默认）时，等价于 `novel init --yes`。交互 UI 走 `POST /projects/{id}/bible/rounds/{n}/confirm`。五级大纲读 `GET /projects/{id}/outline-tree`（从 PlanningRepo 现有行组装，不另存）。审稿台读 `GET /projects/{id}/review`；批准 / 退回 / `locked_ranges` 走已有编排器。关系全景读 `GET /projects/{id}/graph`（Graph DTO，不调 LLM）。
+不要用 Vite 默认端口 5173（会和本机其它服务冲突）。`novel doctor` 会打印 `api_url` 与 `desk_url`。`POST /projects` 带 spark 且 `auto_bible=true`（默认）时，等价于 `novel init --yes`。交互 UI 走 `POST /projects/{id}/bible/rounds/{n}/confirm`。`GET /projects/{id}/bible` 含 `concept_judge` 与 `settings`。项目设置可开关 Writer B / Reader Advocate（默认开）。Source Reviewer 仅当存在 `source_record` 表才加入（当前仓库无此表则跳过）。五级大纲读 `GET /projects/{id}/outline-tree`（从 PlanningRepo 现有行组装，不另存）。审稿台读 `GET /projects/{id}/review`；批准 / 退回 / `locked_ranges` 走已有编排器。关系全景读 `GET /projects/{id}/graph`（Graph DTO，不调 LLM）。
 
-本 slice 不含：Concept Judge、Writer B、渠道导出模板、新 timeline 表。
+本 slice 不含：百万字卷工厂、渠道导出模板、新 `source_record` / `timeline_event` 表。
 
 ## 测试
 

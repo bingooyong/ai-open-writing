@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import assert_never
 
@@ -32,6 +32,7 @@ from novel_agent.domain.schemas import (
 )
 from novel_agent.gateway.structured import StructuredOutputError
 from novel_agent.lint import lint_draft
+from novel_agent.planning.settings import desk_settings, review_roles_for
 from novel_agent.runtime.agents import (
     CRITICAL_REVIEWERS,
     AgentDeps,
@@ -53,14 +54,6 @@ from novel_agent.workflow import (
     run_node_async,
     transition,
 )
-
-REVIEW_ROLES = [
-    ReviewerRole.RED_TEAM,
-    ReviewerRole.PLOT,
-    ReviewerRole.CHARACTER,
-    ReviewerRole.CONTINUITY,
-    ReviewerRole.PROSE,
-]
 
 
 class ChapterLoopError(Exception):
@@ -108,6 +101,7 @@ class ChapterLoopResult:
 class _LoopState:
     lineage_id: str
     draft_id: int | None = None
+    draft_ids: list[int] = field(default_factory=list)
     workflow_run_id: int = 0
     outline_ver: int = 1
 
@@ -309,9 +303,15 @@ def _restore_state(
     if n3 is None:
         return
     state.lineage_id = str(n3.output_snapshot.get("lineage_id") or state.lineage_id)
+    raw_ids = n3.output_snapshot.get("draft_ids") or []
+    state.draft_ids = [int(item) for item in raw_ids]
     drafts = production.list_drafts(project_id, chapter_key, state.lineage_id)
     if drafts:
         state.draft_id = drafts[-1].id
+        if drafts[-1].revision_of is not None and drafts[-1].id is not None:
+            state.draft_ids = [drafts[-1].id]
+        elif not state.draft_ids:
+            state.draft_ids = [row.id for row in drafts if row.id is not None]
 
 
 async def _advance(
@@ -349,7 +349,9 @@ async def _advance(
             )
             if not lint_out.get("passed"):
                 return "n4_lint", "lint 拦截,不消耗评审"
-            await _n5(ops, production, deps, chapter_key, state, budget, ctx_factory)
+            await _n5(
+                ops, production, deps, project_id, chapter_key, state, budget, ctx_factory
+            )
             if (
                 planning.get_chapter(project_id, chapter_key).status
                 is ChapterStatus.ADVERSARIAL_REVIEW
@@ -475,28 +477,50 @@ async def _n3(
 
     async def fn() -> dict:
         package = ctx_factory()
-        raw = await run_writer(deps, package, writer_id="writer_a")
-        blinded, mapping = blind_candidates([("writer_a", raw)])
-        draft = blinded[0]
-        rec = production.create_draft(
-            project_id,
-            chapter_key,
-            draft.candidate_id,
-            state.lineage_id,
-            draft.full_text(),
-            {
-                "scenes": [scene.model_dump() for scene in draft.scenes],
-                "chapter_summary": draft.chapter_summary,
-                "deviation_notes": draft.deviation_notes,
-            },
-            load_prompt("writer").prompt_version,
-            state.outline_ver,
+        project = PlanningRepo(ops.s).get_project(project_id)
+        writer_ids = ["writer_a"]
+        if desk_settings(project)["enable_writer_b"]:
+            writer_ids.append("writer_b")
+        gathered = await asyncio.gather(
+            *[run_writer(deps, package, writer_id=wid) for wid in writer_ids],
+            return_exceptions=True,
         )
-        assert rec.id is not None
-        state.draft_id = rec.id
+        pairs: list[tuple[str, DraftCandidate]] = []
+        for writer_id, result in zip(writer_ids, gathered, strict=True):
+            if isinstance(result, BaseException):
+                if writer_id == "writer_a":
+                    raise result
+                continue
+            pairs.append((writer_id, result))
+        blinded, mapping = blind_candidates(pairs)
+        candidate_drafts: dict[str, int] = {}
+        draft_ids: list[int] = []
+        prompt_ver = load_prompt("writer").prompt_version
+        for draft in blinded:
+            rec = production.create_draft(
+                project_id,
+                chapter_key,
+                draft.candidate_id,
+                state.lineage_id,
+                draft.full_text(),
+                {
+                    "scenes": [scene.model_dump() for scene in draft.scenes],
+                    "chapter_summary": draft.chapter_summary,
+                    "deviation_notes": draft.deviation_notes,
+                },
+                prompt_ver,
+                state.outline_ver,
+            )
+            assert rec.id is not None
+            candidate_drafts[draft.candidate_id] = rec.id
+            draft_ids.append(rec.id)
+        state.draft_id = draft_ids[0]
+        state.draft_ids = draft_ids
         return {
-            "draft_id": rec.id,
-            "candidate_id": draft.candidate_id,
+            "draft_id": draft_ids[0],
+            "draft_ids": draft_ids,
+            "candidate_id": blinded[0].candidate_id,
+            "candidate_drafts": candidate_drafts,
             "lineage_id": state.lineage_id,
             "blind_map": mapping,
         }
@@ -512,6 +536,7 @@ async def _n3(
         budget_check=budget,
     )
     state.draft_id = int(out["draft_id"])
+    state.draft_ids = [int(item) for item in out.get("draft_ids") or [state.draft_id]]
     state.lineage_id = str(out["lineage_id"])
     return out
 
@@ -527,30 +552,50 @@ def _n4(
 ) -> dict:
     if state.draft_id is None:
         raise ChapterLoopError("N4 缺少 draft_id")
-    key = f"{state.draft_id}|n4"
+    primary_id = state.draft_id
+    key = f"{primary_id}|n4"
 
     def fn() -> dict:
-        rec = production.get_draft(state.draft_id)  # type: ignore[arg-type]
-        draft = draft_from_record(rec)
-        cards = planning.list_scene_cards(project_id, chapter_key)
+        ids = state.draft_ids or [primary_id]
         package = ctx_factory()
-        original = None
-        order = None
-        if rec.revision_of is not None:
-            original = draft_from_record(production.get_draft(rec.revision_of))
-            raw_order = rec.meta.get("revision_order")
-            if raw_order:
-                order = RevisionOrder.model_validate(raw_order)
-        report = lint_draft(
-            draft, cards, package.boundaries, original=original, order=order
-        )
+        passed_ids: list[int] = []
+        last_findings: list[str] = []
+        last_codes: list[str] = []
+        for draft_id in ids:
+            rec = production.get_draft(draft_id)
+            draft = draft_from_record(rec)
+            cards = planning.list_scene_cards(project_id, chapter_key)
+            original = None
+            order = None
+            if rec.revision_of is not None:
+                original = draft_from_record(production.get_draft(rec.revision_of))
+                raw_order = rec.meta.get("revision_order")
+                if raw_order:
+                    order = RevisionOrder.model_validate(raw_order)
+            report = lint_draft(
+                draft, cards, package.boundaries, original=original, order=order
+            )
+            last_findings = [item.message for item in report.findings]
+            last_codes = [item.code for item in report.blocking]
+            if report.passed:
+                passed_ids.append(draft_id)
+        if not passed_ids:
+            return {
+                "passed": False,
+                "findings": last_findings,
+                "blocking_codes": last_codes,
+            }
+        state.draft_ids = passed_ids
+        state.draft_id = passed_ids[0]
         return {
-            "passed": report.passed,
-            "findings": [item.message for item in report.findings],
-            "blocking_codes": [item.code for item in report.blocking],
+            "passed": True,
+            "findings": last_findings,
+            "blocking_codes": [],
+            "draft_ids": passed_ids,
+            "draft_id": passed_ids[0],
         }
 
-    return run_node(
+    out = run_node(
         ops,
         state.workflow_run_id,
         "n4_lint",
@@ -559,12 +604,17 @@ def _n4(
         fn,
         max_retries=1,
     )
+    if out.get("passed") and out.get("draft_ids"):
+        state.draft_ids = [int(item) for item in out["draft_ids"]]
+        state.draft_id = int(out["draft_id"])
+    return out
 
 
 async def _n5(
     ops: OpsRepo,
     production: ProductionRepo,
     deps: AgentDeps,
+    project_id: int,
     chapter_key: str,
     state: _LoopState,
     budget: Callable[[], None],
@@ -575,9 +625,11 @@ async def _n5(
     rec = production.get_draft(state.draft_id)
     draft = draft_from_record(rec)
     package = ctx_factory()
+    project = PlanningRepo(ops.s).get_project(project_id)
+    roles = review_roles_for(ops.s, project)
     pending = [
         role
-        for role in REVIEW_ROLES
+        for role in roles
         if ops.find_success_node(f"{state.draft_id}|n5|{role.value}") is None
     ]
     gathered: list[ReviewReport | BaseException] = []
@@ -624,7 +676,7 @@ async def _n5(
         if isinstance(result, BaseException) and role in CRITICAL_REVIEWERS:
             critical_error = result
 
-    for role in REVIEW_ROLES:
+    for role in roles:
         hit = ops.find_success_node(f"{state.draft_id}|n5|{role.value}")
         if hit is None or role in pending:
             continue
@@ -656,30 +708,42 @@ async def _n6(
 ) -> dict:
     if state.draft_id is None:
         raise ChapterLoopError("N6 缺少 draft_id")
-    reports, absent = _load_review_round(ops, state.draft_id)
+    primary_id = state.draft_id
+    reports, absent = _load_review_round(ops, primary_id)
     issues = [issue for report in reports for issue in report.issues]
     review_hash = _review_set_hash(issues, absent)
-    key = f"{state.draft_id}|{review_hash}|n6"
+    key = f"{primary_id}|{review_hash}|n6"
 
     async def fn() -> dict:
-        draft = draft_from_record(production.get_draft(state.draft_id))  # type: ignore[arg-type]
+        ids = state.draft_ids or [primary_id]
+        candidates = [draft_from_record(production.get_draft(item)) for item in ids]
         package = ctx_factory()
         try:
-            raw = await run_judge(deps, [draft], reports, package, absent=absent)
+            raw = await run_judge(deps, candidates, reports, package, absent=absent)
         except StructuredOutputError:
             raise
         verdict = sanitize_verdict(raw, issues)
+        n3 = ops.find_success_node(f"{chapter_key}|{state.outline_ver}|1|n3")
+        mapping = (n3.output_snapshot.get("candidate_drafts") or {}) if n3 else {}
+        picked = mapping.get(verdict.selected_candidate)
+        selected_id = int(picked) if picked else state.draft_id
+        if selected_id not in {int(item) for item in ids}:
+            selected_id = state.draft_id
         chapter = PlanningRepo(ops.s).get_chapter(project_id, chapter_key)
         rec = production.save_verdict(
-            state.draft_id,  # type: ignore[arg-type]
+            selected_id,  # type: ignore[arg-type]
             chapter_key,
             verdict,
             chapter.revision_round + 1,
         )
         assert rec.id is not None
-        return {"verdict_id": rec.id, "verdict": verdict.model_dump()}
+        return {
+            "verdict_id": rec.id,
+            "verdict": verdict.model_dump(),
+            "draft_id": selected_id,
+        }
 
-    return await run_node_async(
+    out = await run_node_async(
         ops,
         state.workflow_run_id,
         "n6_judge",
@@ -689,6 +753,10 @@ async def _n6(
         max_retries=1,
         budget_check=budget,
     )
+    if out.get("draft_id"):
+        state.draft_id = int(out["draft_id"])
+        state.draft_ids = [state.draft_id]
+    return out
 
 
 def _apply_verdict(
@@ -777,6 +845,7 @@ async def _n7(
         )
         assert rec.id is not None
         state.draft_id = rec.id
+        state.draft_ids = [rec.id]
         return {"draft_id": rec.id, "verdict_id": record.id}
 
     out = await run_node_async(
@@ -789,6 +858,7 @@ async def _n7(
         budget_check=budget,
     )
     state.draft_id = int(out["draft_id"])
+    state.draft_ids = [state.draft_id]
     return out
 
 
@@ -853,7 +923,7 @@ async def _n9(
 def _load_review_round(ops: OpsRepo, draft_id: int) -> tuple[list[ReviewReport], list[str]]:
     reports: list[ReviewReport] = []
     absent: list[str] = []
-    for role in REVIEW_ROLES:
+    for role in ReviewerRole:
         hit = ops.find_success_node(f"{draft_id}|n5|{role.value}")
         if hit is None:
             continue

@@ -72,7 +72,30 @@ class ProductionRepo:
             if not (rec.meta or {}).get("voided")
             and not rec.lineage_id.startswith("voided:")
         ]
-        return drafts[-1] if drafts else None
+        if not drafts:
+            return None
+        by_id = {rec.id: rec for rec in drafts if rec.id is not None}
+        verdict_rec = self.latest_verdict_record(chapter_key)
+        root_id = verdict_rec.draft_version_id if verdict_rec is not None else None
+
+        def _from_selected(draft: DraftVersionRecord) -> bool:
+            if root_id is None:
+                return False
+            current: DraftVersionRecord | None = draft
+            seen: set[int] = set()
+            while current is not None and current.id is not None and current.id not in seen:
+                if current.id == root_id:
+                    return True
+                seen.add(current.id)
+                if current.revision_of is None:
+                    return False
+                current = by_id.get(current.revision_of)
+            return False
+
+        selected_line = [rec for rec in drafts if _from_selected(rec)]
+        if selected_line:
+            return selected_line[-1]
+        return drafts[-1]
 
     def void_lineage(self, project_id: int, chapter_key: str) -> int:
         """REPLAN/STALE:作废该章全部 draft 谱系。"""

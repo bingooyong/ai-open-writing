@@ -1,4 +1,4 @@
-import type { GraphDto } from "./graph/mapGraphDto";
+import type { ConceptJudgeState } from "./bible/mapConceptJudge";
 import type { OutlineTreeDto } from "./outline/mapOutlineTree";
 
 export type Project = {
@@ -9,6 +9,8 @@ export type Project = {
   spark: string;
   brief: string;
   completed_rounds: string[];
+  enable_writer_b?: boolean;
+  enable_reader_advocate?: boolean;
   bible?: BibleSnapshot;
 };
 
@@ -31,6 +33,11 @@ export type BibleSnapshot = {
   conflicts: Array<Record<string, unknown>>;
   payoffs: Array<Record<string, unknown>>;
   outlines: Array<Record<string, unknown>>;
+  concept_judge: ConceptJudgeState;
+  settings: {
+    enable_writer_b: boolean;
+    enable_reader_advocate: boolean;
+  };
 };
 
 export type ChapterRow = {
@@ -117,6 +124,17 @@ export const api = {
       }),
     ),
   getBible: (id: number) => parse<BibleSnapshot>(fetch(`/projects/${id}/bible`)),
+  patchProject: (
+    id: number,
+    body: { enable_writer_b?: boolean; enable_reader_advocate?: boolean },
+  ) =>
+    parse<Project>(
+      fetch(`/projects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    ),
   confirmRound: (id: number, round: number, select = 1) =>
     parse<BibleSnapshot>(
       fetch(`/projects/${id}/bible/rounds/${round}/confirm`, {

@@ -30,7 +30,7 @@ from novel_agent.production.mock_fixtures import (
 from novel_agent.runtime.agents import AgentDeps
 
 SAMPLES_DIR = Path(__file__).resolve().parent / "samples"
-REVIEWER_ROLES = ("red_team", "plot", "character", "continuity", "prose")
+REVIEWER_ROLES = ("red_team", "plot", "character", "continuity", "prose", "reader_advocate")
 
 
 def list_sample_dirs() -> list[Path]:
@@ -128,6 +128,10 @@ def register_sample_mocks(mock: MockProvider, sample: dict[str, Any]) -> None:
     scene_2 = scenes[1]["content"] if len(scenes) > 1 else scenes[0]["content"]
     mock.register(
         "writer_a",
+        lambda req: two_part_text(req, scene_1, scene_2, sample["chapter_summary"]),
+    )
+    mock.register(
+        "writer_b",
         lambda req: two_part_text(req, scene_1, scene_2, sample["chapter_summary"]),
     )
     if sample["expect"]["lint_blocks"]:

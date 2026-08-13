@@ -70,13 +70,15 @@ class ChapterStatus(StrEnum):
 
 
 class ReviewerRole(StrEnum):
-    """阶段0 评审阵容(Spec §7)。"""
+    """评审阵容(Spec §7 + Stage 1 条件评审)。"""
 
     RED_TEAM = "red_team"
     PLOT = "plot"
     CHARACTER = "character"
     CONTINUITY = "continuity"
     PROSE = "prose"
+    READER_ADVOCATE = "reader_advocate"
+    SOURCE = "source"
 
 
 class EntityStateType(StrEnum):
