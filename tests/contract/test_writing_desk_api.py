@@ -12,7 +12,7 @@ from novel_agent.api.app import create_app
 from novel_agent.cli.main import app as cli_app
 from novel_agent.config import Settings, reset_settings_cache
 from novel_agent.domain.db import build_engine, create_all, session_scope
-from novel_agent.domain.repos import BibleRepo, CanonRepo, PlanningRepo
+from novel_agent.domain.repos import BibleRepo, CanonRepo, PlanningRepo, ProductionRepo
 from novel_agent.graph.projector import project_graph
 
 
@@ -76,6 +76,15 @@ def test_cors_localhost_only(client: TestClient) -> None:
         },
     )
     assert allowed.headers.get("access-control-allow-origin") == "http://localhost:18765"
+
+    stale_vite = client.options(
+        "/projects",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert stale_vite.headers.get("access-control-allow-origin") != "http://localhost:5173"
 
     denied = client.options(
         "/projects",
@@ -213,9 +222,170 @@ def test_cli_doctor_prints_api_url(tmp_path, monkeypatch: pytest.MonkeyPatch) ->
     assert result.exit_code == 0, result.output
     assert "api_url:" in result.output
     assert "127.0.0.1" in result.output
+    assert "desk_url:" in result.output
+    assert "18765" in result.output
 
 
 def test_cli_serve_help() -> None:
     result = CliRunner().invoke(cli_app, ["serve", "--help"])
     assert result.exit_code == 0, result.output
     assert "API" in result.output or "uvicorn" in result.output.lower() or "写作台" in result.output
+    assert "18765" in result.output
+
+
+def _bible_project(client: TestClient, title: str) -> int:
+    created = client.post(
+        "/projects",
+        json={"title": title, "spark": "说书人发现故事会成真", "auto_bible": True},
+    )
+    assert created.status_code == 200, created.text
+    return int(created.json()["id"])
+
+
+def test_outline_tree_has_five_levels(client: TestClient) -> None:
+    pid = _bible_project(client, "大纲树")
+    missing = client.get("/projects/99/outline-tree")
+    assert missing.status_code == 404
+
+    tree = client.get(f"/projects/{pid}/outline-tree")
+    assert tree.status_code == 200, tree.text
+    payload = tree.json()
+    assert payload["project_id"] == pid
+    kernel = payload["kernel"]
+    assert kernel is not None
+    assert kernel["logline"]
+    volumes = payload["volumes"]
+    assert volumes
+    volume = volumes[0]
+    assert volume["volume_id"] == "v1"
+    units = volume["units"]
+    assert units
+    chapters = units[0]["chapters"]
+    assert [row["chapter_key"] for row in chapters][:3] == ["v1c001", "v1c002", "v1c003"]
+    first = chapters[0]
+    assert first["outline"]["chapter_key"] == "v1c001"
+    assert first["outline"]["core_event"]
+    scenes = first["scenes"]
+    assert scenes
+    assert scenes[0]["scene_id"]
+    assert scenes[0]["goal"]
+
+
+def test_edit_outline_yaml_roundtrip(client: TestClient) -> None:
+    pid = _bible_project(client, "YAML 改纲")
+    exported = client.get(f"/projects/{pid}/chapters/v1c001/outline.yaml")
+    assert exported.status_code == 200, exported.text
+    yaml_text = exported.text
+    assert "chapter_key: v1c001" in yaml_text
+    assert "scenes:" in yaml_text
+    assert "title: 第1章" in yaml_text
+    edited = yaml_text.replace("title: 第1章", "title: 修订后的章名", 1)
+    applied = client.post(
+        f"/projects/{pid}/chapters/v1c001/edit-outline",
+        json={"yaml": edited},
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["outline_version"] >= 2
+    assert applied.json()["status"] == "PLANNED"
+
+    tree = client.get(f"/projects/{pid}/outline-tree").json()
+    chapter = tree["volumes"][0]["units"][0]["chapters"][0]
+    assert chapter["title"] == "修订后的章名"
+    assert chapter["outline"]["title"] == "修订后的章名"
+
+
+def test_review_list_buckets_and_actions(client: TestClient) -> None:
+    pid = _bible_project(client, "审稿台")
+    empty = client.get(f"/projects/{pid}/review")
+    assert empty.status_code == 200
+    assert empty.json() == []
+
+    written = client.post(f"/projects/{pid}/chapters/v1c001/write-chapter")
+    assert written.status_code == 200, written.text
+    assert written.json()["status"] == "HUMAN_REVIEW"
+
+    queue = client.get(f"/projects/{pid}/review")
+    assert queue.status_code == 200, queue.text
+    items = queue.json()
+    assert len(items) == 1
+    item = items[0]
+    assert item["chapter_key"] == "v1c001"
+    assert item["bucket"] == "HUMAN_REVIEW"
+    assert item["status"] == "HUMAN_REVIEW"
+    assert item["verdict"] == "PASS"
+    assert "茶楼" in item["draft_text"]
+    assert item["issues"]
+    quotes = [
+        span["quote"]
+        for issue in item["issues"]
+        for span in issue["evidence"]
+        if span.get("quote")
+    ]
+    assert quotes
+    locatable = next(
+        span for issue in item["issues"] for span in issue["evidence"] if span.get("found")
+    )
+    assert locatable["start"] >= 0
+    assert item["draft_text"][locatable["start"] : locatable["end"]] == locatable["quote"]
+    missing = next(
+        span
+        for issue in item["issues"]
+        for span in issue["evidence"]
+        if span.get("quote") and not span.get("found")
+    )
+    assert missing["start"] is None
+    assert "正文里根本没有这句话" in missing["quote"]
+    assert item["diff"] is None
+
+    locked = client.post(
+        f"/projects/{pid}/chapters/v1c001/locked-ranges",
+        json={"ranges": ["开场灯火"]},
+    )
+    assert locked.status_code == 200, locked.text
+    assert locked.json()["locked_ranges"] == ["开场灯火"]
+
+    approved = client.post(f"/projects/{pid}/chapters/v1c001/approve")
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "CANON_LOCKED"
+
+    second = client.post(f"/projects/{pid}/chapters/v1c002/write-chapter")
+    assert second.status_code == 200, second.text
+    rejected = client.post(f"/projects/{pid}/chapters/v1c002/reject")
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["status"] == "NEEDS_REPLAN"
+
+    board = {row["chapter_key"]: row for row in client.get(f"/projects/{pid}/review").json()}
+    assert board["v1c001"]["bucket"] == "CANON_LOCKED"
+    assert board["v1c002"]["bucket"] == "IN_PROGRESS"
+    assert board["v1c002"]["status"] == "NEEDS_REPLAN"
+
+
+def test_review_diff_when_two_drafts_exist(client: TestClient) -> None:
+    pid = _bible_project(client, "双稿差异")
+    written = client.post(f"/projects/{pid}/chapters/v1c001/write-chapter")
+    assert written.status_code == 200, written.text
+
+    engine = client.app.state.engine
+    with session_scope(engine) as session:
+        production = ProductionRepo(session)
+        latest = production.latest_chapter_draft(pid, "v1c001")
+        assert latest is not None
+        production.create_draft(
+            pid,
+            "v1c001",
+            latest.candidate_id,
+            latest.lineage_id,
+            "修订后的第二稿：茶楼已打烊。",
+            dict(latest.meta or {}),
+            latest.prompt_version,
+            latest.outline_version,
+            revision_of=latest.id,
+        )
+
+    board = client.get(f"/projects/{pid}/review").json()
+    item = board[0]
+    assert item["previous_draft_text"]
+    assert "茶楼" in item["previous_draft_text"]
+    assert item["draft_text"] == "修订后的第二稿：茶楼已打烊。"
+    assert item["diff"]
+    assert "修订后的第二稿" in item["diff"]

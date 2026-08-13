@@ -5,6 +5,7 @@ import {
   type ChapterRow,
   type PendingRound,
   type Project,
+  type ReviewItem,
 } from "./api";
 import { RelationshipPanorama } from "./graph/RelationshipPanorama";
 import {
@@ -14,6 +15,11 @@ import {
   type ChapterRange,
   type GraphDto,
 } from "./graph/mapGraphDto";
+import { OutlineTree } from "./outline/OutlineTree";
+import type { OutlineTreeDto } from "./outline/mapOutlineTree";
+import { ReviewDesk } from "./review/ReviewDesk";
+
+type StageTab = "conversation" | "outline" | "review" | "graph";
 
 function artifactText(pending: PendingRound | null): string {
   if (!pending) {
@@ -31,6 +37,11 @@ export function App() {
   const [bible, setBible] = useState<BibleSnapshot | null>(null);
   const [graph, setGraph] = useState<GraphDto | null>(null);
   const [chapters, setChapters] = useState<ChapterRow[]>([]);
+  const [outlineTree, setOutlineTree] = useState<OutlineTreeDto | null>(null);
+  const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
+  const [stageTab, setStageTab] = useState<StageTab>("conversation");
+  const [selectedChapterKey, setSelectedChapterKey] = useState<string | null>(null);
+  const [outlineYaml, setOutlineYaml] = useState("");
   const [nodeId, setNodeId] = useState<string | null>(null);
   const [rangeFrom, setRangeFrom] = useState("");
   const [rangeTo, setRangeTo] = useState("");
@@ -50,14 +61,18 @@ export function App() {
   }, []);
 
   const loadDesk = useCallback(async (id: number) => {
-    const [nextBible, nextGraph, nextChapters] = await Promise.all([
+    const [nextBible, nextGraph, nextChapters, nextTree, nextReview] = await Promise.all([
       api.getBible(id),
       api.getGraph(id),
       api.listChapters(id),
+      api.getOutlineTree(id),
+      api.listReview(id),
     ]);
     setBible(nextBible);
     setGraph(nextGraph);
     setChapters(nextChapters);
+    setOutlineTree(nextTree);
+    setReviewItems(nextReview);
   }, []);
 
   useEffect(() => {
@@ -85,6 +100,19 @@ export function App() {
 
   const inspector = nodeId && graph ? inspectorFor(graph, nodeId, range) : null;
   const selectedProject = projects.find((item) => item.id === selectedId) ?? null;
+
+  async function selectChapter(chapterKey: string) {
+    setSelectedChapterKey(chapterKey);
+    setStageTab("outline");
+    if (selectedId == null) {
+      return;
+    }
+    try {
+      setOutlineYaml(await api.getOutlineYaml(selectedId, chapterKey));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
 
   return (
     <div className="app">
@@ -148,6 +176,26 @@ export function App() {
           {error ? <p className="error">{error}</p> : null}
         </aside>
         <main className="stage">
+          <nav className="stage-tabs">
+            {(
+              [
+                ["conversation", "对话"],
+                ["outline", "大纲"],
+                ["review", "审稿"],
+                ["graph", "关系"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                className={`tab${stageTab === id ? " active" : ""}`}
+                type="button"
+                onClick={() => setStageTab(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          {stageTab === "conversation" ? (
           <section className="panel">
             <h2>对话 · R0–R5</h2>
             {bible ? (
@@ -200,6 +248,69 @@ export function App() {
               <p className="muted">选择或创建一个作品。</p>
             )}
           </section>
+          ) : null}
+          {stageTab === "outline" ? (
+            <section className="panel outline-panel">
+              <h2>五级大纲</h2>
+              <OutlineTree
+                tree={outlineTree}
+                selectedChapterKey={selectedChapterKey}
+                yaml={outlineYaml}
+                busy={busy}
+                onSelectChapter={(chapterKey) => void selectChapter(chapterKey)}
+                onYamlChange={setOutlineYaml}
+                onSaveYaml={() =>
+                  void run(async () => {
+                    if (selectedId == null || !selectedChapterKey) {
+                      return;
+                    }
+                    await api.editOutline(selectedId, selectedChapterKey, outlineYaml);
+                    await loadDesk(selectedId);
+                    setOutlineYaml(await api.getOutlineYaml(selectedId, selectedChapterKey));
+                  })
+                }
+              />
+            </section>
+          ) : null}
+          {stageTab === "review" ? (
+            <section className="panel review-panel">
+              <h2>批次审稿</h2>
+              <ReviewDesk
+                items={reviewItems}
+                selectedKey={selectedChapterKey}
+                busy={busy}
+                onSelect={setSelectedChapterKey}
+                onApprove={(chapterKey) =>
+                  void run(async () => {
+                    if (selectedId == null) {
+                      return;
+                    }
+                    await api.approveChapter(selectedId, chapterKey);
+                    await loadDesk(selectedId);
+                  })
+                }
+                onReject={(chapterKey) =>
+                  void run(async () => {
+                    if (selectedId == null) {
+                      return;
+                    }
+                    await api.rejectChapter(selectedId, chapterKey);
+                    await loadDesk(selectedId);
+                  })
+                }
+                onLock={(chapterKey, ranges) =>
+                  void run(async () => {
+                    if (selectedId == null) {
+                      return;
+                    }
+                    await api.lockRanges(selectedId, chapterKey, ranges);
+                    await loadDesk(selectedId);
+                  })
+                }
+              />
+            </section>
+          ) : null}
+          {stageTab === "graph" ? (
           <section className="panel">
             <h2>关系全景</h2>
             <div className="range">
@@ -223,6 +334,7 @@ export function App() {
               onSelect={setNodeId}
             />
           </section>
+          ) : null}
         </main>
         <aside className="inspector">
           <h2>人物检视</h2>

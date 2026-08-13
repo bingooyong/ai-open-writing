@@ -11,6 +11,10 @@ export default defineConfig({
       "/health": "http://127.0.0.1:8765",
     },
   },
+  preview: {
+    port: 18765,
+    strictPort: true,
+  },
   test: {
     environment: "node",
   },

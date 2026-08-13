@@ -41,6 +41,14 @@ class ResumeBody(BaseModel):
     yes: bool = False
 
 
+class EditOutlineBody(BaseModel):
+    yaml: str = ""
+
+
+class LockedRangesBody(BaseModel):
+    ranges: list[str] = Field(default_factory=list)
+
+
 def loop_payload(result: ChapterLoopResult) -> dict[str, object]:
     return {
         "project_id": result.project_id,

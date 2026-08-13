@@ -134,13 +134,18 @@ class PlanningRepo:
             ).all()
         )
 
+    def list_unit_records(self, project_id: int) -> list[PlotUnitRecord]:
+        return list(
+            self.s.exec(
+                select(PlotUnitRecord)
+                .where(PlotUnitRecord.project_id == project_id)
+                .order_by(PlotUnitRecord.unit_id)  # type: ignore[attr-defined]
+            ).all()
+        )
+
     def list_units(self, project_id: int) -> list[PlotUnitCard]:
-        recs = self.s.exec(
-            select(PlotUnitRecord)
-            .where(PlotUnitRecord.project_id == project_id)
-            .order_by(PlotUnitRecord.unit_id)  # type: ignore[attr-defined]
-        ).all()
-        return [PlotUnitCard.model_validate(rec.payload) for rec in recs]
+        records = self.list_unit_records(project_id)
+        return [PlotUnitCard.model_validate(rec.payload) for rec in records]
 
     def list_chapters(self, project_id: int) -> list[ChapterRecord]:
         return list(
@@ -247,6 +252,7 @@ class PlanningRepo:
         """M3.3b:导入修订后的章纲,bump outline_version 并重置轮次/状态。"""
         rec = self.get_chapter(project_id, chapter_key)
         rec.outline = outline.model_dump()
+        rec.title = outline.title
         rec.outline_version += 1
         rec.revision_round = 0
         rec.status = ChapterStatus.PLANNED

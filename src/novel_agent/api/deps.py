@@ -7,7 +7,7 @@ from sqlalchemy.orm.exc import NoResultFound
 from sqlmodel import Session
 
 from novel_agent.config import Settings
-from novel_agent.domain.models import ProjectRecord
+from novel_agent.domain.models import ChapterRecord, ProjectRecord
 from novel_agent.domain.repos.planning import PlanningRepo
 
 
@@ -35,3 +35,15 @@ def require_project(planning: PlanningRepo, project_id: int) -> ProjectRecord:
         return planning.get_project(project_id)
     except NoResultFound as exc:
         raise HTTPException(status_code=404, detail=f"项目不存在 project_id={project_id}") from exc
+
+
+def require_chapter(
+    planning: PlanningRepo, project_id: int, chapter_key: str
+) -> ChapterRecord:
+    try:
+        return planning.get_chapter(project_id, chapter_key)
+    except NoResultFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"章节不存在 project_id={project_id} chapter_key={chapter_key}",
+        ) from exc
