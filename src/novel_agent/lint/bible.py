@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from novel_agent.domain.schemas import (
+    ChapterOutline,
     Conflict,
     GoldenThreeChapter,
     PayoffBeat,
@@ -103,6 +104,49 @@ def lint_outline_citations(
     return []
 
 
+def collect_remaining_forbidden(outlines: Sequence[ChapterOutline]) -> list[str]:
+    forbidden: list[str] = []
+    allowed: set[str] = set()
+    seen: set[str] = set()
+    for outline in outlines:
+        for item in outline.reveal_allowed:
+            if item:
+                allowed.add(item)
+        for item in outline.reveal_forbidden:
+            if item and item not in seen:
+                seen.add(item)
+                forbidden.append(item)
+    return [item for item in forbidden if item not in allowed]
+
+
+def lint_spoiler_visibility(
+    previous: Sequence[ChapterOutline], new_outlines: Sequence[ChapterOutline]
+) -> list[LintFinding]:
+    remaining = collect_remaining_forbidden(previous)
+    findings: list[LintFinding] = []
+    for outline in new_outlines:
+        allowed = set(outline.reveal_allowed)
+        blob = f"{outline.core_event}{outline.title}{outline.exit_hook}{outline.key_choice}"
+        for secret in remaining:
+            if secret in allowed:
+                continue
+            if secret not in outline.reveal_forbidden:
+                findings.append(
+                    LintFinding(
+                        "spoiler",
+                        f"章纲 {outline.chapter_key} 未继承禁释 {secret}",
+                    )
+                )
+            if secret in blob:
+                findings.append(
+                    LintFinding(
+                        "spoiler",
+                        f"章纲 {outline.chapter_key} 泄露仍被禁止的信息 {secret}",
+                    )
+                )
+    return findings
+
+
 def lint_bible(
     *,
     structure: StructureMap | None = None,
@@ -111,6 +155,8 @@ def lint_bible(
     rolling_keys: Sequence[str] | None = None,
     relationship_proposals: Sequence[RelationshipProposal] = (),
     outline_citations: Sequence[tuple[str, Sequence[str], Sequence[str]]] = (),
+    previous_outlines: Sequence[ChapterOutline] = (),
+    new_outlines: Sequence[ChapterOutline] = (),
 ) -> LintReport:
     findings: list[LintFinding] = []
     if structure is not None:
@@ -121,4 +167,6 @@ def lint_bible(
         findings.extend(lint_orphan_conflicts(conflicts, rolling_keys))
     for chapter_key, conflict_ids, beat_ids in outline_citations:
         findings.extend(lint_outline_citations(conflict_ids, beat_ids, chapter_key))
+    if previous_outlines or new_outlines:
+        findings.extend(lint_spoiler_visibility(previous_outlines, new_outlines))
     return LintReport(findings)

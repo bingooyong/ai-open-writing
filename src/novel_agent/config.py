@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     # 修订轮次上限:领域固定语义(Spec §6 N7),不可通过配置放宽
     max_revision_rounds: Literal[2] = 2
 
+    # 卷工厂:已规划但未锁定的滚动窗口(默认约 5 章)
+    rolling_window: int = 5
+
     # 调试:默认不落完整提示词与正文(PRD §18.3)
     debug_log: bool = False
 

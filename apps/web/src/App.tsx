@@ -321,6 +321,15 @@ export function App() {
                     setOutlineYaml(await api.getOutlineYaml(selectedId, selectedChapterKey));
                   })
                 }
+                onPlanMore={() =>
+                  void run(async () => {
+                    if (selectedId == null) {
+                      return;
+                    }
+                    await api.planMore(selectedId);
+                    await loadDesk(selectedId);
+                  })
+                }
               />
             </section>
           ) : null}
@@ -484,7 +493,7 @@ export function App() {
                 })
               }
             >
-              批次 3 章
+              写下一批
             </button>
             <button
               className="btn ghost"

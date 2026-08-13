@@ -37,6 +37,13 @@ class WriteChapterBody(BaseModel):
 class WriteBatchBody(BaseModel):
     chapters: int = Field(default=3, ge=3, le=5)
     yes: bool = False
+    from_chapter: str | None = None
+
+
+class PlanMoreBody(BaseModel):
+    window: int = Field(default=5, ge=1)
+    chapters: int | None = Field(default=None, ge=1)
+    open_volume: bool | None = None
 
 
 class ResumeBody(BaseModel):

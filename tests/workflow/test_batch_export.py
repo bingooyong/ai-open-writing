@@ -108,10 +108,11 @@ async def test_interrupt_resume_does_not_rerun_successful_nodes(tmp_path) -> Non
             session, deps, project_id, chapter_count=3, yes=True
         )
         session.commit()
-        assert [item.chapter_key for item in batch.results] == ["v1c002", "v1c003"]
+        assert [item.chapter_key for item in batch.results] == ["v1c002", "v1c003", "v1c004"]
         assert _count_n3(session, "v1c001") == n3_before
         assert _count_n3(session, "v1c002") == 1
         assert _count_n3(session, "v1c003") == 1
+        assert _count_n3(session, "v1c004") == 1
     finally:
         session.close()
 

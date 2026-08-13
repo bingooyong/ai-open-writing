@@ -216,23 +216,80 @@ _UNIT = dict(
 )
 
 
-def _chapter(n: int) -> dict:
-    key = f"v1c{n:03d}"
-    events = (
-        "说书人随口编的故事一夜成真",
-        "西市余烬里出现听过评书的证人",
-        "书局执事以纵火案上门",
-        "妹妹被扣为人质",
-        "他第一次主动讲一个救人的故事",
+_DEFAULT_KEYS = [f"v1c{i:03d}" for i in range(1, 6)]
+_EVENTS = (
+    "说书人随口编的故事一夜成真",
+    "西市余烬里出现听过评书的证人",
+    "书局执事以纵火案上门",
+    "妹妹被扣为人质",
+    "他第一次主动讲一个救人的故事",
+)
+
+
+def _block_after(text: str, marker: str) -> str:
+    if marker not in text:
+        return ""
+    rest = text.split(marker, 1)[1]
+    lines: list[str] = []
+    for line in rest.splitlines()[1:]:
+        if line.startswith("#"):
+            break
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def chapter_keys_from_prompt(text: str) -> list[str]:
+    block = _block_after(text, "# 计划章节键")
+    if not block:
+        return list(_DEFAULT_KEYS)
+    found: list[str] = []
+    for token in block.replace("\n", ",").split(","):
+        key = token.strip()
+        if key and key not in found:
+            found.append(key)
+    return found or list(_DEFAULT_KEYS)
+
+
+def _line_value(text: str, marker: str, default: str) -> str:
+    block = _block_after(text, marker)
+    return block.splitlines()[0].strip() if block else default
+
+
+def _forbidden_from_prompt(text: str) -> list[str]:
+    block = _block_after(text, "# 禁释继承")
+    items: list[str] = []
+    for line in block.splitlines():
+        item = line.lstrip("- ").strip()
+        if item and item != "(无)":
+            items.append(item)
+    return items or ["书局主人真名"]
+
+
+def _chapter(
+    n: int,
+    *,
+    key: str | None = None,
+    volume_id: str = "v1",
+    unit_id: str = "u1",
+    reveal_forbidden: list[str] | None = None,
+    cited_conflict_ids: list[str] | None = None,
+    cited_beat_ids: list[str] | None = None,
+) -> dict:
+    chapter_key = key or f"{volume_id}c{n:03d}"
+    event = (
+        _EVENTS[n - 1]
+        if 1 <= n <= len(_EVENTS) and volume_id == "v1" and chapter_key in _DEFAULT_KEYS
+        else f"续篇压力在 {chapter_key} 落地,主角必须再进一步"
     )
+    conflict_ids, beat_ids = _CITATIONS[(n - 1) % len(_CITATIONS)]
     return dict(
-        chapter_key=key,
-        volume_id="v1",
-        unit_id="u1",
+        chapter_key=chapter_key,
+        volume_id=volume_id,
+        unit_id=unit_id,
         title=f"第{n}章",
-        core_event=events[n - 1],
+        core_event=event,
         pov="苏晚生",
-        time_location=f"临安城,第{n}日",
+        time_location=f"临安城,{chapter_key}",
         protagonist_goal="在不被写成罪人的前提下活过今晚",
         key_choice="选择继续讲还是封口",
         start_state="尚未看清代价",
@@ -241,14 +298,13 @@ def _chapter(n: int) -> dict:
         entry_point="茶楼或街巷的可见事件",
         exit_hook="下一层压力露出边角",
         target_words=3000,
-        reveal_forbidden=["书局主人真名"],
-        cited_conflict_ids=_CITATIONS[(n - 1) % len(_CITATIONS)][0],
-        cited_beat_ids=_CITATIONS[(n - 1) % len(_CITATIONS)][1],
+        reveal_forbidden=list(reveal_forbidden or ["书局主人真名"]),
+        cited_conflict_ids=cited_conflict_ids or conflict_ids,
+        cited_beat_ids=cited_beat_ids or beat_ids,
     )
 
 
-def _scenes(n: int) -> list[dict]:
-    key = f"v1c{n:03d}"
+def _scenes_for(key: str) -> list[dict]:
     return [
         dict(
             scene_id=f"{key}_s1",
@@ -285,10 +341,87 @@ def _scenes(n: int) -> list[dict]:
     ]
 
 
-def planning_outline_payload(chapters_needed: int = 5) -> dict:
-    outlines = [_chapter(i) for i in range(1, chapters_needed + 1)]
-    scene_cards = [card for i in range(1, chapters_needed + 1) for card in _scenes(i)]
-    return {"unit": _UNIT, "outlines": outlines, "scene_cards": scene_cards}
+def _scenes(n: int) -> list[dict]:
+    return _scenes_for(f"v1c{n:03d}")
+
+
+def planning_conflicts_for(keys: list[str]) -> list[dict]:
+    if keys == _DEFAULT_KEYS:
+        return PLANNING_CONFLICTS
+    kinds = ("interest", "value", "time")
+    return [
+        dict(
+            conflict_id=f"cf_{key}",
+            kind=kinds[index % 3],
+            parties=["ch_su", "ch_shuju"] if index % 2 == 0 else ["ch_su"],
+            stake=f"续篇压力 {key}",
+            temperature="rising",
+            must_affect="plot",
+            payoff_chapter_key=key,
+        )
+        for index, key in enumerate(keys)
+    ]
+
+
+def planning_payoffs_for(keys: list[str]) -> list[dict]:
+    if keys == _DEFAULT_KEYS:
+        return PLANNING_PAYOFFS
+    scales = ("micro", "small", "small", "large", "large")
+    kinds = ("reveal", "face-slap", "bond", "reversal", "power")
+    return [
+        dict(
+            beat_id=f"pb_{key}",
+            scale=scales[index % len(scales)],
+            kind=kinds[index % len(kinds)],
+            pressure_before=f"{key} 前的压迫",
+            hit=f"{key} 的兑现",
+            chapter_key=key,
+            order_index=index + 1,
+        )
+        for index, key in enumerate(keys)
+    ]
+
+
+def planning_outline_payload(
+    chapters_needed: int = 5,
+    *,
+    volume_id: str = "v1",
+    unit_id: str = "u1",
+    chapter_keys: list[str] | None = None,
+    reveal_forbidden: list[str] | None = None,
+) -> dict:
+    keys = chapter_keys or [f"{volume_id}c{i:03d}" for i in range(1, chapters_needed + 1)]
+    if keys == _DEFAULT_KEYS and unit_id == "u1" and volume_id == "v1":
+        outlines = [_chapter(i) for i in range(1, len(keys) + 1)]
+        scene_cards = [card for i in range(1, len(keys) + 1) for card in _scenes(i)]
+        return {"unit": _UNIT, "outlines": outlines, "scene_cards": scene_cards}
+
+    unit = {
+        **_UNIT,
+        "unit_id": unit_id,
+        "position_in_volume": f"{volume_id} 续写单元",
+        "promise_or_debt": f"兑现 {volume_id} 的下一截期待债务",
+        "trigger": f"{keys[0]} 的新压力上门",
+        "climax": f"{keys[-1]} 的局部高潮",
+        "payoff": f"{keys[-1]} 兑现本单元承诺",
+        "new_debt": "故事债尚未还清",
+    }
+    outlines = []
+    scene_cards = []
+    for index, key in enumerate(keys, start=1):
+        outlines.append(
+            _chapter(
+                index,
+                key=key,
+                volume_id=volume_id,
+                unit_id=unit_id,
+                reveal_forbidden=reveal_forbidden,
+                cited_conflict_ids=[f"cf_{key}"],
+                cited_beat_ids=[f"pb_{key}"],
+            )
+        )
+        scene_cards.extend(_scenes_for(key))
+    return {"unit": unit, "outlines": outlines, "scene_cards": scene_cards}
 
 
 def kernel_candidate_payload() -> dict:
@@ -320,15 +453,30 @@ def register_planning_defaults(mock: MockProvider) -> None:
     )
     mock.register(
         "conflict_planner",
-        lambda _req: json.dumps({"conflicts": PLANNING_CONFLICTS}, ensure_ascii=False),
+        lambda req: json.dumps(
+            {"conflicts": planning_conflicts_for(chapter_keys_from_prompt(req.user))},
+            ensure_ascii=False,
+        ),
     )
     mock.register(
         "payoff_planner",
-        lambda _req: json.dumps({"beats": PLANNING_PAYOFFS}, ensure_ascii=False),
+        lambda req: json.dumps(
+            {"beats": planning_payoffs_for(chapter_keys_from_prompt(req.user))},
+            ensure_ascii=False,
+        ),
     )
     mock.register(
         "outline_planner",
-        lambda _req: json.dumps(planning_outline_payload(), ensure_ascii=False),
+        lambda req: json.dumps(
+            planning_outline_payload(
+                chapters_needed=len(chapter_keys_from_prompt(req.user)),
+                volume_id=_line_value(req.user, "# 指定 volume_id", "v1"),
+                unit_id=_line_value(req.user, "# 指定 unit_id", "u1"),
+                chapter_keys=chapter_keys_from_prompt(req.user),
+                reveal_forbidden=_forbidden_from_prompt(req.user),
+            ),
+            ensure_ascii=False,
+        ),
     )
     mock.register(
         "concept_judge",
