@@ -1,0 +1,116 @@
+id: R3
+implant: causal_break
+title: 因果断裂——关键结果无前置
+expect:
+  lint_blocks: false
+  judge_blocks: true
+  rollback: [chapter_outline, scene_card]
+  reviewers_called: true
+  status: NEEDS_REPLAN
+  verdict: REPLAN_CHAPTER
+kernel:
+  premise: 如果一个说书人发现自己讲的故事会成真
+  logline: 落魄说书人为救妹妹,用会成真的故事对抗操纵命运的书局
+  theme_question: 讲故事的人有没有权力改写别人的命运
+  dramatic_question: 他能否在不牺牲无辜者的前提下救回妹妹
+  value_shift: 从逃避责任到承担叙述的代价
+  ending_proof: 他烧掉能成真的书,用凡人方式完成救赎
+  reader_promise: 每卷一个成真故事引发的连锁危机与反转
+  do_not_write: [禁无代价全能]
+characters:
+  - character_id: ch_su
+    name: 苏晚生
+    identity: 临安城茶楼说书人
+    story_function: 主角
+    external_goal: 赎回被书局扣押的妹妹
+    internal_need: 承认自己无法置身故事之外
+    motivation: 妹妹是他唯一亲人
+    fear: 自己的话害死无辜者
+    start_state: 只求糊口、回避是非
+    end_state: 接受叙述者的责任
+  - character_id: ch_shuju
+    name: 霍执事
+    identity: 书局外务执事
+    story_function: 对手
+    external_goal: 把苏晚生签进书局
+    internal_need: 证明自己不是可替换的笔
+    motivation: 书局许他一页改命的纸
+    fear: 被写成无名配角
+    start_state: 冷静收网
+    end_state: 发现自己也是书中人
+unit:
+  unit_id: u1
+  position_in_volume: 第一卷开局单元
+  promise_or_debt: 兑现故事成真的核心设定
+  trigger: 随口编的失火故事次日成真
+  protagonist_goal: 查明故事为何成真
+  opposition: 书局执事以纵火案胁迫
+  escalation_beats: [成真范围扩大, 试探尚未完成]
+  midpoint_change: 发现书局早知他的能力
+  irreversible_choice: 签下卖身契
+  climax: 第一次主动讲救人的故事
+  payoff: 代价规则首次明确
+outline:
+  chapter_key: v1c001
+  volume_id: v1
+  unit_id: u1
+  title: 尚未落笔
+  core_event: 执事上门试探,签约尚未发生
+  pov: 苏晚生
+  time_location: 临安城,春夜茶楼
+  protagonist_goal: 弄清对方要什么
+  key_choice: 今夜只听到条件,并不落笔
+  start_state: 尚未看清代价
+  end_state: 仍未签约,压力留下钩子
+  emotion_shift: 侥幸→收紧
+  entry_point: 茶楼满座
+  exit_hook: 契约还在袖中未展
+  target_words: 3000
+scenes:
+  - scene_id: v1c001_s1
+    chapter_key: v1c001
+    pov: 苏晚生
+    time: 春夜
+    location: 临安茶楼
+    entry_state: 听众渐散
+    goal: 把今晚的书讲完
+    obstacle: 门外有生人听书
+    stakes: 名声
+    turning_point: 他感到被盯上
+    choice: 继续讲完
+    outcome: 执事现身
+    emotional_shift: 轻松→发冷
+    word_budget: 1200
+  - scene_id: v1c001_s2
+    chapter_key: v1c001
+    pov: 苏晚生
+    time: 入夜
+    location: 茶楼后巷
+    entry_state: 已经无法装傻
+    goal: 听清条件但不答应
+    obstacle: 对方握有把柄
+    stakes: 人身自由
+    turning_point: 契约被亮出但未签
+    choice: 拒绝落笔
+    outcome: 本章停在试探
+    emotional_shift: 发冷→咬牙
+    word_budget: 1200
+draft_scenes:
+  - scene_id: v1c001_s1
+    content: >-
+      临安茶楼里灯火通明，苏晚生一拍醒木，满堂皆静。
+      他随口编了西市失火的段子，听众叫好。
+      散场时巷口有人议论，说西市夜里真的走了水。
+      苏晚生心里发冷，第一次觉得评书和现实对上了。
+  - scene_id: v1c001_s2
+    content: >-
+      入夜后他绕到茶楼后巷，霍执事已经等在那里。
+      霍执事把已签好的契书收进袖中，苏晚生却想不起自己何时落过笔。
+      没有讨价还价，没有拒绝，签约这个结果像从空白处掉下来。
+      苏晚生站在原处，因果已经断了。
+chapter_summary: 未铺垫的签约结果突然成立
+quote: 霍执事把已签好的契书收进袖中，苏晚生却想不起自己何时落过笔
+blocker_role: plot
+hard_gate: causality_break
+rollback_target: chapter_outline
+judge_verdict: REPLAN_CHAPTER

@@ -7,6 +7,7 @@
   M3.3b        edit-outline
   M3.4         review-batch / approve
   M3.5         write-batch / resume / export
+  M4           smoke-stage0
 """
 
 import asyncio
@@ -63,6 +64,7 @@ from novel_agent.verification.m26_smoke import (
     run_m26_smoke,
 )
 from novel_agent.verification.m33_smoke import run_m33_smoke
+from novel_agent.verification.stage0_smoke import run_stage0_smoke
 from novel_agent.workflow.errors import WorkflowPaused
 
 app = typer.Typer(help="本地优先的 AI 长篇小说创作智能体(阶段0)", no_args_is_help=True)
@@ -503,6 +505,47 @@ def smoke_chapter(
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from None
     typer.echo(f"M3.3 chapter smoke finished; redacted report: {path}")
+
+
+@app.command("smoke-stage0")
+def smoke_stage0(
+    confirm_real_models: Annotated[
+        bool,
+        typer.Option(
+            "--confirm-real-models",
+            help="显式确认本命令将调用并计费真实模型",
+        ),
+    ] = False,
+    budget_usd: Annotated[
+        float | None,
+        typer.Option("--budget-usd", help="本次运行不可超过的 USD 硬上限"),
+    ] = None,
+    report: Annotated[
+        Path | None, typer.Option("--report", help="脱敏 JSON 证据报告路径")
+    ] = None,
+) -> None:
+    """M4.2 受限真实模型三章冒烟;默认拒绝。四槽位为 mock 时跳过并说明。"""
+    if not confirm_real_models:
+        typer.echo("拒绝: 缺少 --confirm-real-models", err=True)
+        raise typer.Exit(2)
+    if budget_usd is None or budget_usd <= 0:
+        typer.echo("拒绝: --budget-usd 必须是正数", err=True)
+        raise typer.Exit(2)
+
+    try:
+        path = asyncio.run(
+            run_stage0_smoke(get_settings(), budget_usd=budget_usd, report_path=report)
+        )
+    except SmokeGateError as exc:
+        typer.echo(f"拒绝: {exc}", err=True)
+        raise typer.Exit(2) from None
+    except ValidationError:
+        typer.echo("拒绝: 模型槽位配置无效（详情已脱敏）", err=True)
+        raise typer.Exit(2) from None
+    except SmokeExecutionError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from None
+    typer.echo(f"M4.2 stage0 smoke finished; redacted report: {path}")
 
 
 def _resolve_chapter_key(chapter: str | None, chapter_key: str) -> str:

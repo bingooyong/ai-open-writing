@@ -147,7 +147,25 @@ def sanitize_verdict(verdict: JudgeVerdict, issues: list[ReviewIssue]) -> JudgeV
         if supporting and all(issue.downweighted for issue in supporting):
             continue
         cleaned_gates.append(gate)
-    return verdict.model_copy(update={"rulings": rulings, "hard_gate_failures": cleaned_gates})
+    updates: dict[str, object] = {"rulings": rulings, "hard_gate_failures": cleaned_gates}
+    remaining_accepted = [item for item in rulings if item.accepted]
+    if (
+        verdict.verdict
+        in {VerdictType.REVISE_LOCAL, VerdictType.REPLAN_SCENE, VerdictType.REPLAN_CHAPTER}
+        and not cleaned_gates
+        and not remaining_accepted
+    ):
+        updates.update(
+            {
+                "verdict": VerdictType.PASS,
+                "rollback_target": None,
+                "revision_scope": [],
+                "reasoning_summary": (
+                    f"{verdict.reasoning_summary}（无证据项已降权,不得作为阻断）"
+                ),
+            }
+        )
+    return verdict.model_copy(update=updates)
 
 
 def _review_set_hash(issues: list[ReviewIssue], absent: list[str]) -> str:
@@ -261,7 +279,9 @@ async def run_chapter_loop(
     latest = production.latest_verdict(chapter_key)
     if chapter.status is ChapterStatus.CANON_LOCKED:
         ops.update_workflow(state.workflow_run_id, status="succeeded", current_node=stopped_at)
-    elif chapter.status in {ChapterStatus.HUMAN_REVIEW, ChapterStatus.NEEDS_REPLAN}:
+    elif chapter.status in {ChapterStatus.HUMAN_REVIEW, ChapterStatus.NEEDS_REPLAN} or (
+        stopped_at == "n4_lint"
+    ):
         ops.update_workflow(state.workflow_run_id, status="paused", current_node=stopped_at)
     session.commit()
     return ChapterLoopResult(
@@ -324,7 +344,11 @@ async def _advance(
                 session.commit()
             continue
         if status is ChapterStatus.ADVERSARIAL_REVIEW:
-            _n4(ops, planning, production, project_id, chapter_key, state, ctx_factory)
+            lint_out = _n4(
+                ops, planning, production, project_id, chapter_key, state, ctx_factory
+            )
+            if not lint_out.get("passed"):
+                return "n4_lint", "lint 拦截,不消耗评审"
             await _n5(ops, production, deps, chapter_key, state, budget, ctx_factory)
             if (
                 planning.get_chapter(project_id, chapter_key).status
@@ -520,11 +544,10 @@ def _n4(
         report = lint_draft(
             draft, cards, package.boundaries, original=original, order=order
         )
-        if report.blocking:
-            raise RuntimeError("; ".join(item.message for item in report.blocking))
         return {
-            "passed": True,
+            "passed": report.passed,
             "findings": [item.message for item in report.findings],
+            "blocking_codes": [item.code for item in report.blocking],
         }
 
     return run_node(

@@ -58,3 +58,35 @@ token/成本/延迟、Schema 校验状态、中文 evidence 定位计数与正�
 - 预算：保守预检 `$0.984`，硬上限 `$1.00`，实际成本 `$0.096965`。
 - 脱敏审计：报告未包含密钥、完整提示词、待审正文或原稿。
 - 完成后基线：`113 passed`；Ruff 全绿；mypy 对 44 个 source files 全绿。
+
+## M4 阶段0 mock 验收（2026-08-13）
+
+回归集走现有 `run_chapter_loop` / `lint_draft` / `run_judge`，默认 pytest 不调用付费 API。
+
+### M4.1 回归集
+
+`tests/regression/samples/` 六个微型项目（kernel + 角色 + 章纲 + 植入稿 + 期望裁决）：
+
+| 样本 | 植入 | mock 结果 | 误杀/漏杀 |
+|---|---|---|---|
+| R1 | 已死角色苏晚梅现身 | Judge `REPLAN_SCENE`，`rollback_target=scene_card` | 无漏杀 |
+| R2 | POV 使用章纲禁止的书局主人真名 | Judge `REPLAN_SCENE`，`rollback_target=scene_card` | 无漏杀 |
+| R3 | 未铺垫的签约结果 | Judge `REPLAN_CHAPTER`，`rollback_target=chapter_outline` | 无漏杀 |
+| R4 | 正文残留 `{"issue_id": ...}` | N4 lint 拦截，`stopped_at=n4_lint`，评审/Judge 零调用 | 工程污染未进入评审 |
+| R5 | 无证据 P0 正史冲突意见 | 代码 `downweighted`；Judge 原裁决被 `sanitize_verdict` 降为 PASS | 无证据项未采纳为阻断 |
+| R6 | 干净稿 | PASS → `CANON_LOCKED` | 无误杀 |
+
+### M4.3 Judge 校准
+
+- R5：空 evidence 的硬门禁意见进入 Judge，但不得留在 `hard_gate_failures` / `accepted` 阻断集。
+- R6：干净样本不被误杀。
+- 匿名化：Judge 的 `system`+`user` 不含 `writer_a` / `reviewer_role` / `mock-model` 及 `DEFAULT_FORBIDDEN` 模型族前缀。
+
+### M4.2 真实模型三章冒烟（非 CI）
+
+`novel smoke-stage0 --confirm-real-models --budget-usd N` 默认拒绝。四槽位任一为 mock 或未定价则跳过并说明（不发起付费调用）。报告写入 `artifacts/verification/stage0-smoke-*.json`，清单对齐 Spec §1.3 五条退出条件；正文质量不是通过标准。本里程碑未跑付费三章，证据以 mock 回归集为准。
+
+### 完成后基线
+
+`193 passed`（含 `tests/regression` 17）；Ruff 全绿；mypy 对 67 个 source files 全绿。
+

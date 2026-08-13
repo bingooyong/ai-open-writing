@@ -1,0 +1,122 @@
+id: R1
+implant: canon_conflict
+title: 正史冲突——已死角色现身
+expect:
+  lint_blocks: false
+  judge_blocks: true
+  rollback: [scene_card, prose]
+  reviewers_called: true
+  status: NEEDS_REPLAN
+  verdict: REPLAN_SCENE
+kernel:
+  premise: 如果一个说书人发现自己讲的故事会成真
+  logline: 落魄说书人为救妹妹,用会成真的故事对抗操纵命运的书局
+  theme_question: 讲故事的人有没有权力改写别人的命运
+  dramatic_question: 他能否在不牺牲无辜者的前提下救回妹妹
+  value_shift: 从逃避责任到承担叙述的代价
+  ending_proof: 他烧掉能成真的书,用凡人方式完成救赎
+  reader_promise: 每卷一个成真故事引发的连锁危机与反转
+  do_not_write: [禁无代价全能]
+characters:
+  - character_id: ch_su
+    name: 苏晚生
+    identity: 临安城茶楼说书人
+    story_function: 主角
+    external_goal: 赎回被书局扣押的妹妹
+    internal_need: 承认自己无法置身故事之外
+    motivation: 妹妹是他唯一亲人
+    fear: 自己的话害死无辜者
+    start_state: 只求糊口、回避是非
+    end_state: 接受叙述者的责任
+  - character_id: ch_mei
+    name: 苏晚梅
+    identity: 说书人的妹妹
+    story_function: 亲人
+    external_goal: 活着回家
+    internal_need: 不被写成故事里的人质
+    motivation: 相信哥哥会来
+    fear: 成为评书里的祭品
+    start_state: 已在西市火灾中身亡
+    end_state: 以死者身份留在正史中
+canon:
+  - entity_id: ch_mei
+    state_type: status
+    value: 已死
+    reason: 开书前西市火灾中身亡,正史不可复活
+    source_chapter: prior
+unit:
+  unit_id: u1
+  position_in_volume: 第一卷开局单元
+  promise_or_debt: 兑现故事成真的核心设定
+  trigger: 随口编的失火故事次日成真
+  protagonist_goal: 查明故事为何成真
+  opposition: 书局执事以纵火案胁迫
+  escalation_beats: [成真范围扩大, 死者不可归]
+  midpoint_change: 发现书局早知他的能力
+  irreversible_choice: 签下卖身契
+  climax: 第一次主动讲救人的故事
+  payoff: 代价规则首次明确
+outline:
+  chapter_key: v1c001
+  volume_id: v1
+  unit_id: u1
+  title: 死人敲门
+  core_event: 说书人面对已死亲人的幻觉或冲突
+  pov: 苏晚生
+  time_location: 临安城,春夜茶楼
+  protagonist_goal: 把今晚的书讲完
+  key_choice: 是否承认看见了不该存在的人
+  start_state: 穷困但平静
+  end_state: 正史被撕裂
+  emotion_shift: 轻快→惊惧
+  entry_point: 茶楼满座
+  exit_hook: 死者不该走动
+  target_words: 3000
+scenes:
+  - scene_id: v1c001_s1
+    chapter_key: v1c001
+    pov: 苏晚生
+    time: 春夜
+    location: 临安茶楼
+    entry_state: 听众渐散
+    goal: 用新桥段留住客人
+    obstacle: 老听客起哄
+    stakes: 今晚赏钱
+    turning_point: 门外有人推门
+    choice: 抬头去看
+    outcome: 看见不该存在的人
+    emotional_shift: 窘迫→冰凉
+    word_budget: 1200
+  - scene_id: v1c001_s2
+    chapter_key: v1c001
+    pov: 苏晚生
+    time: 入夜
+    location: 茶楼后巷
+    entry_state: 已经无法装傻
+    goal: 把伤害从自己身上挪开
+    obstacle: 记忆与眼前冲突
+    stakes: 正史是否还作数
+    turning_point: 他必须决定信哪一边
+    choice: 开口或沉默
+    outcome: 冲突落地
+    emotional_shift: 冰凉→咬牙
+    word_budget: 1200
+draft_scenes:
+  - scene_id: v1c001_s1
+    content: >-
+      临安茶楼里灯火通明，苏晚生一拍醒木，满堂皆静。
+      他随口编了西市失火的段子，听众叫好。
+      散场时巷口忽然一暗，已经身亡的苏晚梅推开茶楼的门走了进来，
+      裙摆上还带着未干的烟灰，像是刚从火里走回人世。
+      苏晚生手里的醒木掉在桌上，茶客却只当这是新桥段。
+  - scene_id: v1c001_s2
+    content: >-
+      入夜后他绕到茶楼后巷，想把方才的事说成眼花。
+      可那女子还站在灯影里叫他哥哥，声音清楚得不像幻觉。
+      苏晚生把到嘴边的否认咽了回去，却知道正史已经裂开一道口子。
+chapter_summary: 已死的妹妹走进茶楼
+quote: 已经身亡的苏晚梅推开茶楼的门走了进来
+blocker_role: continuity
+hard_gate: canon_conflict
+rollback_target: scene_card
+judge_verdict: REPLAN_SCENE

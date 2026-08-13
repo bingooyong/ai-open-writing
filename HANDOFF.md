@@ -1,16 +1,16 @@
 # Project Handoff
 
-## 2026-08-13 - M3.3b / M3.4 / M3.5 production CLI on Story Bible main
+## 2026-08-13 - M4 Stage 0 mock acceptance
 
 ### Current target
 
 Complete Stage 0 of the local-first AI long-form novel agent described in
 `.omc/autopilot/spec.md` and `.omc/plans/autopilot-impl.md`.
 
-The repository is at **M3.5 (batch + resume + export)** on top of Story Bible,
-M3.3 (single-chapter N1→N9), M3.3b (`edit-outline`), and M3.4 (human gate).
-M0, M1, M2, M3.1-equivalent context assembly, M3.2 planning-chain, and Story
-Bible conversation remain complete. **Next is M4 Stage 0 acceptance.**
+The repository is at **M4 mock acceptance** on top of Story Bible, M3.3
+(single-chapter N1→N9), M3.3b (`edit-outline`), M3.4 (human gate), and M3.5
+(batch + resume + export). M0–M3 remain complete. **Remaining is optional
+paid three-chapter smoke (`novel smoke-stage0`) plus Stage 1.**
 
 ### Resume here
 
@@ -20,6 +20,7 @@ sed -n '1,80p' HANDOFF.md
 git status --short
 uv sync
 uv run pytest -q
+uv run pytest tests/regression -q
 uv run ruff check .
 uv run mypy src
 uv run novel init "说书人传奇" --brief "说书人发现故事会成真" --yes
@@ -76,6 +77,10 @@ uv run novel export --project-id 1 --format md --out /tmp/book.md
 - M3.3b: `novel edit-outline` YAML 导出/导入, bump `outline_ver`, 旧谱系作废, 回 N1。
 - M3.4: `novel review-batch` / `novel approve` 人工门禁;批准走 CanonWriter。
 - M3.5: `novel write-batch` (D15 overlay + STALE 级联) / `resume` / `export`。
+- M4.1: `tests/regression/samples/` R1–R6 微型项目走现有 loop/lint/judge（mock）。
+- M4.2: `novel smoke-stage0 --confirm-real-models --budget-usd N`（非默认 CI）。
+- M4.3: R5 无证据不阻断、R6 不误杀、Judge 输入匿名化断言。
+- M4.4: README + verification-report mock 证据。
 
 Relevant commits, newest first:
 
@@ -167,13 +172,41 @@ dc465d6 feat: Story Bible from a Spark (R0–R5 conversation + canon graph) (#5)
 
 ### Fresh validation evidence
 
-Collected on 2026-08-13 after M3.3b / M3.4 / M3.5:
+Collected on 2026-08-13 after M4 mock acceptance:
 
 ```text
-uv run pytest -q       -> 176 passed
-uv run ruff check .    -> All checks passed
-uv run mypy src        -> Success: no issues found in 66 source files
+uv run pytest -q                 -> 193 passed
+uv run pytest tests/regression -q -> 17 passed
+uv run ruff check .              -> All checks passed
+uv run mypy src                  -> Success: no issues found in 67 source files
 ```
+
+M4.1 mock regression (existing loop/lint/judge, no network):
+
+| ID | Implant | Result |
+|---|---|---|
+| R1 | dead character returns | Judge `REPLAN_SCENE`, rollback=`scene_card` |
+| R2 | POV knows forbidden name | Judge `REPLAN_SCENE`, rollback=`scene_card` |
+| R3 | result without setup | Judge `REPLAN_CHAPTER`, rollback=`chapter_outline` |
+| R4 | JSON leftover in prose | N4 lint intercept; reviewers/Judge not called |
+| R5 | evidenceless P0 opinion | code down-rank; Judge block stripped to PASS |
+| R6 | clean sample | PASS / `CANON_LOCKED` (false-positive control) |
+
+M4.3: Judge input (`system`+`user`) has no agent/model ids (`writer_a`,
+`reviewer_role`, `mock-model`, `DEFAULT_FORBIDDEN`). R5 downweighted issues are
+not accepted blockers. R6 is not false-killed.
+
+M4.2 paid three-chapter smoke is **not** in CI. Slot missing / mock → skip with
+an explicit refuse. To run deliberately:
+
+```bash
+uv run novel smoke-stage0 --confirm-real-models --budget-usd 10.00
+```
+
+Requires real four-slot config (judge family ≠ creative) and will spend money.
+The report checklist is Spec §1.3 five exit conditions; quality of prose is not
+the bar. Offline pytest covers the refuse path, mock-slot skip, and a redacted
+checklist written via an injected provider seam (no paid APIs).
 
 Offline Story Bible contracts (mock only, no network): spark → R0 brief → kernel →
 structure map → characters + provisional relations → conflicts/爽点 on planned
@@ -211,10 +244,10 @@ The local `.env` contains credentials and must never be printed or committed.
 
 ### Next implementation sequence
 
-1. M4.1 回归集落地: R1~R6 样本 + `pytest tests/regression`。
-2. M4.2 真实模型验证: 微型项目 3 章待审稿 + 植入缺陷阻断。
-3. M4.3 Judge 校准 (R5/R6) 与匿名化断言。
-4. M4.4 README / verification-report 定稿, 阶段0 退出评审。
+1. Optional paid M4.2: `novel smoke-stage0 --confirm-real-models --budget-usd N`
+   with real four-slot config; archive the redacted report.
+2. Stage 1 planning (FastAPI + Web 写作台); freeze `stage0` tag after G4 if the
+   paid smoke is accepted.
 
 ### Important paths
 
@@ -234,13 +267,18 @@ The local `.env` contains credentials and must never be printed or committed.
 - Export: `src/novel_agent/production/export.py`
 - CLI: `src/novel_agent/cli/main.py`
   (`init` / `bible` / `plan` / `graph` / `write-chapter` / `smoke-chapter` /
-  `edit-outline` / `review-batch` / `approve` / `write-batch` / `resume` / `export`)
+  `edit-outline` / `review-batch` / `approve` / `write-batch` / `resume` /
+  `export` / `smoke-stage0`)
 - Bible contracts: `tests/contract/test_story_bible.py`
 - Graph contracts: `tests/contract/test_graph_projector.py`
 - Chapter-loop contracts: `tests/workflow/test_chapter_loop.py`
 - Edit-outline contracts: `tests/workflow/test_edit_outline.py`
 - Human-gate contracts: `tests/workflow/test_human_gate.py`
 - Batch/export contracts: `tests/workflow/test_batch_export.py`
+- Regression samples: `tests/regression/samples/` (R1–R6)
+- Regression contracts: `tests/regression/test_samples.py`
+- Judge calibration: `tests/regression/test_judge_calibration.py`
+- Stage 0 smoke (gated): `src/novel_agent/verification/stage0_smoke.py`
 - Planning contracts: `tests/contract/test_planning_chain.py`
 - Runtime agents: `src/novel_agent/runtime/agents.py`
 - Runtime boundary: `src/novel_agent/runtime/adapter.py`
