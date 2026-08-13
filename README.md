@@ -39,7 +39,7 @@ uv run novel export --project-id 1 --format md --out /tmp/book.md
 
 ```bash
 uv run novel serve          # http://127.0.0.1:8765
-cd apps/web && npm run dev  # http://localhost:5173 ，Vite 代理 /projects 到 API
+cd apps/web && npm run dev  # http://localhost:18765 ，Vite 代理 /projects 到 API
 ```
 
 `novel doctor` 会打印 `api_url`。`POST /projects` 带 spark 且 `auto_bible=true`（默认）时，等价于 `novel init --yes`。交互 UI 走 `POST /projects/{id}/bible/rounds/{n}/confirm`。关系全景读 `GET /projects/{id}/graph`（Graph DTO，不调 LLM）。

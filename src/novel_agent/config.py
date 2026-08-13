@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     api_host: str = "127.0.0.1"
     api_port: int = 8765
     cors_origins: str = (
-        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:18765,http://127.0.0.1:18765,"
         "http://localhost:4173,http://127.0.0.1:4173"
     )
 
