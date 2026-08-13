@@ -1,10 +1,11 @@
 """novel 命令行入口(阶段0:Typer)。
 
 命令面随里程碑逐步填充:
-  M3.2  init / plan
-  M3.3b edit-outline
-  M3.4  review-batch / approve
-  M3.5  write-batch / resume / export
+  Story Bible  init / bible
+  M3.2         plan (规划链子程序)
+  M3.3b        edit-outline
+  M3.4         review-batch / approve
+  M3.5         write-batch / resume / export
 """
 
 import asyncio
@@ -21,6 +22,8 @@ from sqlmodel import Session
 from novel_agent import __version__
 from novel_agent.config import get_settings
 from novel_agent.domain.db import build_engine, create_all
+from novel_agent.domain.repos.bible import BibleRepo
+from novel_agent.domain.repos.canon import CanonRepo
 from novel_agent.domain.repos.planning import PlanningRepo
 from novel_agent.domain.schemas import StoryKernel
 from novel_agent.planning.chain import (
@@ -30,6 +33,7 @@ from novel_agent.planning.chain import (
     PlanningResult,
     run_planning_chain,
 )
+from novel_agent.planning.conversation import BibleResult, run_bible_conversation
 from novel_agent.planning.runtime import build_planning_deps
 from novel_agent.runtime.agents import AgentDeps
 from novel_agent.verification.m26_smoke import (
@@ -129,7 +133,7 @@ def _cli_gates(yes: bool, select: int) -> PlanningGates:
     return PlanningGates(select_kernel=select_kernel, confirm=confirm)
 
 
-def _echo_planning_result(result: PlanningResult) -> None:
+def _echo_planning_result(result: PlanningResult | BibleResult) -> None:
     typer.echo(f"project_id={result.project_id}")
     typer.echo(f"kernel_version={result.kernel_version}")
     typer.echo(f"characters={','.join(result.character_ids)}")
@@ -183,6 +187,35 @@ def _resolve_brief(repo: PlanningRepo, project_id: int, brief: str) -> str:
     return migrated
 
 
+async def _run_bible(
+    session: Session,
+    deps: AgentDeps,
+    spark: str,
+    yes: bool,
+    select: int,
+    volume_id: str,
+    chapters: int,
+) -> BibleResult:
+    planning = PlanningRepo(session)
+    try:
+        return await run_bible_conversation(
+            planning,
+            BibleRepo(session),
+            CanonRepo(session),
+            deps,
+            spark,
+            _cli_gates(yes, select),
+            volume_id=volume_id,
+            chapters_needed=chapters,
+        )
+    except PlanningAborted as exc:
+        typer.echo(f"已中止规划阶段 {exc.stage};project_id={exc.project_id}", err=True)
+        raise typer.Exit(1) from None
+    except PlanningError as exc:
+        typer.echo(f"规划失败: {exc}", err=True)
+        raise typer.Exit(1) from None
+
+
 async def _run_chain(
     session: Session,
     deps: AgentDeps,
@@ -220,7 +253,7 @@ def init(
     chapters: Annotated[int, typer.Option("--chapters", help="滚动章纲数量")] = 5,
     volume_id: Annotated[str, typer.Option("--volume-id", help="卷业务键")] = "v1",
 ) -> None:
-    """新建项目并跑开书规划链(kernel 三候选→角色卡→卷纲/单元→滚动章纲)。"""
+    """新建项目并跑 Story Bible 对话(R0–R5)。"""
     _require_yes_or_tty(yes)
     if select < 1:
         typer.echo("拒绝: --select 必须 >= 1", err=True)
@@ -240,7 +273,7 @@ def init(
         session.commit()
         deps = build_planning_deps(settings, session, project_id)
         result = asyncio.run(
-            _run_chain(session, deps, brief, yes, select, volume_id, chapters)
+            _run_bible(session, deps, brief, yes, select, volume_id, chapters)
         )
         session.commit()
     _echo_planning_result(result)
@@ -278,6 +311,45 @@ def plan(
         deps = build_planning_deps(settings, session, project_id)
         result = asyncio.run(
             _run_chain(session, deps, resolved, yes, select, volume_id, chapters)
+        )
+        session.commit()
+    _echo_planning_result(result)
+
+
+@app.command()
+def bible(
+    project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
+    brief: Annotated[
+        str, typer.Option("--brief", help="火花/简报;缺省则读项目已存 spark/brief")
+    ] = "",
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="非交互:选定内核并确认后续轮次")] = False,
+    select: Annotated[int, typer.Option("--select", help="非交互时选定的内核候选编号(从1起)")] = 1,
+    chapters: Annotated[int, typer.Option("--chapters", help="滚动章纲数量")] = 5,
+    volume_id: Annotated[str, typer.Option("--volume-id", help="卷业务键")] = "v1",
+) -> None:
+    """对已有项目续跑 Story Bible 对话;已完成轮次会跳过。"""
+    _require_yes_or_tty(yes)
+    if select < 1:
+        typer.echo("拒绝: --select 必须 >= 1", err=True)
+        raise typer.Exit(2)
+
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        try:
+            repo.get_project(project_id)
+        except NoResultFound:
+            typer.echo(f"拒绝: 项目不存在 project_id={project_id}", err=True)
+            raise typer.Exit(2) from None
+        resolved = _resolve_brief(repo, project_id, brief)
+        if brief.strip():
+            _store_brief(repo, project_id, resolved)
+            session.commit()
+        deps = build_planning_deps(settings, session, project_id)
+        result = asyncio.run(
+            _run_bible(session, deps, resolved, yes, select, volume_id, chapters)
         )
         session.commit()
     _echo_planning_result(result)

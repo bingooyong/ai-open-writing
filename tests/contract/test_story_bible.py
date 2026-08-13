@@ -134,6 +134,21 @@ def engine(tmp_path):
     return e
 
 
+@pytest.fixture()
+def cli_db(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from novel_agent.config import reset_settings_cache
+
+    db_path = tmp_path / "cli.db"
+    monkeypatch.setenv("NOVEL_DB_PATH", str(db_path))
+    monkeypatch.setenv("NOVEL_CREATIVE__PROVIDER", "mock")
+    monkeypatch.setenv("NOVEL_REVIEW__PROVIDER", "mock")
+    monkeypatch.setenv("NOVEL_JUDGE__PROVIDER", "mock")
+    monkeypatch.setenv("NOVEL_EXTRACT__PROVIDER", "mock")
+    reset_settings_cache()
+    yield db_path
+    reset_settings_cache()
+
+
 def test_bible_repo_crud_and_round_complete(engine) -> None:
     with session_scope(engine) as session:
         planning = PlanningRepo(session)
@@ -548,3 +563,65 @@ async def test_bible_conversation_r5_lint_failure_does_not_persist_outlines(engi
         session.commit()
         assert planning.list_chapters(project.id) == []
         assert BibleRepo(session).list_conflicts(project.id)
+
+
+def test_cli_init_yes_persists_story_bible(cli_db) -> None:
+    from typer.testing import CliRunner
+
+    from novel_agent.cli.main import app
+    from novel_agent.domain.db import build_engine, session_scope
+    from novel_agent.domain.repos import BibleRepo, PlanningRepo
+
+    result = CliRunner().invoke(
+        app,
+        ["init", "说书人传奇", "--brief", "说书人发现自己讲的故事会成真", "--yes"],
+    )
+    assert result.exit_code == 0, result.output
+    engine = build_engine(cli_db)
+    with session_scope(engine) as session:
+        bible = BibleRepo(session)
+        assert bible.get_brief(1) is not None
+        assert bible.get_structure_map(1) is not None
+        assert bible.list_conflicts(1)
+        assert bible.list_payoff_beats(1)
+        assert len(PlanningRepo(session).list_chapters(1)) == 5
+
+
+def test_cli_bible_yes_resumes_existing_project(cli_db) -> None:
+    from typer.testing import CliRunner
+
+    from novel_agent.cli.main import app
+    from novel_agent.domain.db import build_engine, create_all, session_scope
+    from novel_agent.domain.repos import BibleRepo, PlanningRepo
+
+    engine = build_engine(cli_db)
+    create_all(engine)
+    with session_scope(engine) as session:
+        pid = PlanningRepo(session).create_project("已有项目").id
+
+    result = CliRunner().invoke(
+        app,
+        ["bible", "--project-id", str(pid), "--brief", "说书人题材", "--yes"],
+    )
+    assert result.exit_code == 0, result.output
+    with session_scope(engine) as session:
+        bible = BibleRepo(session)
+        assert bible.get_structure_map(pid) is not None
+        assert len(PlanningRepo(session).list_chapters(pid)) == 5
+
+
+def test_cli_bible_without_yes_exits_in_non_interactive_env(cli_db) -> None:
+    from typer.testing import CliRunner
+
+    from novel_agent.cli.main import app
+    from novel_agent.domain.db import build_engine, create_all, session_scope
+    from novel_agent.domain.repos import PlanningRepo
+
+    engine = build_engine(cli_db)
+    create_all(engine)
+    with session_scope(engine) as session:
+        pid = PlanningRepo(session).create_project("会挂起吗").id
+
+    result = CliRunner().invoke(app, ["bible", "--project-id", str(pid), "--brief", "简报"])
+    assert result.exit_code == 2, result.output
+    assert "--yes" in result.output
