@@ -8,13 +8,34 @@
 """
 
 import asyncio
+import sys
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from pydantic import ValidationError
+from sqlalchemy.orm.exc import NoResultFound
+from sqlmodel import Session
 
 from novel_agent import __version__
+from novel_agent.config import get_settings
+from novel_agent.domain.db import build_engine, create_all
+from novel_agent.domain.repos.planning import PlanningRepo
+from novel_agent.domain.schemas import StoryKernel
+from novel_agent.planning.chain import (
+    PlanningAborted,
+    PlanningError,
+    PlanningGates,
+    PlanningResult,
+    run_planning_chain,
+)
+from novel_agent.planning.runtime import build_planning_deps
+from novel_agent.runtime.agents import AgentDeps
+from novel_agent.verification.m26_smoke import (
+    SmokeExecutionError,
+    SmokeGateError,
+    run_m26_smoke,
+)
 
 app = typer.Typer(help="本地优先的 AI 长篇小说创作智能体(阶段0)", no_args_is_help=True)
 
@@ -28,8 +49,6 @@ def version() -> None:
 @app.command()
 def doctor() -> None:
     """检查环境与配置(模型槽位、数据库路径)。"""
-    from novel_agent.config import get_settings
-
     s = get_settings()
     typer.echo(f"db_path: {s.db_path}")
     for name in ("creative", "review", "judge", "extract"):
@@ -68,13 +87,6 @@ def smoke_m26(
         typer.echo("拒绝: --budget-usd 必须是正数", err=True)
         raise typer.Exit(2)
 
-    from novel_agent.config import get_settings
-    from novel_agent.verification.m26_smoke import (
-        SmokeExecutionError,
-        SmokeGateError,
-        run_m26_smoke,
-    )
-
     try:
         path = asyncio.run(
             run_m26_smoke(get_settings(), budget_usd=budget_usd, report_path=report)
@@ -89,6 +101,161 @@ def smoke_m26(
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from None
     typer.echo(f"M2.6 smoke passed; redacted report: {path}")
+
+
+def _require_yes_or_tty(yes: bool) -> None:
+    if yes:
+        return
+    if not sys.stdin.isatty():
+        typer.echo("拒绝: 非交互环境请使用 --yes", err=True)
+        raise typer.Exit(2)
+
+
+def _cli_gates(yes: bool, select: int) -> PlanningGates:
+    if yes:
+        return PlanningGates.auto(select_index=select - 1)
+
+    def select_kernel(candidates: list[StoryKernel]) -> int:
+        typer.echo("内核候选:")
+        for i, kernel in enumerate(candidates, start=1):
+            typer.echo(f"  [{i}] {kernel.logline}")
+        chosen = typer.prompt("选定内核候选编号", type=int)
+        return int(chosen) - 1
+
+    def confirm(prompt: str) -> bool:
+        return bool(typer.confirm(prompt, default=False))
+
+    return PlanningGates(select_kernel=select_kernel, confirm=confirm)
+
+
+def _echo_planning_result(result: PlanningResult) -> None:
+    typer.echo(f"project_id={result.project_id}")
+    typer.echo(f"kernel_version={result.kernel_version}")
+    typer.echo(f"characters={','.join(result.character_ids)}")
+    typer.echo(f"volume={result.volume_id}")
+    typer.echo(f"unit={result.unit_id}")
+    typer.echo(f"chapters={','.join(result.chapter_keys)}")
+    if result.skipped:
+        typer.echo(f"skipped={','.join(result.skipped)}")
+
+
+def _store_brief(repo: PlanningRepo, project_id: int, brief: str) -> None:
+    project = repo.get_project(project_id)
+    profile = dict(project.channel_profile or {})
+    profile["brief"] = brief
+    project.channel_profile = profile
+    repo.s.add(project)
+
+
+def _resolve_brief(repo: PlanningRepo, project_id: int, brief: str) -> str:
+    if brief.strip():
+        return brief
+    project = repo.get_project(project_id)
+    stored = (project.channel_profile or {}).get("brief", "")
+    if not isinstance(stored, str) or not stored.strip():
+        typer.echo("拒绝: 请提供 --brief(项目尚未保存创作简报)", err=True)
+        raise typer.Exit(2)
+    return stored
+
+
+async def _run_chain(
+    session: Session,
+    deps: AgentDeps,
+    brief: str,
+    yes: bool,
+    select: int,
+    volume_id: str,
+    chapters: int,
+) -> PlanningResult:
+    repo = PlanningRepo(session)
+    try:
+        return await run_planning_chain(
+            repo,
+            deps,
+            brief,
+            _cli_gates(yes, select),
+            volume_id=volume_id,
+            chapters_needed=chapters,
+        )
+    except PlanningAborted as exc:
+        typer.echo(f"已中止规划阶段 {exc.stage};project_id={exc.project_id}", err=True)
+        raise typer.Exit(1) from None
+    except PlanningError as exc:
+        typer.echo(f"规划失败: {exc}", err=True)
+        raise typer.Exit(1) from None
+
+
+@app.command()
+def init(
+    title: Annotated[str, typer.Argument(help="作品标题")],
+    brief: Annotated[str, typer.Option("--brief", help="创作简报(题材/受众/禁写项)")],
+    genre: Annotated[str, typer.Option("--genre", help="类型标签")] = "",
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="非交互:选定内核并确认后续阶段")] = False,
+    select: Annotated[int, typer.Option("--select", help="非交互时选定的内核候选编号(从1起)")] = 1,
+    chapters: Annotated[int, typer.Option("--chapters", help="滚动章纲数量")] = 5,
+    volume_id: Annotated[str, typer.Option("--volume-id", help="卷业务键")] = "v1",
+) -> None:
+    """新建项目并跑开书规划链(kernel 三候选→角色卡→卷纲/单元→滚动章纲)。"""
+    _require_yes_or_tty(yes)
+    if select < 1:
+        typer.echo("拒绝: --select 必须 >= 1", err=True)
+        raise typer.Exit(2)
+
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        project = repo.create_project(title, genre=genre)
+        project_id = project.id
+        if project_id is None:
+            typer.echo("拒绝: 项目写入失败", err=True)
+            raise typer.Exit(1)
+        _store_brief(repo, project_id, brief)
+        session.commit()
+        deps = build_planning_deps(settings, session, project_id)
+        result = asyncio.run(
+            _run_chain(session, deps, brief, yes, select, volume_id, chapters)
+        )
+        session.commit()
+    _echo_planning_result(result)
+
+
+@app.command()
+def plan(
+    project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
+    brief: Annotated[str, typer.Option("--brief", help="创作简报;缺省则读项目已存简报")] = "",
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="非交互:选定内核并确认后续阶段")] = False,
+    select: Annotated[int, typer.Option("--select", help="非交互时选定的内核候选编号(从1起)")] = 1,
+    chapters: Annotated[int, typer.Option("--chapters", help="滚动章纲数量")] = 5,
+    volume_id: Annotated[str, typer.Option("--volume-id", help="卷业务键")] = "v1",
+) -> None:
+    """对已有项目续跑规划链;已入库阶段会跳过。"""
+    _require_yes_or_tty(yes)
+    if select < 1:
+        typer.echo("拒绝: --select 必须 >= 1", err=True)
+        raise typer.Exit(2)
+
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        try:
+            repo.get_project(project_id)
+        except NoResultFound:
+            typer.echo(f"拒绝: 项目不存在 project_id={project_id}", err=True)
+            raise typer.Exit(2) from None
+        resolved = _resolve_brief(repo, project_id, brief)
+        if brief.strip():
+            _store_brief(repo, project_id, resolved)
+            session.commit()
+        deps = build_planning_deps(settings, session, project_id)
+        result = asyncio.run(
+            _run_chain(session, deps, resolved, yes, select, volume_id, chapters)
+        )
+        session.commit()
+    _echo_planning_result(result)
 
 
 if __name__ == "__main__":
