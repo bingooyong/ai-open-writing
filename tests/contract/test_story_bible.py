@@ -305,3 +305,61 @@ def test_bible_lint_relationship_without_evidence_fails() -> None:
         evidence="书局执事以纵火案上门",
     )
     assert lint_bible(relationship_proposals=[ok]).passed
+
+
+def test_structure_conflict_payoff_prompts_have_frontmatter() -> None:
+    from novel_agent.runtime.prompts import load_prompt
+
+    structure = load_prompt("structure_planner")
+    conflict = load_prompt("conflict_planner")
+    payoff = load_prompt("payoff_planner")
+    assert structure.output_schema == "StructureMap"
+    assert conflict.output_schema == "ConflictList"
+    assert payoff.output_schema == "PayoffBeatList"
+    assert structure.slot == "creative"
+
+
+async def test_structure_conflict_payoff_planners_return_valid_schemas(engine) -> None:
+    from sqlmodel import Session
+
+    from novel_agent.config import Settings
+    from novel_agent.domain.schemas import ConflictKind
+    from novel_agent.gateway import MockProvider, ModelGateway
+    from novel_agent.lint.bible import lint_bible
+    from novel_agent.planning.mock_fixtures import (
+        PLANNING_CONFLICTS,
+        PLANNING_PAYOFFS,
+        register_planning_defaults,
+    )
+    from novel_agent.runtime.agents import (
+        AgentDeps,
+        run_conflict_planner,
+        run_payoff_planner,
+        run_structure_planner,
+    )
+
+    mock = MockProvider()
+    register_planning_defaults(mock)
+    with Session(engine) as session:
+        deps = AgentDeps(
+            gateway=ModelGateway(Settings(_env_file=None), session, {"mock": mock}),
+            project_id=1,
+        )
+        smap = await run_structure_planner(deps, "kernel", "brief")
+        keys = [f"v1c{i:03d}" for i in range(1, 6)]
+        conflicts = await run_conflict_planner(deps, "kernel", "chars", keys)
+        beats = await run_payoff_planner(deps, "kernel", "conflicts", keys)
+
+    assert len(smap.golden_three) == 3
+    expected_ids = {item["conflict_id"] for item in PLANNING_CONFLICTS}
+    assert {c.conflict_id for c in conflicts} == expected_ids
+    assert all(c.kind in ConflictKind for c in conflicts)
+    expected_beats = {item["beat_id"] for item in PLANNING_PAYOFFS}
+    assert {b.beat_id for b in beats} == expected_beats
+    report = lint_bible(
+        structure=smap,
+        conflicts=conflicts,
+        payoff_beats=beats,
+        rolling_keys=keys,
+    )
+    assert report.passed
