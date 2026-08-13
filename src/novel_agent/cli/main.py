@@ -26,6 +26,8 @@ from novel_agent.domain.repos.bible import BibleRepo
 from novel_agent.domain.repos.canon import CanonRepo
 from novel_agent.domain.repos.planning import PlanningRepo
 from novel_agent.domain.schemas import StoryKernel
+from novel_agent.graph.export import to_json, to_mermaid
+from novel_agent.graph.projector import project_graph
 from novel_agent.planning.chain import (
     PlanningAborted,
     PlanningError,
@@ -353,6 +355,36 @@ def bible(
         )
         session.commit()
     _echo_planning_result(result)
+
+
+@app.command()
+def graph(
+    project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
+    fmt: Annotated[
+        str, typer.Option("--format", help="json 或 mermaid")
+    ] = "json",
+) -> None:
+    """导出关系图投影(正史视图,不调用模型)。"""
+    if fmt not in {"json", "mermaid"}:
+        typer.echo("拒绝: --format 必须是 json 或 mermaid", err=True)
+        raise typer.Exit(2)
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        try:
+            repo.get_project(project_id)
+        except NoResultFound:
+            typer.echo(f"拒绝: 项目不存在 project_id={project_id}", err=True)
+            raise typer.Exit(2) from None
+        projection = project_graph(
+            project_id, repo, BibleRepo(session), CanonRepo(session)
+        )
+    if fmt == "json":
+        typer.echo(to_json(projection))
+    else:
+        typer.echo(to_mermaid(projection))
 
 
 if __name__ == "__main__":
