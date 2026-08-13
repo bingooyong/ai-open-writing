@@ -1,7 +1,7 @@
 # Story Bible from a Spark — Design Spec
 
 - Date: 2026-08-13
-- Status: draft for user review
+- Status: approved 2026-08-13
 - Repo: `bingooyong/ai-open-writing`
 - Upstream: `docs/AI_Novel_Agent_PRD_Architecture.md` (V2.2), `.omc/autopilot/spec.md` v1.0, `.omc/plans/autopilot-impl.md` v1.0
 - External reference (ideas only, MIT, do not copy files): [ops120/ai-novel-screenplay-analyzer](https://github.com/ops120/ai-novel-screenplay-analyzer)
