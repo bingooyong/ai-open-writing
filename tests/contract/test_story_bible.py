@@ -196,3 +196,32 @@ def test_bible_repo_alias_cycle_and_self_map_rejected(engine) -> None:
 
         bible.delete_alias(pid, "晚生")
         assert [a.alias for a in bible.list_aliases(pid)] == ["苏说书的"]
+
+
+def test_store_brief_writes_project_columns_not_channel_profile(engine) -> None:
+    from novel_agent.cli.main import _store_brief
+
+    with session_scope(engine) as session:
+        repo = PlanningRepo(session)
+        pid = repo.create_project("列存储").id
+        _store_brief(repo, pid, "说书人发现故事会成真")
+        project = repo.get_project(pid)
+        assert project.brief == "说书人发现故事会成真"
+        assert project.spark == "说书人发现故事会成真"
+        assert "brief" not in (project.channel_profile or {})
+
+
+def test_resolve_brief_migrates_channel_profile_fallback(engine) -> None:
+    from novel_agent.cli.main import _resolve_brief
+
+    with session_scope(engine) as session:
+        repo = PlanningRepo(session)
+        pid = repo.create_project("回退").id
+        project = repo.get_project(pid)
+        project.channel_profile = {"brief": "旧渠道简报"}
+        repo.s.add(project)
+        resolved = _resolve_brief(repo, pid, "")
+        assert resolved == "旧渠道简报"
+        project = repo.get_project(pid)
+        assert project.brief == "旧渠道简报"
+        assert project.spark == "旧渠道简报"

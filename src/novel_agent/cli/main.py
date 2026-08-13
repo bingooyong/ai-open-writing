@@ -8,6 +8,7 @@
 """
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -139,23 +140,47 @@ def _echo_planning_result(result: PlanningResult) -> None:
         typer.echo(f"skipped={','.join(result.skipped)}")
 
 
+def _text_from_stored_brief(stored: str, spark: str) -> str:
+    if spark.strip():
+        return spark.strip()
+    try:
+        payload = json.loads(stored)
+    except json.JSONDecodeError:
+        return stored
+    if isinstance(payload, dict) and str(payload.get("spark", "")).strip():
+        return str(payload["spark"]).strip()
+    return stored
+
+
 def _store_brief(repo: PlanningRepo, project_id: int, brief: str) -> None:
     project = repo.get_project(project_id)
-    profile = dict(project.channel_profile or {})
-    profile["brief"] = brief
-    project.channel_profile = profile
+    text = brief.strip()
+    project.brief = text
+    if not (project.spark or "").strip():
+        project.spark = text
     repo.s.add(project)
 
 
 def _resolve_brief(repo: PlanningRepo, project_id: int, brief: str) -> str:
     if brief.strip():
-        return brief
+        return brief.strip()
     project = repo.get_project(project_id)
-    stored = (project.channel_profile or {}).get("brief", "")
-    if not isinstance(stored, str) or not stored.strip():
+    stored = (project.brief or "").strip()
+    if stored:
+        return _text_from_stored_brief(stored, project.spark or "")
+    spark = (project.spark or "").strip()
+    if spark:
+        return spark
+    legacy = (project.channel_profile or {}).get("brief", "")
+    if not isinstance(legacy, str) or not legacy.strip():
         typer.echo("拒绝: 请提供 --brief(项目尚未保存创作简报)", err=True)
         raise typer.Exit(2)
-    return stored
+    migrated = legacy.strip()
+    project.brief = migrated
+    if not (project.spark or "").strip():
+        project.spark = migrated
+    repo.s.add(project)
+    return migrated
 
 
 async def _run_chain(
