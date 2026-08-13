@@ -1,17 +1,18 @@
 # Project Handoff
 
-## 2026-08-13 - Stage 1 slice 1: local writing desk MVP
+## 2026-08-13 - Stage 1 slice 2: outline tree + batch review
 
 ### Current target
 
-Stage 1 slice 1 of the local-first AI long-form novel agent: a FastAPI + React
-writing desk on the **same SQLite** and **same orchestrators** as the CLI.
-Stage 0 (Story Bible, chapter loop, batch/export, M4 mock regression) stays on
-main and is not rewritten.
+Stage 1 slice 2 of the local-first AI long-form novel agent: writing-desk surfaces
+authors use after slice 1. FastAPI + React on the **same SQLite** and **same
+orchestrators**. Slice 1 (R0–R5 conversation, G6 graph, inspector, chapter rail,
+write/approve/export) stays and must not regress.
 
-Out of this slice: Concept Judge, five-level outline tree editor, Writer B,
-channel export templates, `timeline_event` / `source_record` tables, copying
-ops120 analyzer source.
+Frontend Vite is **18765** (not 5173). API stays **8765**.
+
+Out of this slice: Concept Judge, Writer B, channel export templates,
+`timeline_event` / `source_record` tables, copying ops120 analyzer source.
 
 ### Resume here
 
@@ -30,7 +31,7 @@ uv run novel serve
 cd apps/web && npm run dev
 ```
 
-API: `http://127.0.0.1:8765` (CORS localhost only). Vite: `http://localhost:18765`.
+API: `http://127.0.0.1:8765` (CORS localhost only, origins on port 18765). Vite: `http://localhost:18765`.
 
 ### Stable architecture and decisions
 
@@ -62,12 +63,12 @@ API: `http://127.0.0.1:8765` (CORS localhost only). Vite: `http://localhost:1876
   further hard-gate / revise verdict upgrades to `HUMAN_REVIEW`. `REPLAN_*` stops at
   `NEEDS_REPLAN` (no auto-replan agent in Stage 0).
 - **One truth, two fronts:** FastAPI in `src/novel_agent/api/` reuses conversation /
-  rounds, projector, chapter loop, batch, export. Web app in `apps/web/` consumes
-  Graph DTO via AntV G6 (reimplemented; not a copy of analyzer GraphView).
+  rounds, projector, chapter loop, batch, export, `apply_outline_edit`, review gate.
+  Web app in `apps/web/` consumes Graph DTO via AntV G6 and outline-tree / review APIs.
 - API `POST /projects` with `auto_bible=true` uses `PlanningGates.auto()` (CLI `--yes`).
   Interactive UI uses pending round JSON on `project.bible_pending` plus
   `POST /projects/{id}/bible/rounds/{n}/confirm`.
-- CORS allowlist is localhost / 127.0.0.1 / ::1 only. `novel serve` binds 127.0.0.1:8765.
+- CORS allowlist is localhost / 127.0.0.1 / ::1 on **18765** only. `novel serve` binds 127.0.0.1:8765. Vite must not use 5173.
 
 ### Completed work
 
@@ -91,6 +92,9 @@ API: `http://127.0.0.1:8765` (CORS localhost only). Vite: `http://localhost:1876
 - M4.3: R5 无证据不阻断、R6 不误杀、Judge 输入匿名化断言。
 - M4.4: README + verification-report mock 证据。
 - Stage 1 slice 1: FastAPI 写作台 API + React/Vite 墨案 UI + G6 关系全景。
+- Stage 1 slice 2: 五级大纲树（PlanningRepo 组装）+ YAML edit-outline + 批次审稿 UI
+  （HUMAN_REVIEW / 进行中 / CANON_LOCKED，批准/退回/locked_ranges）+ 双稿 diff 与证据高亮
+  （只定位正文里真实出现的引文）。前端端口 18765。
 
 Relevant commits, newest first:
 
@@ -182,14 +186,14 @@ dc465d6 feat: Story Bible from a Spark (R0–R5 conversation + canon graph) (#5)
 
 ### Fresh validation evidence
 
-Collected on 2026-08-13 after Stage 1 slice 1 writing desk:
+Collected on 2026-08-13 after Stage 1 slice 2 (outline tree + batch review):
 
 ```text
-uv run pytest -q                 -> 203 passed
+uv run pytest -q                 -> 207 passed
 uv run pytest tests/regression -q -> 17 passed
 uv run ruff check .              -> All checks passed
-uv run mypy src                  -> Success: no issues found in 73 source files
-cd apps/web && npm test          -> 4 passed (DTO→G6 mapping)
+uv run mypy src                  -> Success: no issues found in 74 source files
+cd apps/web && npm test          -> 9 passed (DTO→G6, outline tree, evidence locate)
 ```
 
 M4.1 mock regression (existing loop/lint/judge, no network):
@@ -255,10 +259,10 @@ The local `.env` contains credentials and must never be printed or committed.
 
 ### Next implementation sequence
 
-1. Optional paid M4.2: `novel smoke-stage0 --confirm-real-models --budget-usd N`
+1. Stage 1 remainder: Concept Judge / extra reviewers (planning adversarial).
+2. Stage 2 (or remaining Stage 1): Writer B, channel export templates.
+3. Optional paid M4.2: `novel smoke-stage0 --confirm-real-models --budget-usd N`
    with real four-slot config; archive the redacted report.
-2. Stage 1 remainder: outline tree editor, batch review UI, Concept Judge /
-   planning adversarial, Writer B, channel export templates.
 
 ### Important paths
 
@@ -274,6 +278,7 @@ The local `.env` contains credentials and must never be printed or committed.
 - Chapter loop: `src/novel_agent/production/loop.py`
 - Outline edit: `src/novel_agent/production/outline.py`
 - Human gate: `src/novel_agent/production/review.py`
+  (`list_review_queue` CLI; `list_review_desk` Web)`
 - Batch / D15 cascade: `src/novel_agent/production/batch.py`
 - Export: `src/novel_agent/production/export.py`
 - CLI: `src/novel_agent/cli/main.py`
@@ -281,9 +286,11 @@ The local `.env` contains credentials and must never be printed or committed.
   `edit-outline` / `review-batch` / `approve` / `write-batch` / `resume` /
   `export` / `smoke-stage0` / `serve` / `doctor`)
 - Writing desk API: `src/novel_agent/api/` (`create_app`, routes, CORS)
+- Outline tree assemble: `src/novel_agent/planning/outline_tree.py`
 - Bible round generate/confirm: `src/novel_agent/planning/rounds.py`
-- Web desk: `apps/web/` (Vite + React + AntV G6)
+- Web desk: `apps/web/` (Vite + React + AntV G6, port 18765)
 - Graph DTO→G6 map: `apps/web/src/graph/mapGraphDto.ts`
+- Outline tree map: `apps/web/src/outline/mapOutlineTree.ts`
 - API contracts: `tests/contract/test_writing_desk_api.py`
 - Bible contracts: `tests/contract/test_story_bible.py`
 - Graph contracts: `tests/contract/test_graph_projector.py`

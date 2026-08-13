@@ -1,4 +1,5 @@
 import type { GraphDto } from "./graph/mapGraphDto";
+import type { OutlineTreeDto } from "./outline/mapOutlineTree";
 
 export type Project = {
   id: number;
@@ -50,6 +51,44 @@ export type LoopResult = {
   reason: string;
 };
 
+export type EvidenceSpan = {
+  scene_id: string;
+  quote: string;
+  note: string;
+  found: boolean;
+  start: number | null;
+  end: number | null;
+};
+
+export type ReviewIssueView = {
+  issue_id: string;
+  claim: string;
+  severity: string;
+  evidence: EvidenceSpan[];
+};
+
+export type ReviewItem = {
+  chapter_key: string;
+  title: string;
+  status: string;
+  bucket: "HUMAN_REVIEW" | "IN_PROGRESS" | "CANON_LOCKED";
+  verdict: string | null;
+  verdict_payload: Record<string, unknown> | null;
+  draft_text: string;
+  previous_draft_text: string | null;
+  diff: string | null;
+  issues: ReviewIssueView[];
+  draft_id: number | null;
+  locked_ranges: string[];
+};
+
+export type OutlineEditResult = {
+  chapter_key: string;
+  outline_version: number;
+  status: string;
+  title: string;
+};
+
 async function parse<T>(responsePromise: Promise<Response>): Promise<T> {
   const response = await responsePromise;
   if (!response.ok) {
@@ -88,6 +127,35 @@ export const api = {
     ),
   getGraph: (id: number) => parse<GraphDto>(fetch(`/projects/${id}/graph`)),
   listChapters: (id: number) => parse<ChapterRow[]>(fetch(`/projects/${id}/chapters`)),
+  getOutlineTree: (id: number) => parse<OutlineTreeDto>(fetch(`/projects/${id}/outline-tree`)),
+  getOutlineYaml: async (id: number, chapterKey: string) => {
+    const response = await fetch(`/projects/${id}/chapters/${chapterKey}/outline.yaml`);
+    if (!response.ok) {
+      throw new Error(`导出章纲失败 HTTP ${response.status}`);
+    }
+    return response.text();
+  },
+  editOutline: (id: number, chapterKey: string, yaml: string) =>
+    parse<OutlineEditResult>(
+      fetch(`/projects/${id}/chapters/${chapterKey}/edit-outline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ yaml }),
+      }),
+    ),
+  listReview: (id: number) => parse<ReviewItem[]>(fetch(`/projects/${id}/review`)),
+  rejectChapter: (id: number, chapterKey: string) =>
+    parse<{ chapter_key: string; status: string; stale: string[] }>(
+      fetch(`/projects/${id}/chapters/${chapterKey}/reject`, { method: "POST" }),
+    ),
+  lockRanges: (id: number, chapterKey: string, ranges: string[]) =>
+    parse<{ chapter_key: string; locked_ranges: string[] }>(
+      fetch(`/projects/${id}/chapters/${chapterKey}/locked-ranges`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ranges }),
+      }),
+    ),
   writeChapter: (id: number, chapterKey: string) =>
     parse<LoopResult>(
       fetch(`/projects/${id}/chapters/${chapterKey}/write-chapter`, { method: "POST" }),

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
-from sqlalchemy.orm.exc import NoResultFound
 from sqlmodel import Session
 
-from novel_agent.api.deps import get_app_settings, get_session, require_project
+from novel_agent.api.deps import get_app_settings, get_session, require_chapter, require_project
 from novel_agent.api.schemas import (
+    EditOutlineBody,
+    LockedRangesBody,
     ProjectCreate,
     ProjectPatch,
     ResumeBody,
@@ -23,12 +24,25 @@ from novel_agent.domain.repos import BibleRepo, CanonRepo, PlanningRepo
 from novel_agent.graph.projector import project_graph
 from novel_agent.planning.chain import PlanningAborted, PlanningError, PlanningGates
 from novel_agent.planning.conversation import run_bible_conversation
+from novel_agent.planning.outline_tree import assemble_outline_tree
 from novel_agent.planning.rounds import bible_snapshot, confirm_round, generate_pending_round
 from novel_agent.planning.runtime import build_planning_deps
 from novel_agent.production.batch import BatchError, resume_project, run_write_batch
 from novel_agent.production.export import export_project
 from novel_agent.production.loop import ChapterLoopError, ChapterLoopGates, run_chapter_loop
-from novel_agent.production.review import ReviewError, approve_chapter
+from novel_agent.production.outline import (
+    OutlineEditError,
+    apply_outline_edit,
+    dump_outline_yaml,
+    export_outline_bundle,
+)
+from novel_agent.production.review import (
+    ReviewError,
+    approve_chapter,
+    list_review_desk,
+    mark_locked_ranges,
+    reject_chapter,
+)
 from novel_agent.production.runtime import build_production_deps
 from novel_agent.workflow.errors import WorkflowPaused
 
@@ -244,6 +258,95 @@ def list_chapters(
     return rows
 
 
+@router.get("/projects/{project_id}/outline-tree")
+def get_outline_tree(
+    project_id: int, session: Session = Depends(get_session)
+) -> dict[str, object]:
+    planning = PlanningRepo(session)
+    require_project(planning, project_id)
+    return assemble_outline_tree(planning, project_id)
+
+
+@router.get("/projects/{project_id}/chapters/{chapter_key}/outline.yaml")
+def get_outline_yaml(
+    project_id: int, chapter_key: str, session: Session = Depends(get_session)
+) -> PlainTextResponse:
+    planning = PlanningRepo(session)
+    require_project(planning, project_id)
+    require_chapter(planning, project_id, chapter_key)
+    text = dump_outline_yaml(export_outline_bundle(planning, project_id, chapter_key))
+    return PlainTextResponse(text, media_type="application/yaml; charset=utf-8")
+
+
+@router.post("/projects/{project_id}/chapters/{chapter_key}/edit-outline")
+def edit_outline(
+    project_id: int,
+    chapter_key: str,
+    body: EditOutlineBody,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    planning = PlanningRepo(session)
+    require_project(planning, project_id)
+    require_chapter(planning, project_id, chapter_key)
+    if not body.yaml.strip():
+        raise HTTPException(status_code=400, detail="yaml 不能为空")
+    try:
+        version = apply_outline_edit(session, project_id, chapter_key, body.yaml)
+    except OutlineEditError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    chapter = planning.get_chapter(project_id, chapter_key)
+    return {
+        "chapter_key": chapter_key,
+        "outline_version": version,
+        "status": chapter.status.value,
+        "title": chapter.title,
+    }
+
+
+@router.get("/projects/{project_id}/review")
+def get_review(
+    project_id: int, session: Session = Depends(get_session)
+) -> list[dict[str, object]]:
+    require_project(PlanningRepo(session), project_id)
+    return list_review_desk(session, project_id)
+
+
+@router.post("/projects/{project_id}/chapters/{chapter_key}/reject")
+def reject(
+    project_id: int, chapter_key: str, session: Session = Depends(get_session)
+) -> dict[str, object]:
+    planning = PlanningRepo(session)
+    require_project(planning, project_id)
+    require_chapter(planning, project_id, chapter_key)
+    try:
+        stale = reject_chapter(session, project_id, chapter_key)
+    except ReviewError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    chapter = planning.get_chapter(project_id, chapter_key)
+    return {
+        "chapter_key": chapter_key,
+        "status": chapter.status.value,
+        "stale": stale,
+    }
+
+
+@router.post("/projects/{project_id}/chapters/{chapter_key}/locked-ranges")
+def lock_ranges(
+    project_id: int,
+    chapter_key: str,
+    body: LockedRangesBody,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    planning = PlanningRepo(session)
+    require_project(planning, project_id)
+    require_chapter(planning, project_id, chapter_key)
+    try:
+        mark_locked_ranges(session, project_id, chapter_key, body.ranges)
+    except ReviewError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"chapter_key": chapter_key, "locked_ranges": body.ranges}
+
+
 @router.post("/projects/{project_id}/chapters/{chapter_key}/write-chapter")
 async def write_chapter(
     project_id: int,
@@ -254,13 +357,7 @@ async def write_chapter(
 ) -> dict[str, object]:
     planning = PlanningRepo(session)
     require_project(planning, project_id)
-    try:
-        planning.get_chapter(project_id, chapter_key)
-    except NoResultFound as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=f"章节不存在 project_id={project_id} chapter_key={chapter_key}",
-        ) from exc
+    require_chapter(planning, project_id, chapter_key)
     payload = body
     gates = ChapterLoopGates.auto() if payload.yes else ChapterLoopGates.hold()
     deps = build_production_deps(settings, session, project_id)
@@ -284,13 +381,7 @@ async def approve(
 ) -> dict[str, object]:
     planning = PlanningRepo(session)
     require_project(planning, project_id)
-    try:
-        planning.get_chapter(project_id, chapter_key)
-    except NoResultFound as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=f"章节不存在 project_id={project_id} chapter_key={chapter_key}",
-        ) from exc
+    require_chapter(planning, project_id, chapter_key)
     deps = build_production_deps(settings, session, project_id)
     try:
         result = await approve_chapter(session, deps, project_id, chapter_key, settings=settings)
@@ -343,13 +434,7 @@ async def resume(
     require_project(planning, project_id)
     payload = body
     if payload.chapter_key:
-        try:
-            planning.get_chapter(project_id, payload.chapter_key)
-        except NoResultFound as exc:
-            raise HTTPException(
-                status_code=404,
-                detail=f"章节不存在 project_id={project_id} chapter_key={payload.chapter_key}",
-            ) from exc
+        require_chapter(planning, project_id, payload.chapter_key)
     deps = build_production_deps(settings, session, project_id)
     try:
         results = await resume_project(

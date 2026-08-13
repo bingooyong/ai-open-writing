@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import difflib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import assert_never
 
 from sqlmodel import Session
 
 from novel_agent.config import Settings
+from novel_agent.domain.models import DraftVersionRecord
 from novel_agent.domain.repos import CanonRepo, OpsRepo, PlanningRepo, ProductionRepo
 from novel_agent.domain.schemas import ChapterStatus, ReviewIssue, VerdictType
 from novel_agent.production.batch import cascade_stale
@@ -112,3 +115,122 @@ def reject_chapter(session: Session, project_id: int, chapter_key: str) -> list[
     if run is not None and run.id is not None:
         OpsRepo(session).update_workflow(run.id, status="paused", current_node="needs_replan")
     return cascade_stale(session, project_id, chapter_key)
+
+
+def review_bucket(status: ChapterStatus) -> str | None:
+    match status:
+        case ChapterStatus.HUMAN_REVIEW:
+            return "HUMAN_REVIEW"
+        case ChapterStatus.CANON_LOCKED | ChapterStatus.EXPORTED:
+            return "CANON_LOCKED"
+        case (
+            ChapterStatus.DRAFTING
+            | ChapterStatus.ADVERSARIAL_REVIEW
+            | ChapterStatus.JUDGING
+            | ChapterStatus.NEEDS_REVISION
+            | ChapterStatus.NEEDS_REPLAN
+            | ChapterStatus.APPROVED
+            | ChapterStatus.STALE
+        ):
+            return "IN_PROGRESS"
+        case ChapterStatus.PLANNED:
+            return None
+        case _:
+            assert_never(status)
+
+
+def locate_quote(quote: str, text: str) -> tuple[int, int] | None:
+    """只返回正文里真实出现的引文区间;找不到则 None,绝不编造。"""
+    if not quote or not text:
+        return None
+    start = text.find(quote)
+    if start < 0:
+        return None
+    return start, start + len(quote)
+
+
+def _draft_text(draft: DraftVersionRecord) -> str:
+    if draft.content_text:
+        return draft.content_text
+    try:
+        return draft_from_record(draft).full_text()
+    except (KeyError, ValueError):
+        return ""
+
+
+def _active_drafts(
+    production: ProductionRepo, project_id: int, chapter_key: str
+) -> list[DraftVersionRecord]:
+    return [
+        rec
+        for rec in production.list_drafts(project_id, chapter_key)
+        if not (rec.meta or {}).get("voided") and not rec.lineage_id.startswith("voided:")
+    ]
+
+
+def _serialize_issues(issues: list[ReviewIssue], draft_text: str) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for issue in issues:
+        evidence: list[dict[str, object]] = []
+        for ref in issue.evidence:
+            span = locate_quote(ref.quote, draft_text)
+            evidence.append(
+                {
+                    "scene_id": ref.scene_id,
+                    "quote": ref.quote,
+                    "note": ref.note,
+                    "found": span is not None,
+                    "start": span[0] if span else None,
+                    "end": span[1] if span else None,
+                }
+            )
+        payload = issue.model_dump(mode="json")
+        payload["evidence"] = evidence
+        rows.append(payload)
+    return rows
+
+
+def _unified_diff(previous: str, current: str) -> str:
+    return "".join(
+        difflib.unified_diff(
+            previous.splitlines(keepends=True),
+            current.splitlines(keepends=True),
+            fromfile="previous",
+            tofile="current",
+        )
+    )
+
+
+def list_review_desk(session: Session, project_id: int) -> list[dict[str, object]]:
+    """HUMAN_REVIEW / 进行中 / CANON_LOCKED 审稿台列表(含证据定位与双稿 diff)。"""
+    planning = PlanningRepo(session)
+    production = ProductionRepo(session)
+    items: list[dict[str, object]] = []
+    for chapter in planning.list_chapters(project_id):
+        bucket = review_bucket(chapter.status)
+        if bucket is None:
+            continue
+        drafts = _active_drafts(production, project_id, chapter.chapter_key)
+        latest = drafts[-1] if drafts else None
+        previous = drafts[-2] if len(drafts) >= 2 else None
+        text = _draft_text(latest) if latest is not None else ""
+        prev_text = _draft_text(previous) if previous is not None else None
+        issues = production.list_issues(latest.id) if latest is not None and latest.id else []
+        verdict = production.latest_verdict(chapter.chapter_key)
+        items.append(
+            {
+                "chapter_key": chapter.chapter_key,
+                "title": chapter.title,
+                "status": chapter.status.value,
+                "bucket": bucket,
+                "verdict": verdict.verdict.value if verdict else None,
+                "verdict_payload": verdict.model_dump(mode="json") if verdict else None,
+                "draft_text": text,
+                "previous_draft_text": prev_text,
+                "diff": _unified_diff(prev_text, text) if prev_text else None,
+                "issues": _serialize_issues(issues, text),
+                "draft_id": latest.id if latest is not None else None,
+                "locked_ranges": list(latest.locked_ranges or []) if latest is not None else [],
+            }
+        )
+    return items

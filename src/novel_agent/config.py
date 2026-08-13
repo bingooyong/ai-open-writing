@@ -70,12 +70,13 @@ class Settings(BaseSettings):
     # 存储
     db_path: Path = Path("data/novel.db")
 
-    # 本地写作台 API(默认只绑 localhost)
+    # 本地写作台 API(默认只绑 localhost);前端 Vite 固定 18765,避开 5173
     api_host: str = "127.0.0.1"
     api_port: int = 8765
+    web_port: int = 18765
     cors_origins: str = (
         "http://localhost:18765,http://127.0.0.1:18765,"
-        "http://localhost:4173,http://127.0.0.1:4173"
+        "http://[::1]:18765"
     )
 
     # 预算(PRD §8.11;单章调用上限默认 25,M4.2 实测后再调)

@@ -1,6 +1,6 @@
 # novel-agent
 
-本地优先的 AI 长篇小说创作智能体。阶段 0 为 CLI 工作流；阶段 1 slice 1 加上本地 Web 写作台（同一 SQLite、同一编排器）。
+本地优先的 AI 长篇小说创作智能体。阶段 0 为 CLI 工作流；阶段 1 slice 2 为本地 Web 写作台（同一 SQLite、同一编排器）：对话、五级大纲树、批次审稿、关系全景、章节轨。
 
 Python 3.11+，用 [uv](https://docs.astral.sh/uv/) 管理依赖。默认四槽位均为 mock，不访问网络、不产生费用。
 
@@ -42,9 +42,9 @@ uv run novel serve          # http://127.0.0.1:8765
 cd apps/web && npm run dev  # http://localhost:18765 ，Vite 代理 /projects 到 API
 ```
 
-`novel doctor` 会打印 `api_url`。`POST /projects` 带 spark 且 `auto_bible=true`（默认）时，等价于 `novel init --yes`。交互 UI 走 `POST /projects/{id}/bible/rounds/{n}/confirm`。关系全景读 `GET /projects/{id}/graph`（Graph DTO，不调 LLM）。
+不要用 Vite 默认端口 5173（会和本机其它服务冲突）。`novel doctor` 会打印 `api_url` 与 `desk_url`。`POST /projects` 带 spark 且 `auto_bible=true`（默认）时，等价于 `novel init --yes`。交互 UI 走 `POST /projects/{id}/bible/rounds/{n}/confirm`。五级大纲读 `GET /projects/{id}/outline-tree`（从 PlanningRepo 现有行组装，不另存）。审稿台读 `GET /projects/{id}/review`；批准 / 退回 / `locked_ranges` 走已有编排器。关系全景读 `GET /projects/{id}/graph`（Graph DTO，不调 LLM）。
 
-本 slice 不含：Concept Judge、五级大纲树编辑器、Writer B、渠道导出模板、新 timeline 表。
+本 slice 不含：Concept Judge、Writer B、渠道导出模板、新 timeline 表。
 
 ## 测试
 
@@ -53,7 +53,7 @@ uv run pytest -q
 uv run pytest tests/regression -q   # M4 回归集 R1–R6（mock）
 uv run ruff check .
 uv run mypy src
-cd apps/web && npm test             # Graph DTO → G6 映射
+cd apps/web && npm test             # Graph DTO → G6、大纲树映射、证据定位
 ```
 
 默认测试全部走 mock，**不会**调用付费 API。
