@@ -1,16 +1,17 @@
 # Project Handoff
 
-## 2026-08-13 - M4 Stage 0 mock acceptance
+## 2026-08-13 - Stage 1 slice 1: local writing desk MVP
 
 ### Current target
 
-Complete Stage 0 of the local-first AI long-form novel agent described in
-`.omc/autopilot/spec.md` and `.omc/plans/autopilot-impl.md`.
+Stage 1 slice 1 of the local-first AI long-form novel agent: a FastAPI + React
+writing desk on the **same SQLite** and **same orchestrators** as the CLI.
+Stage 0 (Story Bible, chapter loop, batch/export, M4 mock regression) stays on
+main and is not rewritten.
 
-The repository is at **M4 mock acceptance** on top of Story Bible, M3.3
-(single-chapter N1→N9), M3.3b (`edit-outline`), M3.4 (human gate), and M3.5
-(batch + resume + export). M0–M3 remain complete. **Remaining is optional
-paid three-chapter smoke (`novel smoke-stage0`) plus Stage 1.**
+Out of this slice: Concept Judge, five-level outline tree editor, Writer B,
+channel export templates, `timeline_event` / `source_record` tables, copying
+ops120 analyzer source.
 
 ### Resume here
 
@@ -20,15 +21,16 @@ sed -n '1,80p' HANDOFF.md
 git status --short
 uv sync
 uv run pytest -q
-uv run pytest tests/regression -q
 uv run ruff check .
 uv run mypy src
-uv run novel init "说书人传奇" --brief "说书人发现故事会成真" --yes
-uv run novel graph --project-id 1 --format json
-uv run novel write-chapter --project-id 1 --chapter-key v1c001 --yes
-uv run novel write-batch --project-id 1 --chapters 3 --yes
-uv run novel export --project-id 1 --format md --out /tmp/book.md
+cd apps/web && npm install && npm test
+uv run novel doctor
+uv run novel serve
+# 另一个终端:
+cd apps/web && npm run dev
 ```
+
+API: `http://127.0.0.1:8765` (CORS localhost only). Vite: `http://localhost:5173`.
 
 ### Stable architecture and decisions
 
@@ -54,11 +56,18 @@ uv run novel export --project-id 1 --format md --out /tmp/book.md
 - D16 is confirmed: Writer/Reviser use scene plaintext blocks plus separate JSON metadata.
 - Judge and creative slots must use different model families.
 - Stage 0 planning is single-round generate + human confirm. No planning adversarial /
-  Concept Judge (that is Stage 1).
+  Concept Judge (that is Stage 1 remainder, not this slice).
 - Evidence-less issues are down-ranked in code, still sent to Judge, and stripped as
   blockers after the verdict (`sanitize_verdict`). Two `REVISE_LOCAL` rounds max; a
   further hard-gate / revise verdict upgrades to `HUMAN_REVIEW`. `REPLAN_*` stops at
   `NEEDS_REPLAN` (no auto-replan agent in Stage 0).
+- **One truth, two fronts:** FastAPI in `src/novel_agent/api/` reuses conversation /
+  rounds, projector, chapter loop, batch, export. Web app in `apps/web/` consumes
+  Graph DTO via AntV G6 (reimplemented; not a copy of analyzer GraphView).
+- API `POST /projects` with `auto_bible=true` uses `PlanningGates.auto()` (CLI `--yes`).
+  Interactive UI uses pending round JSON on `project.bible_pending` plus
+  `POST /projects/{id}/bible/rounds/{n}/confirm`.
+- CORS allowlist is localhost / 127.0.0.1 / ::1 only. `novel serve` binds 127.0.0.1:8765.
 
 ### Completed work
 
@@ -81,6 +90,7 @@ uv run novel export --project-id 1 --format md --out /tmp/book.md
 - M4.2: `novel smoke-stage0 --confirm-real-models --budget-usd N`（非默认 CI）。
 - M4.3: R5 无证据不阻断、R6 不误杀、Judge 输入匿名化断言。
 - M4.4: README + verification-report mock 证据。
+- Stage 1 slice 1: FastAPI 写作台 API + React/Vite 墨案 UI + G6 关系全景。
 
 Relevant commits, newest first:
 
@@ -172,13 +182,14 @@ dc465d6 feat: Story Bible from a Spark (R0–R5 conversation + canon graph) (#5)
 
 ### Fresh validation evidence
 
-Collected on 2026-08-13 after M4 mock acceptance:
+Collected on 2026-08-13 after Stage 1 slice 1 writing desk:
 
 ```text
-uv run pytest -q                 -> 193 passed
+uv run pytest -q                 -> 203 passed
 uv run pytest tests/regression -q -> 17 passed
 uv run ruff check .              -> All checks passed
-uv run mypy src                  -> Success: no issues found in 67 source files
+uv run mypy src                  -> Success: no issues found in 73 source files
+cd apps/web && npm test          -> 4 passed (DTO→G6 mapping)
 ```
 
 M4.1 mock regression (existing loop/lint/judge, no network):
@@ -246,8 +257,8 @@ The local `.env` contains credentials and must never be printed or committed.
 
 1. Optional paid M4.2: `novel smoke-stage0 --confirm-real-models --budget-usd N`
    with real four-slot config; archive the redacted report.
-2. Stage 1 planning (FastAPI + Web 写作台); freeze `stage0` tag after G4 if the
-   paid smoke is accepted.
+2. Stage 1 remainder: outline tree editor, batch review UI, Concept Judge /
+   planning adversarial, Writer B, channel export templates.
 
 ### Important paths
 
@@ -268,7 +279,12 @@ The local `.env` contains credentials and must never be printed or committed.
 - CLI: `src/novel_agent/cli/main.py`
   (`init` / `bible` / `plan` / `graph` / `write-chapter` / `smoke-chapter` /
   `edit-outline` / `review-batch` / `approve` / `write-batch` / `resume` /
-  `export` / `smoke-stage0`)
+  `export` / `smoke-stage0` / `serve` / `doctor`)
+- Writing desk API: `src/novel_agent/api/` (`create_app`, routes, CORS)
+- Bible round generate/confirm: `src/novel_agent/planning/rounds.py`
+- Web desk: `apps/web/` (Vite + React + AntV G6)
+- Graph DTO→G6 map: `apps/web/src/graph/mapGraphDto.ts`
+- API contracts: `tests/contract/test_writing_desk_api.py`
 - Bible contracts: `tests/contract/test_story_bible.py`
 - Graph contracts: `tests/contract/test_graph_projector.py`
 - Chapter-loop contracts: `tests/workflow/test_chapter_loop.py`

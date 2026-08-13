@@ -70,6 +70,14 @@ class Settings(BaseSettings):
     # 存储
     db_path: Path = Path("data/novel.db")
 
+    # 本地写作台 API(默认只绑 localhost)
+    api_host: str = "127.0.0.1"
+    api_port: int = 8765
+    cors_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:4173,http://127.0.0.1:4173"
+    )
+
     # 预算(PRD §8.11;单章调用上限默认 25,M4.2 实测后再调)
     max_calls_per_chapter: int = 25
     max_tokens_per_batch: int | None = None

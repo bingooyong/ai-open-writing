@@ -8,6 +8,7 @@
   M3.4         review-batch / approve
   M3.5         write-batch / resume / export
   M4           smoke-stage0
+  Stage 1      serve
 """
 
 import asyncio
@@ -81,6 +82,7 @@ def doctor() -> None:
     """检查环境与配置(模型槽位、数据库路径)。"""
     s = get_settings()
     typer.echo(f"db_path: {s.db_path}")
+    typer.echo(f"api_url: http://{s.api_host}:{s.api_port}")
     for name in ("creative", "review", "judge", "extract"):
         slot = getattr(s, name)
         typer.echo(
@@ -89,6 +91,26 @@ def doctor() -> None:
     typer.echo(
         f"预算: 单章最大调用 {s.max_calls_per_chapter} 次;"
         f"修订轮次上限 {s.max_revision_rounds}(固定)"
+    )
+
+
+@app.command()
+def serve(
+    host: Annotated[str | None, typer.Option("--host", help="绑定地址,默认 127.0.0.1")] = None,
+    port: Annotated[int | None, typer.Option("--port", help="端口,默认 8765")] = None,
+) -> None:
+    """启动本地写作台 API(FastAPI/uvicorn)。"""
+    import uvicorn
+
+    s = get_settings()
+    bind_host = host or s.api_host
+    bind_port = port or s.api_port
+    typer.echo(f"api_url: http://{bind_host}:{bind_port}")
+    uvicorn.run(
+        "novel_agent.api.app:create_app",
+        factory=True,
+        host=bind_host,
+        port=bind_port,
     )
 
 

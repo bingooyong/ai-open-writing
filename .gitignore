@@ -31,3 +31,7 @@ logs/
 
 # 系统
 .DS_Store
+
+# 写作台前端
+apps/web/node_modules/
+apps/web/dist/
