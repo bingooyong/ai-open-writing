@@ -147,6 +147,10 @@ def register_chapter_loop_defaults(mock: MockProvider) -> None:
         lambda req: two_part_text(req, SCENE_1, SCENE_2, "评书成真，执事上门"),
     )
     mock.register(
+        "writer_b",
+        lambda req: two_part_text(req, SCENE_1, SCENE_2, "评书成真，执事换切口上门"),
+    )
+    mock.register(
         "reviser",
         lambda req: two_part_text(req, SCENE_1_REVISED, SCENE_2, "评书成真，执事上门"),
     )
@@ -156,7 +160,7 @@ def register_chapter_loop_defaults(mock: MockProvider) -> None:
 
         return handler
 
-    for role in ("red_team", "plot", "character", "continuity", "prose"):
+    for role in ("red_team", "plot", "character", "continuity", "prose", "reader_advocate"):
         mock.register(role, _bind_reviewer(role))
     mock.register("judge", lambda _req: verdict_json("PASS"))
     mock.register("canon_curator", lambda _req: canon_delta_json())

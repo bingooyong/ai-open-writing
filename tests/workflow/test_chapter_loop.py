@@ -59,7 +59,7 @@ async def _planned(tmp_path, mock: MockProvider | None = None):
 
 def _reviewer_roles(mock: MockProvider) -> set[str]:
     return {role for role, _req in mock.calls if role in {
-        "red_team", "plot", "character", "continuity", "prose",
+        "red_team", "plot", "character", "continuity", "prose", "reader_advocate",
     }}
 
 
@@ -95,7 +95,7 @@ async def test_pass_path_drives_n1_to_n9_and_locks_canon(tmp_path) -> None:
         ):
             assert required in names, names
         assert _reviewer_roles(mock) == {
-            "red_team", "plot", "character", "continuity", "prose",
+            "red_team", "plot", "character", "continuity", "prose", "reader_advocate",
         }
         assert any(role == "judge" for role, _req in mock.calls)
 

@@ -22,6 +22,11 @@ from novel_agent.domain.schemas import (
     StructureMap,
 )
 from novel_agent.lint.bible import lint_bible
+from novel_agent.planning.adversary import (
+    ConceptJudgeStopped,
+    ensure_concept_judge,
+    judge_blocks_round,
+)
 from novel_agent.planning.chain import PlanningError, _kernel_text
 from novel_agent.planning.conversation import (
     _dump,
@@ -29,6 +34,7 @@ from novel_agent.planning.conversation import (
     brief_from_spark,
     planned_chapter_keys,
 )
+from novel_agent.planning.settings import desk_settings
 from novel_agent.runtime.agents import (
     AgentDeps,
     run_conflict_planner,
@@ -88,6 +94,8 @@ def bible_snapshot(session: Session, project_id: int) -> dict[str, Any]:
         "conflicts": [item.model_dump(mode="json") for item in bible.list_conflicts(project_id)],
         "payoffs": [item.model_dump(mode="json") for item in bible.list_payoff_beats(project_id)],
         "outlines": [item.model_dump(mode="json") for item in outlines],
+        "concept_judge": bible.concept_judge_state(project_id),
+        "settings": desk_settings(project),
     }
 
 
@@ -100,11 +108,16 @@ async def generate_pending_round(
     volume_id: str = "v1",
     chapters_needed: int = 5,
     round_index: int | None = None,
+    skip_concept_judge: bool = False,
 ) -> dict[str, Any]:
     _planning, bible, _canon = _repos(session)
     done = bible.round_complete(project_id)
     expected = next_round_index(done)
     if expected is None:
+        bible.set_pending_round(project_id, None)
+        session.commit()
+        return bible_snapshot(session, project_id)
+    if not skip_concept_judge and judge_blocks_round(bible, project_id, expected):
         bible.set_pending_round(project_id, None)
         session.commit()
         return bible_snapshot(session, project_id)
@@ -139,6 +152,7 @@ async def confirm_round(
     select: int = 1,
     volume_id: str = "v1",
     chapters_needed: int = 5,
+    skip_concept_judge: bool = False,
 ) -> dict[str, Any]:
     if round_index < 0 or round_index > 5:
         raise PlanningError("轮次必须是 0–5")
@@ -153,6 +167,7 @@ async def confirm_round(
             spark,
             volume_id=volume_id,
             chapters_needed=chapters_needed,
+            skip_concept_judge=skip_concept_judge,
         )
     pending = bible.get_pending_round(project_id)
     if pending is None or int(pending.get("round", -1)) != round_index:
@@ -164,6 +179,7 @@ async def confirm_round(
             volume_id=volume_id,
             chapters_needed=chapters_needed,
             round_index=round_index,
+            skip_concept_judge=skip_concept_judge,
         )
         pending = bible.get_pending_round(project_id)
     if pending is None or int(pending.get("round", -1)) != round_index:
@@ -180,6 +196,21 @@ async def confirm_round(
     )
     bible.set_pending_round(project_id, None)
     session.commit()
+    if round_index in {2, 4} and not skip_concept_judge:
+        try:
+            await ensure_concept_judge(
+                bible,
+                planning,
+                deps,
+                project_id,
+                f"R{round_index}",
+                skip=False,
+                volume_id=volume_id,
+                chapters_needed=chapters_needed,
+            )
+        except ConceptJudgeStopped:
+            session.commit()
+            return bible_snapshot(session, project_id)
     return await generate_pending_round(
         session,
         deps,
@@ -187,6 +218,7 @@ async def confirm_round(
         spark,
         volume_id=volume_id,
         chapters_needed=chapters_needed,
+        skip_concept_judge=skip_concept_judge,
     )
 
 

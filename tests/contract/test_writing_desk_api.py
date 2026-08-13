@@ -61,6 +61,24 @@ def test_projects_crud_and_list(client: TestClient) -> None:
     assert client.get("/projects?include_archived=true").json()[0]["id"] == pid
 
 
+def test_patch_extra_reviewer_flags(client: TestClient) -> None:
+    created = client.post(
+        "/projects",
+        json={"title": "开关", "spark": "说书人发现故事会成真", "auto_bible": False},
+    )
+    pid = created.json()["id"]
+    assert created.json()["enable_writer_b"] is True
+    patched = client.patch(
+        f"/projects/{pid}",
+        json={"enable_writer_b": False, "enable_reader_advocate": False},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["enable_writer_b"] is False
+    assert patched.json()["enable_reader_advocate"] is False
+    fetched = client.get(f"/projects/{pid}")
+    assert fetched.json()["enable_writer_b"] is False
+
+
 def test_unknown_project_is_404(client: TestClient) -> None:
     assert client.get("/projects/99").status_code == 404
     assert client.get("/projects/99/bible").status_code == 404
@@ -114,6 +132,10 @@ def test_create_with_spark_runs_auto_bible(client: TestClient) -> None:
     assert len(payload["outlines"]) == 5
     assert set(payload["completed"]) == {"R0", "R1", "R2", "R3", "R4", "R5"}
     assert payload["pending"] is None
+    assert payload["concept_judge"]["after_r2"]["verdict"] == "PASS"
+    assert payload["concept_judge"]["after_r4"]["verdict"] == "PASS"
+    assert payload["settings"]["enable_writer_b"] is True
+    assert payload["settings"]["enable_reader_advocate"] is True
 
 
 def test_interactive_round_confirm(client: TestClient) -> None:

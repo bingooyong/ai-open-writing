@@ -59,6 +59,8 @@ class PlanningRepo:
         title: str | None = None,
         genre: str | None = None,
         spark: str | None = None,
+        enable_writer_b: bool | None = None,
+        enable_reader_advocate: bool | None = None,
     ) -> ProjectRecord:
         rec = self.get_project(project_id)
         if title is not None:
@@ -67,6 +69,17 @@ class PlanningRepo:
             rec.genre = genre
         if spark is not None:
             rec.spark = spark
+        if enable_writer_b is not None or enable_reader_advocate is not None:
+            current = rec.settings if isinstance(rec.settings, dict) else {}
+            merged = {
+                "enable_writer_b": bool(current.get("enable_writer_b", True)),
+                "enable_reader_advocate": bool(current.get("enable_reader_advocate", True)),
+            }
+            if enable_writer_b is not None:
+                merged["enable_writer_b"] = enable_writer_b
+            if enable_reader_advocate is not None:
+                merged["enable_reader_advocate"] = enable_reader_advocate
+            rec.settings = merged
         rec.updated_at = datetime.now(UTC)
         self.s.add(rec)
         return rec

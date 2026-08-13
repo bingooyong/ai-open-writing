@@ -30,7 +30,14 @@ async def test_regression_sample_matches_expected_verdict(tmp_path: Path, sample
     try:
         called = reviewer_roles_called(mock)
         if expect["reviewers_called"]:
-            assert called == {"red_team", "plot", "character", "continuity", "prose"}
+            assert called == {
+                "red_team",
+                "plot",
+                "character",
+                "continuity",
+                "prose",
+                "reader_advocate",
+            }
             assert any(role == "judge" for role, _req in mock.calls)
         else:
             assert called == set()

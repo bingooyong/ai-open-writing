@@ -15,7 +15,7 @@ def test_default_settings_all_mock() -> None:
     s = Settings(_env_file=None)
     assert s.creative.provider == "mock"
     assert s.max_revision_rounds == 2
-    assert s.max_calls_per_chapter == 25
+    assert s.max_calls_per_chapter == 40
 
 
 def test_real_provider_requires_api_key() -> None:

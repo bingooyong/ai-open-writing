@@ -27,6 +27,7 @@ from novel_agent.planning.conversation import run_bible_conversation
 from novel_agent.planning.outline_tree import assemble_outline_tree
 from novel_agent.planning.rounds import bible_snapshot, confirm_round, generate_pending_round
 from novel_agent.planning.runtime import build_planning_deps
+from novel_agent.planning.settings import desk_settings
 from novel_agent.production.batch import BatchError, resume_project, run_write_batch
 from novel_agent.production.export import export_project
 from novel_agent.production.loop import ChapterLoopError, ChapterLoopGates, run_chapter_loop
@@ -50,6 +51,7 @@ router = APIRouter()
 
 
 def _project_out(rec: ProjectRecord, completed: list[str] | None = None) -> dict[str, object]:
+    flags = desk_settings(rec)
     return {
         "id": rec.id,
         "title": rec.title,
@@ -58,6 +60,8 @@ def _project_out(rec: ProjectRecord, completed: list[str] | None = None) -> dict
         "spark": rec.spark,
         "brief": rec.brief,
         "completed_rounds": completed or [],
+        "enable_writer_b": flags["enable_writer_b"],
+        "enable_reader_advocate": flags["enable_reader_advocate"],
     }
 
 
@@ -127,6 +131,7 @@ async def create_project(
                 PlanningGates.auto(select_index=body.select - 1),
                 volume_id=body.volume_id,
                 chapters_needed=body.chapters,
+                skip_concept_judge=body.skip_concept_judge,
             )
         else:
             await generate_pending_round(
@@ -164,7 +169,12 @@ def patch_project(
     planning = PlanningRepo(session)
     require_project(planning, project_id)
     rec = planning.update_project(
-        project_id, title=body.title, genre=body.genre, spark=body.spark
+        project_id,
+        title=body.title,
+        genre=body.genre,
+        spark=body.spark,
+        enable_writer_b=body.enable_writer_b,
+        enable_reader_advocate=body.enable_reader_advocate,
     )
     completed = sorted(BibleRepo(session).round_complete(project_id))
     return _project_out(rec, completed)
@@ -193,13 +203,19 @@ async def generate_bible_round(
     round_index: int,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
+    skip_concept_judge: bool = Query(default=False),
 ) -> dict[str, object]:
     planning = PlanningRepo(session)
     rec = require_project(planning, project_id)
     deps = build_planning_deps(settings, session, project_id)
     try:
         return await generate_pending_round(
-            session, deps, project_id, rec.spark or rec.brief, round_index=round_index
+            session,
+            deps,
+            project_id,
+            rec.spark or rec.brief,
+            round_index=round_index,
+            skip_concept_judge=skip_concept_judge,
         )
     except (PlanningError, PlanningAborted) as exc:
         raise _planning_http(exc) from exc
@@ -212,6 +228,7 @@ async def confirm_bible_round(
     body: RoundConfirm = Body(default_factory=RoundConfirm),
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
+    skip_concept_judge: bool = Query(default=False),
 ) -> dict[str, object]:
     planning = PlanningRepo(session)
     rec = require_project(planning, project_id)
@@ -225,6 +242,7 @@ async def confirm_bible_round(
             round_index,
             rec.spark or rec.brief,
             select=payload.select,
+            skip_concept_judge=skip_concept_judge,
         )
     except (PlanningError, PlanningAborted) as exc:
         raise _planning_http(exc) from exc

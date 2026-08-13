@@ -18,6 +18,7 @@ from novel_agent.domain.models import (
     StructureMapRecord,
 )
 from novel_agent.domain.schemas import (
+    ConceptJudgeVerdict,
     Conflict,
     IdentityAlias,
     PayoffBeat,
@@ -212,3 +213,26 @@ class BibleRepo:
         if has_chapter is not None:
             done.add("R5")
         return done
+
+    def concept_judge_state(self, project_id: int) -> dict:
+        project = self.s.get_one(ProjectRecord, project_id)
+        raw = project.concept_judge or {}
+        return {
+            "after_r2": raw.get("after_r2") or None,
+            "after_r4": raw.get("after_r4") or None,
+        }
+
+    def get_concept_judge(self, project_id: int, after_round: str) -> ConceptJudgeVerdict | None:
+        key = "after_r2" if after_round == "R2" else "after_r4"
+        raw = self.concept_judge_state(project_id).get(key)
+        if not raw:
+            return None
+        return ConceptJudgeVerdict.model_validate(raw)
+
+    def save_concept_judge(self, project_id: int, verdict: ConceptJudgeVerdict) -> None:
+        project = self.s.get_one(ProjectRecord, project_id)
+        raw = dict(project.concept_judge or {})
+        key = "after_r2" if verdict.after_round == "R2" else "after_r4"
+        raw[key] = verdict.model_dump(mode="json")
+        project.concept_judge = raw
+        self.s.add(project)

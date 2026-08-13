@@ -7,6 +7,7 @@ import {
   type Project,
   type ReviewItem,
 } from "./api";
+import { conceptJudgeNotes } from "./bible/mapConceptJudge";
 import { RelationshipPanorama } from "./graph/RelationshipPanorama";
 import {
   MISSING_EVIDENCE,
@@ -201,6 +202,57 @@ export function App() {
             {bible ? (
               <>
                 <div className="muted">已确认 {bible.completed.join(" → ") || "（无）"}</div>
+                {conceptJudgeNotes(bible.concept_judge).length > 0 ? (
+                  <ul className="judge-notes">
+                    {conceptJudgeNotes(bible.concept_judge).map((note) => (
+                      <li key={note}>{note}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {selectedProject ? (
+                  <div className="stack" style={{ margin: "0.6rem 0" }}>
+                    <label className="muted">
+                      <input
+                        type="checkbox"
+                        checked={selectedProject.enable_writer_b !== false}
+                        disabled={busy}
+                        onChange={(event) =>
+                          void run(async () => {
+                            if (selectedId == null) {
+                              return;
+                            }
+                            const next = await api.patchProject(selectedId, {
+                              enable_writer_b: event.target.checked,
+                            });
+                            await loadProjects();
+                            setSelectedId(next.id);
+                          })
+                        }
+                      />{" "}
+                      Writer B（第二候选）
+                    </label>
+                    <label className="muted">
+                      <input
+                        type="checkbox"
+                        checked={selectedProject.enable_reader_advocate !== false}
+                        disabled={busy}
+                        onChange={(event) =>
+                          void run(async () => {
+                            if (selectedId == null) {
+                              return;
+                            }
+                            const next = await api.patchProject(selectedId, {
+                              enable_reader_advocate: event.target.checked,
+                            });
+                            await loadProjects();
+                            setSelectedId(next.id);
+                          })
+                        }
+                      />{" "}
+                      Reader Advocate（读者代言）
+                    </label>
+                  </div>
+                ) : null}
                 {bible.pending ? (
                   <article className="round-card">
                     <strong>

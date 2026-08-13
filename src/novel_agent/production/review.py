@@ -211,8 +211,10 @@ def list_review_desk(session: Session, project_id: int) -> list[dict[str, object
         if bucket is None:
             continue
         drafts = _active_drafts(production, project_id, chapter.chapter_key)
-        latest = drafts[-1] if drafts else None
-        previous = drafts[-2] if len(drafts) >= 2 else None
+        latest = production.latest_chapter_draft(project_id, chapter.chapter_key)
+        previous = None
+        if latest is not None and latest.revision_of is not None:
+            previous = next((row for row in drafts if row.id == latest.revision_of), None)
         text = _draft_text(latest) if latest is not None else ""
         prev_text = _draft_text(previous) if previous is not None else None
         issues = production.list_issues(latest.id) if latest is not None and latest.id else []

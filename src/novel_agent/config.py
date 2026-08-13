@@ -79,8 +79,8 @@ class Settings(BaseSettings):
         "http://[::1]:18765"
     )
 
-    # 预算(PRD §8.11;单章调用上限默认 25,M4.2 实测后再调)
-    max_calls_per_chapter: int = 25
+    # 预算(PRD §8.11;Stage 1 Writer B + Reader Advocate 需要两轮修订余量)
+    max_calls_per_chapter: int = 40
     max_tokens_per_batch: int | None = None
 
     # 修订轮次上限:领域固定语义(Spec §6 N7),不可通过配置放宽

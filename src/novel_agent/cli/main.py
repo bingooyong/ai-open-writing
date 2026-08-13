@@ -244,6 +244,7 @@ async def _run_bible(
     select: int,
     volume_id: str,
     chapters: int,
+    skip_concept_judge: bool = False,
 ) -> BibleResult:
     planning = PlanningRepo(session)
     try:
@@ -256,6 +257,7 @@ async def _run_bible(
             _cli_gates(yes, select),
             volume_id=volume_id,
             chapters_needed=chapters,
+            skip_concept_judge=skip_concept_judge,
         )
     except PlanningAborted as exc:
         typer.echo(f"已中止规划阶段 {exc.stage};project_id={exc.project_id}", err=True)
@@ -301,6 +303,10 @@ def init(
     select: Annotated[int, typer.Option("--select", help="非交互时选定的内核候选编号(从1起)")] = 1,
     chapters: Annotated[int, typer.Option("--chapters", help="滚动章纲数量")] = 5,
     volume_id: Annotated[str, typer.Option("--volume-id", help="卷业务键")] = "v1",
+    skip_concept_judge: Annotated[
+        bool,
+        typer.Option("--skip-concept-judge", help="跳过规划对抗(Concept Judge),加快 CI"),
+    ] = False,
 ) -> None:
     """新建项目并跑 Story Bible 对话(R0–R5)。"""
     _require_yes_or_tty(yes)
@@ -322,7 +328,9 @@ def init(
         session.commit()
         deps = build_planning_deps(settings, session, project_id)
         result = asyncio.run(
-            _run_bible(session, deps, brief, yes, select, volume_id, chapters)
+            _run_bible(
+                session, deps, brief, yes, select, volume_id, chapters, skip_concept_judge
+            )
         )
         session.commit()
     _echo_planning_result(result)
@@ -375,6 +383,10 @@ def bible(
     select: Annotated[int, typer.Option("--select", help="非交互时选定的内核候选编号(从1起)")] = 1,
     chapters: Annotated[int, typer.Option("--chapters", help="滚动章纲数量")] = 5,
     volume_id: Annotated[str, typer.Option("--volume-id", help="卷业务键")] = "v1",
+    skip_concept_judge: Annotated[
+        bool,
+        typer.Option("--skip-concept-judge", help="跳过规划对抗(Concept Judge),加快 CI"),
+    ] = False,
 ) -> None:
     """对已有项目续跑 Story Bible 对话;已完成轮次会跳过。"""
     _require_yes_or_tty(yes)
@@ -398,7 +410,9 @@ def bible(
             session.commit()
         deps = build_planning_deps(settings, session, project_id)
         result = asyncio.run(
-            _run_bible(session, deps, resolved, yes, select, volume_id, chapters)
+            _run_bible(
+                session, deps, resolved, yes, select, volume_id, chapters, skip_concept_judge
+            )
         )
         session.commit()
     _echo_planning_result(result)

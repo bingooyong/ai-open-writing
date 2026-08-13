@@ -17,6 +17,7 @@ from novel_agent.domain.schemas.canon_delta import (
     ThreadUpdate,
 )
 from novel_agent.domain.schemas.character import CharacterCard, VoiceProfile
+from novel_agent.domain.schemas.concept_judge import ConceptJudgeDecision, ConceptJudgeVerdict
 from novel_agent.domain.schemas.context_package import (
     CanonFact,
     ChapterContextPackage,
@@ -51,6 +52,8 @@ __all__ = [
     "ChapterStatus",
     "CharacterCard",
     "Conflict",
+    "ConceptJudgeDecision",
+    "ConceptJudgeVerdict",
     "ConflictKind",
     "ConflictTemperature",
     "DraftCandidate",

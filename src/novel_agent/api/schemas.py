@@ -15,12 +15,15 @@ class ProjectCreate(BaseModel):
     chapters: int = 5
     volume_id: str = "v1"
     select: int = 1
+    skip_concept_judge: bool = False
 
 
 class ProjectPatch(BaseModel):
     title: str | None = None
     genre: str | None = None
     spark: str | None = None
+    enable_writer_b: bool | None = None
+    enable_reader_advocate: bool | None = None
 
 
 class RoundConfirm(BaseModel):

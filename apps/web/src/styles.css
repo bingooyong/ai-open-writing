@@ -210,6 +210,20 @@ h2 {
   color: var(--ink);
 }
 
+.judge-notes {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+}
+
+.judge-notes li {
+  border-left: 3px solid var(--amber);
+  background: #fff;
+  padding: 0.45rem 0.7rem;
+  margin-bottom: 0.4rem;
+}
+
 .panorama {
   min-height: 260px;
   height: 100%;

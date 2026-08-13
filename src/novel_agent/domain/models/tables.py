@@ -33,6 +33,8 @@ class ProjectRecord(SQLModel, table=True):
     spark: str = ""
     brief: str = ""
     bible_pending: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    concept_judge: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    settings: dict = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
