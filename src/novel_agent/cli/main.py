@@ -38,7 +38,23 @@ from novel_agent.planning.chain import (
 )
 from novel_agent.planning.conversation import BibleResult, run_bible_conversation
 from novel_agent.planning.runtime import build_planning_deps
+from novel_agent.production.batch import BatchError, resume_project, run_write_batch
+from novel_agent.production.export import export_project
 from novel_agent.production.loop import ChapterLoopError, ChapterLoopGates, run_chapter_loop
+from novel_agent.production.outline import (
+    OutlineEditError,
+    apply_outline_edit,
+    dump_outline_yaml,
+    export_outline_bundle,
+)
+from novel_agent.production.review import (
+    ReviewError,
+    ReviewItem,
+    approve_chapter,
+    list_review_queue,
+    mark_locked_ranges,
+    reject_chapter,
+)
 from novel_agent.production.runtime import build_production_deps
 from novel_agent.runtime.agents import AgentDeps
 from novel_agent.verification.m26_smoke import (
@@ -487,6 +503,313 @@ def smoke_chapter(
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from None
     typer.echo(f"M3.3 chapter smoke finished; redacted report: {path}")
+
+
+def _resolve_chapter_key(chapter: str | None, chapter_key: str) -> str:
+    key = (chapter or chapter_key).strip()
+    if not key:
+        typer.echo("拒绝: 请提供章节参数或 --chapter-key", err=True)
+        raise typer.Exit(2)
+    if chapter and chapter_key and chapter != chapter_key:
+        typer.echo("拒绝: 位置参数与 --chapter-key 不一致", err=True)
+        raise typer.Exit(2)
+    return key
+
+
+@app.command("edit-outline")
+def edit_outline(
+    chapter: Annotated[str | None, typer.Argument(help="章节业务键,如 v1c001")] = None,
+    project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")] = 0,
+    chapter_key: Annotated[str, typer.Option("--chapter-key", help="章节业务键")] = "",
+    from_file: Annotated[
+        Path | None, typer.Option("--from-file", help="导入已编辑的 YAML")
+    ] = None,
+    out: Annotated[Path | None, typer.Option("--out", help="导出 YAML 路径")] = None,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="非交互确认导入")] = False,
+) -> None:
+    """导出/导入章纲与场景卡;导入后 bump outline_ver 并回到 N1。"""
+    if project_id <= 0:
+        typer.echo("拒绝: 请提供 --project-id", err=True)
+        raise typer.Exit(2)
+    key = _resolve_chapter_key(chapter, chapter_key)
+    if from_file is None and out is None:
+        _require_yes_or_tty(yes)
+
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        try:
+            repo.get_project(project_id)
+            repo.get_chapter(project_id, key)
+        except NoResultFound:
+            typer.echo(
+                f"拒绝: 项目或章节不存在 project_id={project_id} chapter_key={key}",
+                err=True,
+            )
+            raise typer.Exit(2) from None
+        bundle = export_outline_bundle(repo, project_id, key)
+        yaml_text = dump_outline_yaml(bundle)
+        if from_file is None:
+            target = out or Path(f"{key}.outline.yaml")
+            target.write_text(yaml_text, encoding="utf-8")
+            session.commit()
+            typer.echo(f"exported={target}")
+            typer.echo(f"outline_ver={repo.get_chapter(project_id, key).outline_version}")
+            return
+        _require_yes_or_tty(yes)
+        try:
+            text = from_file.read_text(encoding="utf-8")
+            new_ver = apply_outline_edit(session, project_id, key, text)
+        except (OSError, OutlineEditError) as exc:
+            typer.echo(f"拒绝: {exc}", err=True)
+            raise typer.Exit(2) from None
+        session.commit()
+    typer.echo(f"project_id={project_id}")
+    typer.echo(f"chapter_key={key}")
+    typer.echo(f"outline_ver={new_ver}")
+    typer.echo("status=PLANNED")
+
+
+def _echo_review_item(item: ReviewItem) -> None:
+    verdict = item.verdict.value if item.verdict else ""
+    typer.echo(f"chapter_key={item.chapter_key} status={item.status.value} verdict={verdict}")
+    preview = item.draft_text.replace("\n", " ")[:400]
+    typer.echo(f"draft={preview}")
+    for issue in item.issues:
+        typer.echo(f"issue={issue.issue_id} severity={issue.severity.value} {issue.claim}")
+
+
+@app.command("review-batch")
+def review_batch(
+    project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
+    chapter_key: Annotated[str, typer.Option("--chapter-key", help="只处理指定章节")] = "",
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="非交互:自动批准 PASS 待审章")] = False,
+    reject: Annotated[bool, typer.Option("--reject", help="退回重规划(进入 edit-outline)")] = False,
+    lock_range: Annotated[
+        list[str] | None,
+        typer.Option("--lock-range", help="段落指令重写标记,写入 locked_ranges"),
+    ] = None,
+) -> None:
+    """列出 HUMAN_REVIEW 待审章;可批准、退回或标记锁定段落。"""
+    _require_yes_or_tty(yes)
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        try:
+            repo.get_project(project_id)
+        except NoResultFound:
+            typer.echo(f"拒绝: 项目不存在 project_id={project_id}", err=True)
+            raise typer.Exit(2) from None
+        queue = list_review_queue(session, project_id)
+        if chapter_key:
+            queue = [item for item in queue if item.chapter_key == chapter_key]
+        if not queue:
+            typer.echo("待审章节: (无)")
+            session.commit()
+            return
+        for item in queue:
+            _echo_review_item(item)
+        ranges = lock_range or []
+        try:
+            if reject:
+                if not chapter_key:
+                    typer.echo("拒绝: --reject 需要 --chapter-key", err=True)
+                    raise typer.Exit(2)
+                stale = reject_chapter(session, project_id, chapter_key)
+                session.commit()
+                typer.echo(f"rejected={chapter_key}")
+                if stale:
+                    typer.echo(f"stale={','.join(stale)}")
+                return
+            if ranges:
+                if not chapter_key:
+                    typer.echo("拒绝: --lock-range 需要 --chapter-key", err=True)
+                    raise typer.Exit(2)
+                mark_locked_ranges(session, project_id, chapter_key, ranges)
+                session.commit()
+                typer.echo(f"locked_ranges={chapter_key}")
+                return
+            deps = build_production_deps(settings, session, project_id)
+            for item in queue:
+                result = asyncio.run(
+                    approve_chapter(session, deps, project_id, item.chapter_key)
+                )
+                typer.echo(f"approved={result.chapter_key} status={result.status.value}")
+            session.commit()
+        except ReviewError as exc:
+            typer.echo(f"拒绝: {exc}", err=True)
+            raise typer.Exit(1) from None
+
+
+@app.command()
+def approve(
+    project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
+    chapter_key: Annotated[str, typer.Option("--chapter-key", help="章节业务键")],
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="非交互确认批准并提交正史")] = False,
+) -> None:
+    """批准 HUMAN_REVIEW 章节,触发 CanonWriter 提交。"""
+    _require_yes_or_tty(yes)
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        try:
+            repo.get_project(project_id)
+            repo.get_chapter(project_id, chapter_key)
+        except NoResultFound:
+            typer.echo(
+                f"拒绝: 项目或章节不存在 project_id={project_id} chapter_key={chapter_key}",
+                err=True,
+            )
+            raise typer.Exit(2) from None
+        deps = build_production_deps(settings, session, project_id)
+        try:
+            result = asyncio.run(approve_chapter(session, deps, project_id, chapter_key))
+        except ReviewError as exc:
+            typer.echo(f"拒绝: {exc}", err=True)
+            raise typer.Exit(1) from None
+        except ChapterLoopError as exc:
+            typer.echo(f"单章循环失败: {exc}", err=True)
+            raise typer.Exit(1) from None
+        session.commit()
+    typer.echo(f"project_id={result.project_id}")
+    typer.echo(f"chapter_key={result.chapter_key}")
+    typer.echo(f"status={result.status.value}")
+
+
+@app.command("write-batch")
+def write_batch(
+    project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
+    chapters: Annotated[int, typer.Option("--chapters", help="连跑章数(3~5)")] = 3,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="PASS 后自动批准并提交正史")] = False,
+) -> None:
+    """3~5 章顺序连跑;后章可读前章 provisional canon overlay(D15)。"""
+    if chapters < 3 or chapters > 5:
+        typer.echo("拒绝: --chapters 必须是 3~5", err=True)
+        raise typer.Exit(2)
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        try:
+            repo.get_project(project_id)
+        except NoResultFound:
+            typer.echo(f"拒绝: 项目不存在 project_id={project_id}", err=True)
+            raise typer.Exit(2) from None
+        deps = build_production_deps(settings, session, project_id)
+        try:
+            batch = asyncio.run(
+                run_write_batch(
+                    session,
+                    deps,
+                    project_id,
+                    chapter_count=chapters,
+                    yes=yes,
+                    settings=settings,
+                )
+            )
+        except (BatchError, ChapterLoopError) as exc:
+            typer.echo(f"批次连跑失败: {exc}", err=True)
+            raise typer.Exit(1) from None
+        except WorkflowPaused as exc:
+            typer.echo(f"工作流暂停: {exc}", err=True)
+            raise typer.Exit(1) from None
+        session.commit()
+    for item in batch.results:
+        typer.echo(
+            f"chapter_key={item.chapter_key} status={item.status.value} "
+            f"stopped_at={item.stopped_at}"
+        )
+
+
+@app.command()
+def resume(
+    project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
+    chapter_key: Annotated[str, typer.Option("--chapter-key", help="只恢复指定章节")] = "",
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="PASS 后自动批准并提交正史")] = False,
+) -> None:
+    """从最后 SUCCESS 节点续跑未完成章节。"""
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        try:
+            repo.get_project(project_id)
+            if chapter_key:
+                repo.get_chapter(project_id, chapter_key)
+        except NoResultFound:
+            typer.echo(
+                f"拒绝: 项目或章节不存在 project_id={project_id} chapter_key={chapter_key}",
+                err=True,
+            )
+            raise typer.Exit(2) from None
+        deps = build_production_deps(settings, session, project_id)
+        try:
+            results = asyncio.run(
+                resume_project(
+                    session,
+                    deps,
+                    project_id,
+                    chapter_key or None,
+                    yes=yes,
+                    settings=settings,
+                )
+            )
+        except ChapterLoopError as exc:
+            typer.echo(f"恢复失败: {exc}", err=True)
+            raise typer.Exit(1) from None
+        except WorkflowPaused as exc:
+            typer.echo(f"工作流暂停: {exc}", err=True)
+            raise typer.Exit(1) from None
+        session.commit()
+    if not results:
+        typer.echo("resume: 无未完成章节")
+        return
+    for item in results:
+        typer.echo(
+            f"chapter_key={item.chapter_key} status={item.status.value} "
+            f"stopped_at={item.stopped_at}"
+        )
+
+
+@app.command()
+def export(
+    project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
+    fmt: Annotated[str, typer.Option("--format", help="txt 或 md")] = "md",
+    out: Annotated[Path | None, typer.Option("--out", help="输出文件路径")] = None,
+) -> None:
+    """导出已有草稿/正史章节为 TXT 或 Markdown。"""
+    if fmt not in {"txt", "md"}:
+        typer.echo("拒绝: --format 必须是 txt 或 md", err=True)
+        raise typer.Exit(2)
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        try:
+            repo.get_project(project_id)
+        except NoResultFound:
+            typer.echo(f"拒绝: 项目不存在 project_id={project_id}", err=True)
+            raise typer.Exit(2) from None
+        if fmt == "txt":
+            result = export_project(session, project_id, "txt", out)
+        elif fmt == "md":
+            result = export_project(session, project_id, "md", out)
+        else:
+            typer.echo("拒绝: --format 必须是 txt 或 md", err=True)
+            raise typer.Exit(2)
+    if isinstance(result, Path):
+        typer.echo(f"exported={result}")
+    else:
+        typer.echo(result)
 
 
 if __name__ == "__main__":

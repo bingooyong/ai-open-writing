@@ -5,6 +5,7 @@ from novel_agent.production.loop import (
     ChapterLoopGates,
     ChapterLoopResult,
     run_chapter_loop,
+    stage_chapter_overlay,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "ChapterLoopGates",
     "ChapterLoopResult",
     "run_chapter_loop",
+    "stage_chapter_overlay",
 ]

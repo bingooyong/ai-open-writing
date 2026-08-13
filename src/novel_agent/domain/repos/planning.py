@@ -260,6 +260,20 @@ class PlanningRepo:
 
     # ---- 场景卡 ----
 
+    def replace_scene_cards(
+        self, project_id: int, chapter_key: str, cards: list[SceneCard]
+    ) -> None:
+        existing = self.s.exec(
+            select(SceneRecord).where(
+                SceneRecord.project_id == project_id,
+                SceneRecord.chapter_key == chapter_key,
+            )
+        ).all()
+        for rec in existing:
+            self.s.delete(rec)
+        self.s.flush()
+        self.save_scene_cards(project_id, chapter_key, cards)
+
     def save_scene_cards(
         self, project_id: int, chapter_key: str, cards: list[SceneCard]
     ) -> None:

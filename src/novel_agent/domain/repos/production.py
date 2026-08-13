@@ -63,6 +63,31 @@ class ProductionRepo:
         rec.locked_ranges = locked_ranges
         self.s.add(rec)
 
+    def latest_chapter_draft(
+        self, project_id: int, chapter_key: str
+    ) -> DraftVersionRecord | None:
+        drafts = [
+            rec
+            for rec in self.list_drafts(project_id, chapter_key)
+            if not (rec.meta or {}).get("voided")
+            and not rec.lineage_id.startswith("voided:")
+        ]
+        return drafts[-1] if drafts else None
+
+    def void_lineage(self, project_id: int, chapter_key: str) -> int:
+        """REPLAN/STALE:作废该章全部 draft 谱系。"""
+        n = 0
+        for rec in self.list_drafts(project_id, chapter_key):
+            if rec.lineage_id.startswith("voided:") or (rec.meta or {}).get("voided"):
+                continue
+            meta = dict(rec.meta or {})
+            meta["voided"] = True
+            rec.meta = meta
+            rec.lineage_id = f"voided:{rec.lineage_id}"
+            self.s.add(rec)
+            n += 1
+        return n
+
     # ---- 评审问题 ----
 
     def save_issues(self, draft_version_id: int, issues: list[ReviewIssue]) -> None:
