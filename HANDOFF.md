@@ -30,7 +30,7 @@ uv run novel serve
 cd apps/web && npm run dev
 ```
 
-API: `http://127.0.0.1:8765` (CORS localhost only). Vite: `http://localhost:5173`.
+API: `http://127.0.0.1:8765` (CORS localhost only). Vite: `http://localhost:18765`.
 
 ### Stable architecture and decisions
 
