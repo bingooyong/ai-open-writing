@@ -1,0 +1,105 @@
+id: R4
+implant: engineering_pollution
+title: 工程污染——正文混入 JSON
+expect:
+  lint_blocks: true
+  judge_blocks: false
+  rollback: []
+  reviewers_called: false
+  status: ADVERSARIAL_REVIEW
+  verdict: null
+kernel:
+  premise: 如果一个说书人发现自己讲的故事会成真
+  logline: 落魄说书人为救妹妹,用会成真的故事对抗操纵命运的书局
+  theme_question: 讲故事的人有没有权力改写别人的命运
+  dramatic_question: 他能否在不牺牲无辜者的前提下救回妹妹
+  value_shift: 从逃避责任到承担叙述的代价
+  ending_proof: 他烧掉能成真的书,用凡人方式完成救赎
+  reader_promise: 每卷一个成真故事引发的连锁危机与反转
+  do_not_write: [禁无代价全能]
+characters:
+  - character_id: ch_su
+    name: 苏晚生
+    identity: 临安城茶楼说书人
+    story_function: 主角
+    external_goal: 赎回被书局扣押的妹妹
+    internal_need: 承认自己无法置身故事之外
+    motivation: 妹妹是他唯一亲人
+    fear: 自己的话害死无辜者
+    start_state: 只求糊口、回避是非
+    end_state: 接受叙述者的责任
+unit:
+  unit_id: u1
+  position_in_volume: 第一卷开局单元
+  promise_or_debt: 兑现故事成真的核心设定
+  trigger: 随口编的失火故事次日成真
+  protagonist_goal: 查明故事为何成真
+  opposition: 书局执事以纵火案胁迫
+  escalation_beats: [成真范围扩大]
+  midpoint_change: 发现书局早知他的能力
+  irreversible_choice: 签下卖身契
+  climax: 第一次主动讲救人的故事
+  payoff: 代价规则首次明确
+outline:
+  chapter_key: v1c001
+  volume_id: v1
+  unit_id: u1
+  title: 纸条
+  core_event: 说书人随口编的故事一夜成真
+  pov: 苏晚生
+  time_location: 临安城,春夜茶楼
+  protagonist_goal: 讲完今晚的书
+  key_choice: 临场编造失火桥段
+  start_state: 穷困但平静
+  end_state: 被卷入失火案
+  emotion_shift: 轻快→惊惧
+  entry_point: 茶楼满座
+  exit_hook: 衙役上门
+  target_words: 3000
+scenes:
+  - scene_id: v1c001_s1
+    chapter_key: v1c001
+    pov: 苏晚生
+    time: 春夜
+    location: 临安茶楼
+    entry_state: 听众渐散
+    goal: 用新桥段留住客人
+    obstacle: 老听客起哄
+    stakes: 今晚赏钱
+    turning_point: 他临场编出西市失火
+    choice: 把火写到真实街巷
+    outcome: 满堂彩
+    emotional_shift: 窘迫→得意
+    word_budget: 1200
+  - scene_id: v1c001_s2
+    chapter_key: v1c001
+    pov: 苏晚生
+    time: 入夜
+    location: 茶楼后巷
+    entry_state: 已经无法装傻
+    goal: 把伤害挪开
+    obstacle: 对方握有把柄
+    stakes: 人身安全
+    turning_point: 他必须决定下一句讲不讲
+    choice: 开口或沉默
+    outcome: 压力落地
+    emotional_shift: 得意→发冷
+    word_budget: 1200
+draft_scenes:
+  - scene_id: v1c001_s1
+    content: >-
+      临安茶楼里灯火通明，苏晚生一拍醒木，满堂皆静。
+      他随口编了西市失火的段子，听众叫好。
+      他说完掏出一张纸条，上面写着 {"issue_id": "prompt_leak"} 然后若无其事地走了。
+      茶客还在鼓掌，谁也没看清那行字。
+  - scene_id: v1c001_s2
+    content: >-
+      入夜后他绕到茶楼后巷，霍执事已经等在那里。
+      对方不谈天，只问他下一句还讲不讲。
+      苏晚生想到妹妹，把到嘴边的故事咽了回去。
+chapter_summary: 正文残留工程 JSON
+quote: '{"issue_id": "prompt_leak"}'
+blocker_role: continuity
+hard_gate: engineering_leak
+rollback_target: prose
+judge_verdict: PASS
