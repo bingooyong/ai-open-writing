@@ -85,6 +85,41 @@ class PlanningRepo:
         ).first()
         return StoryKernel.model_validate(rec.payload) if rec else None
 
+    def list_kernels(self, project_id: int) -> list[StoryKernelRecord]:
+        return list(
+            self.s.exec(
+                select(StoryKernelRecord)
+                .where(StoryKernelRecord.project_id == project_id)
+                .order_by(StoryKernelRecord.version)  # type: ignore[arg-type]
+            ).all()
+        )
+
+    def list_volumes(self, project_id: int) -> list[VolumeRecord]:
+        return list(
+            self.s.exec(
+                select(VolumeRecord)
+                .where(VolumeRecord.project_id == project_id)
+                .order_by(VolumeRecord.volume_id)  # type: ignore[attr-defined]
+            ).all()
+        )
+
+    def list_units(self, project_id: int) -> list[PlotUnitCard]:
+        recs = self.s.exec(
+            select(PlotUnitRecord)
+            .where(PlotUnitRecord.project_id == project_id)
+            .order_by(PlotUnitRecord.unit_id)  # type: ignore[attr-defined]
+        ).all()
+        return [PlotUnitCard.model_validate(rec.payload) for rec in recs]
+
+    def list_chapters(self, project_id: int) -> list[ChapterRecord]:
+        return list(
+            self.s.exec(
+                select(ChapterRecord)
+                .where(ChapterRecord.project_id == project_id)
+                .order_by(ChapterRecord.order_index)  # type: ignore[arg-type]
+            ).all()
+        )
+
     # ---- 角色 ----
 
     def upsert_character(self, project_id: int, card: CharacterCard) -> CharacterRecord:
