@@ -77,6 +77,127 @@ PLANNING_CHARACTERS: list[dict] = [
     ),
 ]
 
+PLANNING_RELATIONSHIPS: list[dict] = [
+    dict(
+        parties=["ch_su", "ch_shuju"],
+        state="胁迫与试探",
+        evidence="书局执事以纵火案上门,逼他在契约上签字",
+    ),
+]
+
+PLANNING_STRUCTURE: dict = dict(
+    template="three_act",
+    inciting_incident=dict(summary="随口编的失火故事成真", chapter_key="v1c001", volume_id="v1"),
+    commitment=dict(summary="为救妹妹签下卖身契", chapter_key="v1c004", volume_id="v1"),
+    midpoint=dict(summary="发现书局早知他的能力", chapter_key="v1c003", volume_id="v1"),
+    all_is_lost=dict(summary="妹妹被扣为人质", chapter_key="v1c004", volume_id="v1"),
+    climax=dict(summary="第一次主动讲救人的故事", chapter_key="v1c005", volume_id="v1"),
+    resolution=dict(summary="代价规则首次明确", chapter_key="v1c005", volume_id="v1"),
+    golden_three=[
+        dict(
+            promise="主角当场面对会成真的评书",
+            escalation="西市失火牵连他",
+            payoff_or_hook="衙役上门留下危机",
+        ),
+        dict(
+            promise="压力落到证人与名声",
+            escalation="书局执事现身",
+            payoff_or_hook="纵火案成为把柄",
+        ),
+        dict(
+            promise="小闭环:他必须开口或封口",
+            escalation="签约胁迫升级",
+            payoff_or_hook="新问题:妹妹安危",
+        ),
+    ],
+)
+
+PLANNING_CONFLICTS: list[dict] = [
+    dict(
+        conflict_id="cf_sign",
+        kind="interest",
+        parties=["ch_su", "ch_shuju"],
+        stake="是否签入书局",
+        temperature="rising",
+        must_affect="both",
+        payoff_chapter_key="v1c005",
+    ),
+    dict(
+        conflict_id="cf_voice",
+        kind="value",
+        parties=["ch_su"],
+        stake="讲真话还是保命",
+        temperature="setup",
+        must_affect="plot",
+        payoff_chapter_key="v1c003",
+    ),
+    dict(
+        conflict_id="cf_time",
+        kind="time",
+        parties=["ch_su", "ch_shuju"],
+        stake="天亮前必须给出答复",
+        temperature="peak",
+        must_affect="plot",
+        payoff_chapter_key="v1c004",
+    ),
+]
+
+PLANNING_PAYOFFS: list[dict] = [
+    dict(
+        beat_id="pb_micro1",
+        scale="micro",
+        kind="reveal",
+        pressure_before="听众起哄嫌旧",
+        hit="临场新段子满堂彩",
+        chapter_key="v1c001",
+        order_index=1,
+    ),
+    dict(
+        beat_id="pb_small1",
+        scale="small",
+        kind="face-slap",
+        pressure_before="被当众点名纵火",
+        hit="证人反而证明他在茶楼",
+        chapter_key="v1c002",
+        order_index=2,
+    ),
+    dict(
+        beat_id="pb_small2",
+        scale="small",
+        kind="bond",
+        pressure_before="执事礼貌胁迫",
+        hit="他看清对方也怕被写成配角",
+        chapter_key="v1c003",
+        order_index=3,
+    ),
+    dict(
+        beat_id="pb_large1",
+        scale="large",
+        kind="reversal",
+        pressure_before="妹妹被扣为人质",
+        hit="他签契换来一线生机",
+        chapter_key="v1c004",
+        order_index=4,
+    ),
+    dict(
+        beat_id="pb_large2",
+        scale="large",
+        kind="power",
+        pressure_before="第一次主动讲述的代价压顶",
+        hit="救人故事成真且规则显形",
+        chapter_key="v1c005",
+        order_index=5,
+    ),
+]
+
+_CITATIONS = (
+    (["cf_voice"], ["pb_micro1"]),
+    (["cf_sign"], ["pb_small1"]),
+    (["cf_voice"], ["pb_small2"]),
+    (["cf_time"], ["pb_large1"]),
+    (["cf_sign"], ["pb_large2"]),
+)
+
 _UNIT = dict(
     unit_id="u1",
     position_in_volume="第一卷开局单元(1-5章)",
@@ -121,6 +242,8 @@ def _chapter(n: int) -> dict:
         exit_hook="下一层压力露出边角",
         target_words=3000,
         reveal_forbidden=["书局主人真名"],
+        cited_conflict_ids=_CITATIONS[(n - 1) % len(_CITATIONS)][0],
+        cited_beat_ids=_CITATIONS[(n - 1) % len(_CITATIONS)][1],
     )
 
 
@@ -183,7 +306,25 @@ def register_planning_defaults(mock: MockProvider) -> None:
     )
     mock.register(
         "character_planner",
-        lambda _req: json.dumps({"characters": PLANNING_CHARACTERS}, ensure_ascii=False),
+        lambda _req: json.dumps(
+            {
+                "characters": PLANNING_CHARACTERS,
+                "relationship_proposals": PLANNING_RELATIONSHIPS,
+            },
+            ensure_ascii=False,
+        ),
+    )
+    mock.register(
+        "structure_planner",
+        lambda _req: json.dumps(PLANNING_STRUCTURE, ensure_ascii=False),
+    )
+    mock.register(
+        "conflict_planner",
+        lambda _req: json.dumps({"conflicts": PLANNING_CONFLICTS}, ensure_ascii=False),
+    )
+    mock.register(
+        "payoff_planner",
+        lambda _req: json.dumps({"beats": PLANNING_PAYOFFS}, ensure_ascii=False),
     )
     mock.register(
         "outline_planner",

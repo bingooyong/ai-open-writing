@@ -154,6 +154,27 @@ class CanonRepo:
             )
         ).first()
 
+    def list_relationships(self, project_id: int) -> list[RelationshipStateRecord]:
+        return list(
+            self.s.exec(
+                select(RelationshipStateRecord)
+                .where(RelationshipStateRecord.project_id == project_id)
+                .order_by(
+                    RelationshipStateRecord.party_a,  # type: ignore[arg-type]
+                    RelationshipStateRecord.party_b,  # type: ignore[arg-type]
+                )
+            ).all()
+        )
+
+    def list_deltas(self, project_id: int) -> list[CanonDeltaRecord]:
+        return list(
+            self.s.exec(
+                select(CanonDeltaRecord)
+                .where(CanonDeltaRecord.project_id == project_id)
+                .order_by(CanonDeltaRecord.id)  # type: ignore[arg-type]
+            ).all()
+        )
+
     # ---- 伏笔线 ----
 
     def upsert_thread(

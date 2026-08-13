@@ -14,6 +14,7 @@ output_schema: PlotUnitCard + list[ChapterOutline] + list[SceneCard]
 4. 章节键格式 v卷号c三位序号(如 v1c001);场景 id 格式 {章节键}_s{序号};场景卡 chapter_key 必须与所属章纲一致。
 5. word_budget 之和贴近章纲 target_words。
 6. 首章前 500 字所在场景必须有可见事件与差异化元素。
+7. 每个章纲必须引用至少一个冲突 cited_conflict_ids 或爽点 cited_beat_ids。
 
 只输出符合以下 JSON Schema 的对象,不要任何其他文字:
 ${schema}

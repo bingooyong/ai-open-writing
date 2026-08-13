@@ -15,23 +15,27 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from novel_agent.domain.schemas import (
     CanonDelta,
     ChapterContextPackage,
     ChapterOutline,
     CharacterCard,
+    Conflict,
     DraftCandidate,
     JudgeVerdict,
     KernelCandidateSet,
+    PayoffBeat,
     PlotUnitCard,
+    RelationshipProposal,
     ReviewerRole,
     ReviewIssue,
     ReviewReport,
     RevisionOrder,
     SceneCard,
     SceneDraft,
+    StructureMap,
 )
 from novel_agent.gateway.base import ModelGateway, ModelRequest
 from novel_agent.gateway.structured import TWO_PART_FORMAT_INSTRUCTIONS, StructuredOutputError
@@ -52,6 +56,22 @@ EVIDENCE_REPAIR_INSTRUCTIONS = (
     "至少12个汉字，不得概括、改写、拼接或引用场景卡；无法逐字定位的问题请删除。"
 )
 OutputT = TypeVar("OutputT", bound=BaseModel)
+
+
+class _ConflictList(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    conflicts: list[Conflict]
+
+
+class _PayoffBeatList(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    beats: list[PayoffBeat]
+
+
+class _PeoplePlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    characters: list[CharacterCard]
+    relationship_proposals: list[RelationshipProposal] = Field(default_factory=list)
 
 
 class CognitiveTask(StrEnum):
@@ -566,23 +586,82 @@ async def run_kernel_planner(deps: AgentDeps, brief: str) -> KernelCandidateSet:
 async def run_character_planner(
     deps: AgentDeps, kernel_text: str, brief: str
 ) -> list[CharacterCard]:
-    from pydantic import BaseModel, ConfigDict
+    people = await run_people_planner(deps, kernel_text, brief)
+    return people.characters
 
-    class _CharacterList(BaseModel):
-        model_config = ConfigDict(extra="forbid")
-        characters: list[CharacterCard]
 
+async def run_people_planner(
+    deps: AgentDeps, kernel_text: str, brief: str
+) -> _PeoplePlan:
     spec = deps.prompt("character_planner")
-    schema = json.dumps(_CharacterList.model_json_schema(), ensure_ascii=False)
+    schema = json.dumps(_PeoplePlan.model_json_schema(), ensure_ascii=False)
     req = ModelRequest(
         system=spec.render(schema=schema),
         user=f"# 创作简报\n{brief}\n\n# 已确认故事内核\n{kernel_text}",
         max_tokens=10000,
     )
-    out = await CognitiveAgent(
-        deps, "character_planner", CognitiveTask.PLANNING, _CharacterList
+    return await CognitiveAgent(
+        deps, "character_planner", CognitiveTask.PLANNING, _PeoplePlan
     ).run(req)
-    return out.characters
+
+
+async def run_structure_planner(deps: AgentDeps, kernel_text: str, brief: str) -> StructureMap:
+    spec = deps.prompt("structure_planner")
+    schema = json.dumps(StructureMap.model_json_schema(), ensure_ascii=False)
+    req = ModelRequest(
+        system=spec.render(schema=schema),
+        user=f"# 创作简报\n{brief}\n\n# 已确认故事内核\n{kernel_text}",
+        max_tokens=8000,
+    )
+    return await CognitiveAgent(
+        deps, "structure_planner", CognitiveTask.PLANNING, StructureMap
+    ).run(req)
+
+
+async def run_conflict_planner(
+    deps: AgentDeps,
+    kernel_text: str,
+    characters_text: str,
+    chapter_keys: list[str],
+) -> list[Conflict]:
+    spec = deps.prompt("conflict_planner")
+    schema = json.dumps(_ConflictList.model_json_schema(), ensure_ascii=False)
+    keys = ",".join(chapter_keys)
+    req = ModelRequest(
+        system=spec.render(schema=schema, chapter_keys=keys),
+        user=(
+            f"# 故事内核\n{kernel_text}\n\n# 角色\n{characters_text}\n\n"
+            f"# 计划章节键\n{keys}"
+        ),
+        max_tokens=8000,
+    )
+    out = await CognitiveAgent(
+        deps, "conflict_planner", CognitiveTask.PLANNING, _ConflictList
+    ).run(req)
+    return out.conflicts
+
+
+async def run_payoff_planner(
+    deps: AgentDeps,
+    kernel_text: str,
+    conflicts_text: str,
+    chapter_keys: list[str],
+) -> list[PayoffBeat]:
+    spec = deps.prompt("payoff_planner")
+    schema = json.dumps(_PayoffBeatList.model_json_schema(), ensure_ascii=False)
+    keys = ",".join(chapter_keys)
+    req = ModelRequest(
+        system=spec.render(schema=schema, chapter_keys=keys),
+        user=(
+            f"# 故事内核\n{kernel_text}\n\n# 冲突\n{conflicts_text}\n\n"
+            f"# 计划章节键\n{keys}"
+        ),
+        max_tokens=8000,
+    )
+    out = await CognitiveAgent(
+        deps, "payoff_planner", CognitiveTask.PLANNING, _PayoffBeatList
+    ).run(req)
+    return out.beats
 
 
 async def run_outline_planner(

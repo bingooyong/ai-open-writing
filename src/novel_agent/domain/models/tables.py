@@ -30,6 +30,8 @@ class ProjectRecord(SQLModel, table=True):
     world_rules: dict = Field(default_factory=dict, sa_column=Column(JSON))
     boundaries: list = Field(default_factory=list, sa_column=Column(JSON))
     channel_profile: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    spark: str = ""
+    brief: str = ""
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -87,6 +89,53 @@ class RelationshipStateRecord(SQLModel, table=True):
     source_chapter: str = ""
     provisional: bool = Field(default=False, index=True)  # D15
     updated_at: datetime = Field(default_factory=_now)
+
+
+class StructureMapRecord(SQLModel, table=True):
+    """全书三幕图 + 黄金三章(每项目可多版本,取最新)。"""
+
+    __tablename__ = "structure_map"
+    __table_args__ = (UniqueConstraint("project_id", "version"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    version: int = 1
+    payload: dict = Field(sa_column=Column(JSON))  # StructureMap
+    created_at: datetime = Field(default_factory=_now)
+
+
+class ConflictRecord(SQLModel, table=True):
+    __tablename__ = "conflict"
+    __table_args__ = (UniqueConstraint("project_id", "conflict_id"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    conflict_id: str = Field(index=True)
+    payload: dict = Field(sa_column=Column(JSON))  # Conflict
+    created_at: datetime = Field(default_factory=_now)
+
+
+class PayoffBeatRecord(SQLModel, table=True):
+    __tablename__ = "payoff_beat"
+    __table_args__ = (UniqueConstraint("project_id", "beat_id"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    beat_id: str = Field(index=True)
+    order_index: int = Field(default=0, index=True)
+    payload: dict = Field(sa_column=Column(JSON))  # PayoffBeat
+    created_at: datetime = Field(default_factory=_now)
+
+
+class IdentityAliasRecord(SQLModel, table=True):
+    __tablename__ = "identity_alias"
+    __table_args__ = (UniqueConstraint("project_id", "alias"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    canonical_character_id: str = Field(index=True)
+    alias: str
+    created_at: datetime = Field(default_factory=_now)
 
 
 class VolumeRecord(SQLModel, table=True):
