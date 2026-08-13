@@ -196,6 +196,10 @@ h2 {
   cursor: not-allowed;
 }
 
+.volume-progress {
+  font-size: 0.82rem;
+}
+
 .round-card {
   border-left: 3px solid var(--teal);
   background: #fff;

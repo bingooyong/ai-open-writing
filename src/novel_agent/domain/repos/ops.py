@@ -66,6 +66,22 @@ class OpsRepo:
             ).all()
         )
 
+    def spent_usd(self, project_id: int) -> float:
+        recs = self.s.exec(
+            select(ModelRunRecord).where(ModelRunRecord.project_id == project_id)
+        ).all()
+        return round(sum(float(rec.cost_estimate or 0) for rec in recs), 6)
+
+    def latest_workflow(self, project_id: int, kind: str) -> WorkflowRunRecord | None:
+        return self.s.exec(
+            select(WorkflowRunRecord)
+            .where(
+                WorkflowRunRecord.project_id == project_id,
+                WorkflowRunRecord.kind == kind,
+            )
+            .order_by(WorkflowRunRecord.id.desc())  # type: ignore[union-attr]
+        ).first()
+
     # ---- 工作流 ----
 
     def create_workflow_run(
@@ -94,13 +110,19 @@ class OpsRepo:
         return self.s.exec(stmt.order_by(WorkflowRunRecord.id.desc())).first()  # type: ignore[union-attr]
 
     def update_workflow(
-        self, run_id: int, status: str | None = None, current_node: str | None = None
+        self,
+        run_id: int,
+        status: str | None = None,
+        current_node: str | None = None,
+        budget_spent: dict | None = None,
     ) -> None:
         rec = self.get_workflow_run(run_id)
         if status:
             rec.status = status
         if current_node is not None:
             rec.current_node = current_node
+        if budget_spent is not None:
+            rec.budget_spent = dict(budget_spent)
         rec.updated_at = datetime.now(UTC)
         self.s.add(rec)
 

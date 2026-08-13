@@ -1,4 +1,5 @@
 import type { ConceptJudgeState } from "./bible/mapConceptJudge";
+import type { GraphDto } from "./graph/mapGraphDto";
 import type { OutlineTreeDto } from "./outline/mapOutlineTree";
 
 export type Project = {
@@ -94,6 +95,19 @@ export type OutlineEditResult = {
   outline_version: number;
   status: string;
   title: string;
+};
+
+export type VolumeRunStatus = {
+  project_id: number;
+  run_id: number | null;
+  status: string;
+  chapters_done: number;
+  chapter_keys: string[];
+  spent_usd: number;
+  budget_usd: number;
+  stop_reason: string;
+  current_chapter: string;
+  max_chapters: number | null;
 };
 
 async function parse<T>(responsePromise: Promise<Response>): Promise<T> {
@@ -217,6 +231,23 @@ export const api = {
         body: JSON.stringify({ yes: false }),
       }),
     ),
+  startRunVolume: (
+    id: number,
+    body: { budget_usd: number; max_chapters?: number | null; open_volume?: boolean; yes?: boolean },
+  ) =>
+    parse<VolumeRunStatus>(
+      fetch(`/projects/${id}/run-volume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          budget_usd: body.budget_usd,
+          max_chapters: body.max_chapters ?? null,
+          open_volume: body.open_volume ?? false,
+          yes: body.yes ?? true,
+        }),
+      }),
+    ),
+  getRunVolume: (id: number) => parse<VolumeRunStatus>(fetch(`/projects/${id}/run-volume`)),
   exportMarkdown: async (id: number) => {
     const response = await fetch(`/projects/${id}/export?format=md`);
     if (!response.ok) {
