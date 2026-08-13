@@ -124,9 +124,9 @@ dc465d6 feat: Story Bible from a Spark (R0–R5 conversation + canon graph) (#5)
 Collected on 2026-08-13 after rebasing M3.3 onto Story Bible main:
 
 ```text
-uv run pytest -q       -> (re-run after rebase)
-uv run ruff check .    -> (re-run after rebase)
-uv run mypy src        -> (re-run after rebase)
+uv run pytest -q       -> 160 passed
+uv run ruff check .    -> All checks passed
+uv run mypy src        -> Success: no issues found in 62 source files
 ```
 
 Offline Story Bible contracts (mock only, no network): spark → R0 brief → kernel →
