@@ -8,6 +8,7 @@
   M3.4         review-batch / approve
   M3.5         write-batch / resume / export
   卷工厂        plan-more
+  长跑          run-volume
   M4           smoke-stage0
   Stage 1      serve
 """
@@ -65,6 +66,7 @@ from novel_agent.production.review import (
     reject_chapter,
 )
 from novel_agent.production.runtime import build_production_deps
+from novel_agent.production.volume_run import VolumeBusyError, VolumeRunError, run_volume
 from novel_agent.runtime.agents import AgentDeps
 from novel_agent.verification.m26_smoke import (
     SmokeExecutionError,
@@ -875,6 +877,79 @@ def write_batch(
             raise typer.Exit(1) from None
         session.commit()
     for item in batch.results:
+        typer.echo(
+            f"chapter_key={item.chapter_key} status={item.status.value} "
+            f"stopped_at={item.stopped_at}"
+        )
+
+
+@app.command("run-volume")
+def run_volume_cmd(
+    project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="PASS 后自动批准并提交正史")] = False,
+    budget_usd: Annotated[
+        float | None,
+        typer.Option("--budget-usd", help="本次运行不可超过的 USD 硬上限"),
+    ] = None,
+    max_chapters: Annotated[
+        int | None, typer.Option("--max-chapters", help="本次最多新锁定章数")
+    ] = None,
+    open_volume: Annotated[
+        bool, typer.Option("--open-volume", help="窗口续规划时开下一卷")
+    ] = False,
+) -> None:
+    """无人值守卷长跑:窗口不足则 plan-more,再写未锁定章;遇预算/人工门禁停下。"""
+    _require_yes_or_tty(yes)
+    if budget_usd is None or budget_usd <= 0:
+        typer.echo("拒绝: --budget-usd 必须是正数", err=True)
+        raise typer.Exit(2)
+    if max_chapters is not None and max_chapters < 1:
+        typer.echo("拒绝: --max-chapters 必须 >= 1", err=True)
+        raise typer.Exit(2)
+
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        try:
+            repo.get_project(project_id)
+        except NoResultFound:
+            typer.echo(f"拒绝: 项目不存在 project_id={project_id}", err=True)
+            raise typer.Exit(2) from None
+        deps = build_production_deps(settings, session, project_id)
+        try:
+            result = asyncio.run(
+                run_volume(
+                    session,
+                    deps,
+                    project_id,
+                    budget_usd=budget_usd,
+                    yes=yes,
+                    max_chapters=max_chapters,
+                    open_volume=open_volume,
+                    settings=settings,
+                )
+            )
+        except VolumeBusyError as exc:
+            typer.echo(f"拒绝: {exc}", err=True)
+            raise typer.Exit(2) from None
+        except VolumeRunError as exc:
+            typer.echo(f"长跑失败: {exc}", err=True)
+            raise typer.Exit(1) from None
+        except (ChapterLoopError, BatchError) as exc:
+            typer.echo(f"长跑失败: {exc}", err=True)
+            raise typer.Exit(1) from None
+        except WorkflowPaused as exc:
+            typer.echo(f"工作流暂停: {exc}", err=True)
+            raise typer.Exit(1) from None
+        session.commit()
+    typer.echo(f"project_id={result.project_id}")
+    typer.echo(f"run_id={result.run_id}")
+    typer.echo(f"chapters_done={result.chapters_done}")
+    typer.echo(f"spent_usd={result.spent_usd}")
+    typer.echo(f"stop_reason={result.stop_reason}")
+    for item in result.results:
         typer.echo(
             f"chapter_key={item.chapter_key} status={item.status.value} "
             f"stopped_at={item.stopped_at}"

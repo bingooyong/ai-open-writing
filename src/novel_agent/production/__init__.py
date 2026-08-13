@@ -7,11 +7,21 @@ from novel_agent.production.loop import (
     run_chapter_loop,
     stage_chapter_overlay,
 )
+from novel_agent.production.volume_run import (
+    VolumeRunError,
+    VolumeRunResult,
+    VolumeStopReason,
+    run_volume,
+)
 
 __all__ = [
     "ChapterLoopError",
     "ChapterLoopGates",
     "ChapterLoopResult",
+    "VolumeRunError",
+    "VolumeRunResult",
+    "VolumeStopReason",
     "run_chapter_loop",
+    "run_volume",
     "stage_chapter_overlay",
 ]

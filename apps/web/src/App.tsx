@@ -6,6 +6,7 @@ import {
   type PendingRound,
   type Project,
   type ReviewItem,
+  type VolumeRunStatus,
 } from "./api";
 import { conceptJudgeNotes } from "./bible/mapConceptJudge";
 import { RelationshipPanorama } from "./graph/RelationshipPanorama";
@@ -49,6 +50,10 @@ export function App() {
   const [kernelSelect, setKernelSelect] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [volumeRun, setVolumeRun] = useState<VolumeRunStatus | null>(null);
+  const [volumeBudget, setVolumeBudget] = useState("1");
+  const [volumeMaxChapters, setVolumeMaxChapters] = useState("8");
+  const volumeRunning = volumeRun?.status === "running";
 
   const range: ChapterRange | undefined = useMemo(() => {
     if (!rangeFrom && !rangeTo) {
@@ -62,18 +67,20 @@ export function App() {
   }, []);
 
   const loadDesk = useCallback(async (id: number) => {
-    const [nextBible, nextGraph, nextChapters, nextTree, nextReview] = await Promise.all([
+    const [nextBible, nextGraph, nextChapters, nextTree, nextReview, nextVolume] = await Promise.all([
       api.getBible(id),
       api.getGraph(id),
       api.listChapters(id),
       api.getOutlineTree(id),
       api.listReview(id),
+      api.getRunVolume(id),
     ]);
     setBible(nextBible);
     setGraph(nextGraph);
     setChapters(nextChapters);
     setOutlineTree(nextTree);
     setReviewItems(nextReview);
+    setVolumeRun(nextVolume);
   }, []);
 
   useEffect(() => {
@@ -86,6 +93,24 @@ export function App() {
     }
     loadDesk(selectedId).catch((err: Error) => setError(err.message));
   }, [selectedId, loadDesk]);
+
+  useEffect(() => {
+    if (selectedId == null || !volumeRunning) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void api
+        .getRunVolume(selectedId)
+        .then(async (status) => {
+          setVolumeRun(status);
+          if (status.status !== "running") {
+            await loadDesk(selectedId);
+          }
+        })
+        .catch((err: Error) => setError(err.message));
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [selectedId, volumeRunning, loadDesk]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -484,7 +509,7 @@ export function App() {
           <div className="row" style={{ alignItems: "center" }}>
             <button
               className="btn ghost"
-              disabled={busy}
+              disabled={busy || volumeRunning}
               type="button"
               onClick={() =>
                 void run(async () => {
@@ -495,6 +520,67 @@ export function App() {
             >
               写下一批
             </button>
+            <label className="muted">
+              $
+              <input
+                value={volumeBudget}
+                onChange={(event) => setVolumeBudget(event.target.value)}
+                style={{ width: "4.5rem" }}
+                inputMode="decimal"
+                aria-label="卷长跑预算 USD"
+              />
+            </label>
+            <label className="muted">
+              章
+              <input
+                value={volumeMaxChapters}
+                onChange={(event) => setVolumeMaxChapters(event.target.value)}
+                style={{ width: "3.5rem" }}
+                inputMode="numeric"
+                aria-label="最多章数"
+              />
+            </label>
+            <button
+              className="btn teal"
+              disabled={busy || volumeRunning}
+              type="button"
+              onClick={() => {
+                setError("");
+                const budget = Number(volumeBudget);
+                const maxChapters = volumeMaxChapters.trim()
+                  ? Number(volumeMaxChapters)
+                  : undefined;
+                if (!(budget > 0)) {
+                  setError("跑一卷需要正数 USD 预算");
+                  return;
+                }
+                if (maxChapters != null && (!Number.isInteger(maxChapters) || maxChapters < 1)) {
+                  setError("最多章数必须是正整数");
+                  return;
+                }
+                void api
+                  .startRunVolume(selectedId, {
+                    budget_usd: budget,
+                    max_chapters: maxChapters,
+                    yes: true,
+                  })
+                  .then((started) => {
+                    setVolumeRun(started);
+                  })
+                  .catch((err: Error) => setError(err.message));
+              }}
+            >
+              跑一卷
+            </button>
+            {volumeRun && volumeRun.status !== "idle" ? (
+              <span className="muted volume-progress">
+                {volumeRun.status === "running"
+                  ? `长跑中 ${volumeRun.chapters_done} 章`
+                  : `已停 ${volumeRun.chapters_done} 章`}
+                {volumeRun.stop_reason ? ` · ${volumeRun.stop_reason}` : ""}
+                {` · $${volumeRun.spent_usd}`}
+              </span>
+            ) : null}
             <button
               className="btn ghost"
               disabled={busy}

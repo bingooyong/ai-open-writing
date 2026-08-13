@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
+from sqlalchemy.engine import Engine
 from sqlmodel import Session
 
 from novel_agent.api.deps import get_app_settings, get_session, require_chapter, require_project
@@ -15,13 +16,14 @@ from novel_agent.api.schemas import (
     ProjectPatch,
     ResumeBody,
     RoundConfirm,
+    RunVolumeBody,
     WriteBatchBody,
     WriteChapterBody,
     loop_payload,
 )
 from novel_agent.config import Settings
 from novel_agent.domain.models import ProjectRecord
-from novel_agent.domain.repos import BibleRepo, CanonRepo, PlanningRepo
+from novel_agent.domain.repos import BibleRepo, CanonRepo, OpsRepo, PlanningRepo
 from novel_agent.graph.projector import project_graph
 from novel_agent.planning.chain import PlanningAborted, PlanningError, PlanningGates
 from novel_agent.planning.conversation import run_bible_conversation
@@ -47,6 +49,13 @@ from novel_agent.production.review import (
     reject_chapter,
 )
 from novel_agent.production.runtime import build_production_deps
+from novel_agent.production.volume_run import (
+    KIND,
+    idle_volume_status,
+    run_volume,
+    status_from_run,
+    volume_is_active,
+)
 from novel_agent.workflow.errors import WorkflowPaused
 
 router = APIRouter()
@@ -508,6 +517,91 @@ async def resume(
     except WorkflowPaused as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"project_id": project_id, "results": [loop_payload(item) for item in results]}
+
+
+async def _run_volume_job(
+    engine: Engine,
+    settings: Settings,
+    project_id: int,
+    run_id: int,
+    budget_usd: float,
+    max_chapters: int | None,
+    open_volume: bool,
+    yes: bool,
+) -> None:
+    with Session(engine) as session:
+        try:
+            deps = build_production_deps(settings, session, project_id)
+            await run_volume(
+                session,
+                deps,
+                project_id,
+                budget_usd=budget_usd,
+                yes=yes,
+                max_chapters=max_chapters,
+                open_volume=open_volume,
+                settings=settings,
+                run_id=run_id,
+            )
+            session.commit()
+        except Exception:
+            session.rollback()
+            with Session(engine) as fail:
+                try:
+                    OpsRepo(fail).update_workflow(run_id, status="failed")
+                    fail.commit()
+                except Exception:
+                    fail.rollback()
+            raise
+
+
+@router.post("/projects/{project_id}/run-volume")
+async def start_run_volume(
+    project_id: int,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    body: RunVolumeBody,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> dict[str, object]:
+    planning = PlanningRepo(session)
+    require_project(planning, project_id)
+    if body.budget_usd <= 0:
+        raise HTTPException(status_code=400, detail="budget_usd 必须是正数")
+    if volume_is_active(project_id):
+        raise HTTPException(status_code=409, detail="卷长跑已在进行")
+    ops = OpsRepo(session)
+    run = ops.find_resumable_run(project_id, KIND) or ops.create_workflow_run(
+        project_id, KIND
+    )
+    assert run.id is not None
+    session.commit()
+    engine = request.app.state.engine
+    if not isinstance(engine, Engine):
+        raise HTTPException(status_code=500, detail="应用未注入数据库引擎")
+    background_tasks.add_task(
+        _run_volume_job,
+        engine,
+        settings,
+        project_id,
+        run.id,
+        body.budget_usd,
+        body.max_chapters,
+        body.open_volume,
+        body.yes,
+    )
+    return status_from_run(project_id, run)
+
+
+@router.get("/projects/{project_id}/run-volume")
+def get_run_volume(
+    project_id: int, session: Session = Depends(get_session)
+) -> dict[str, object]:
+    require_project(PlanningRepo(session), project_id)
+    run = OpsRepo(session).latest_workflow(project_id, KIND)
+    if run is None:
+        return idle_volume_status(project_id)
+    return status_from_run(project_id, run)
 
 
 @router.get("/projects/{project_id}/export")

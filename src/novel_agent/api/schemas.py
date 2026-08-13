@@ -51,6 +51,13 @@ class ResumeBody(BaseModel):
     yes: bool = False
 
 
+class RunVolumeBody(BaseModel):
+    budget_usd: float
+    max_chapters: int | None = Field(default=None, ge=1)
+    open_volume: bool = False
+    yes: bool = False
+
+
 class EditOutlineBody(BaseModel):
     yaml: str = ""
 
