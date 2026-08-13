@@ -2,7 +2,7 @@
 
 from novel_agent.workflow.budget import BudgetExceeded, check_chapter_budget
 from novel_agent.workflow.errors import IllegalTransition, NodeFailed, WorkflowPaused
-from novel_agent.workflow.runner import run_node
+from novel_agent.workflow.runner import run_node, run_node_async
 from novel_agent.workflow.state_machine import assert_transition, transition
 
 __all__ = [
@@ -13,5 +13,6 @@ __all__ = [
     "assert_transition",
     "check_chapter_budget",
     "run_node",
+    "run_node_async",
     "transition",
 ]

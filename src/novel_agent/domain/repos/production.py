@@ -117,12 +117,31 @@ class ProductionRepo:
         self.s.flush()
         return rec
 
-    def latest_verdict(self, chapter_key: str) -> JudgeVerdict | None:
-        rec = self.s.exec(
+    def list_drafts(
+        self,
+        project_id: int,
+        chapter_key: str,
+        lineage_id: str | None = None,
+    ) -> list[DraftVersionRecord]:
+        stmt = select(DraftVersionRecord).where(
+            DraftVersionRecord.project_id == project_id,
+            DraftVersionRecord.chapter_key == chapter_key,
+        )
+        if lineage_id is not None:
+            stmt = stmt.where(DraftVersionRecord.lineage_id == lineage_id)
+        return list(
+            self.s.exec(stmt.order_by(DraftVersionRecord.id)).all()  # type: ignore[arg-type]
+        )
+
+    def latest_verdict_record(self, chapter_key: str) -> JudgeVerdictRecord | None:
+        return self.s.exec(
             select(JudgeVerdictRecord)
             .where(JudgeVerdictRecord.chapter_key == chapter_key)
             .order_by(JudgeVerdictRecord.id.desc())  # type: ignore[union-attr]
         ).first()
+
+    def latest_verdict(self, chapter_key: str) -> JudgeVerdict | None:
+        rec = self.latest_verdict_record(chapter_key)
         return JudgeVerdict.model_validate(rec.payload) if rec else None
 
     def revise_local_rounds(self, chapter_key: str, lineage_draft_ids: list[int]) -> int:
