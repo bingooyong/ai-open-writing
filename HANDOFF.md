@@ -1,16 +1,19 @@
 # Project Handoff
 
-## 2026-08-13 - M3.2 planning-chain CLI
+## 2026-08-13 - Story Bible conversation
 
 ### Current target
 
 Complete Stage 0 of the local-first AI long-form novel agent described in
 `.omc/autopilot/spec.md` and `.omc/plans/autopilot-impl.md`.
 
-The repository is at **M3.2 (planning-chain CLI)**. M0, M1, M2 (including
-ContextBuilder / M2.6 real-model smoke evidence), and M3.1-equivalent context
-assembly are complete. M3.3 chapter production loop, M3.3b, M3.4, M3.5, and M4
-have not started.
+The repository is at **Story Bible from a Spark** on top of M3.2. M0, M1, M2
+(including ContextBuilder / M2.6 real-model smoke evidence), M3.1-equivalent
+context assembly, and M3.2 planning-chain are complete. **Story Bible
+conversation is the planning entry**; `run_planning_chain` (M3.2) remains a
+callable subroutine (`novel plan`). M3.3 chapter production loop is independent
+and in flight on another branch — do not mix it here. M3.3b, M3.4, M3.5, and M4
+have not started on this line.
 
 ### Resume here
 
@@ -23,6 +26,7 @@ uv run pytest -q
 uv run ruff check .
 uv run mypy src
 uv run novel init "说书人传奇" --brief "说书人发现故事会成真" --yes
+uv run novel graph --project-id 1 --format json
 ```
 
 ### Stable architecture and decisions
@@ -35,6 +39,15 @@ uv run novel init "说书人传奇" --brief "说书人发现故事会成真" --y
   `Agent` is a ReAct loop and is not used for strict one-shot review/judgment tasks. The
   rationale and future integration boundary are in `docs/verification-report.md`.
 - Canon writes go only through `CanonWriter`; agents can propose but cannot commit canon.
+- **Planning-time relationships are an exception:** R3 writes `relationship_state` with
+  `provisional=True` and `source_chapter="planning"` directly via `CanonRepo`. No chapter
+  exists yet, so CanonWriter is not called. Later chapter loop still uses CanonWriter
+  for committed deltas.
+- The relationship graph is a **projection** of `relationship_state` +
+  `CanonDelta.relationship_changes`. Never a second extracted graph.
+- Conversation memory is last confirmed artifacts, not chat logs. R0→R5 order is mandatory.
+- Spark/brief live on `project.spark` / `project.brief`. One-release read fallback from
+  `channel_profile["brief"]` then migrate into `brief`. Stop writing `channel_profile`.
 - D15 is confirmed: batch chapters may read provisional canon; rejecting an earlier chapter
   must mark dependent later chapters `STALE` and invalidate their provisional deltas.
 - D16 is confirmed: Writer/Reviser use scene plaintext blocks plus separate JSON metadata.
@@ -52,49 +65,50 @@ uv run novel init "说书人传奇" --brief "说书人发现故事会成真" --y
   lint, versioned prompts, and bounded M2.6 real-model smoke (12/12 roles).
 - M3.1-equivalent: `ContextBuilder` assembles `ChapterContextPackage` with PRD §12.2
   ordering and budget trimming (landed in the M2.6 close-out commit).
-- M3.2: planning-chain CLI and orchestration.
+- M3.2: planning-chain CLI and orchestration (`novel plan` still calls it).
+- Story Bible: R0–R5 conversation, bible schemas/tables/repo, lint, structure/conflict/payoff
+  planners, graph projector/export.
 
 Relevant commits, newest first:
 
 ```text
-36cbc81 feat(M2.6): context 构建器、真实模型 smoke 收尾与 M2 验证证据归档
-1b31270 fix: harden M2.6 smoke evidence accounting
-67a272f feat: add bounded M2.6 real-model smoke runner
-a3852cc feat: add cognitive agent runtime contracts
+docs: HANDOFF for Story Bible conversation
+feat(graph): canon projector and novel graph export
+feat(cli): novel init/bible conversation entrypoints
+feat(bible): R0–R5 conversation orchestrator
 ```
 
-### M3.2 command split
+### Story Bible command split
 
-- `novel init TITLE --brief TEXT [--yes] [--select N]`: create a project, store the
-  brief on `project.channel_profile`, and run the full planning chain.
-- `novel plan --project-id ID [--brief TEXT] [--yes] [--select N]`: resume the chain
-  on an existing project. Completed stages (approved kernel / characters / chapters)
-  are skipped.
-- Human gates: interactive kernel selection + confirm for characters and for the
-  volume/unit/rolling-outline bundle. `--yes` auto-selects candidate `--select`
-  (1-based, default 1) and confirms every later stage. Non-TTY without `--yes`
-  exits 2 so CI cannot hang on prompts.
-- Chain implementation: `src/novel_agent/planning/chain.py` calls existing
-  `run_kernel_planner` / `run_character_planner` / `run_outline_planner`, then
-  persists through `PlanningRepo` only. Mock defaults live in
-  `src/novel_agent/planning/mock_fixtures.py`.
-- Rolling window: default 5 chapter outlines, each with scene cards. Volume payload
-  is assembled from the unit card (no extra LLM call; there is no VolumeOutline schema).
+- `novel init TITLE --brief TEXT [--yes] [--select N]`: create a project, persist
+  spark/brief on project columns, run R0–R5 conversation.
+- `novel bible --project-id ID [--brief TEXT] [--yes] [--select N]`: resume conversation.
+  Completed rounds (R0–R5) are skipped.
+- `novel plan --project-id ID`: M3.2 chain subroutine (kernel → characters → rolling outlines).
+- `novel graph --project-id ID --format json|mermaid`: canon-native graph projection. No LLM.
+- Human gates: interactive kernel selection + confirm per round. `--yes` auto-selects
+  candidate `--select` (1-based, default 1) and confirms every later stage. Non-TTY
+  without `--yes` exits 2 so CI cannot hang on prompts.
+- Conversation: `src/novel_agent/planning/conversation.py`. M3.2 chain stays in
+  `src/novel_agent/planning/chain.py` and is not a god object.
+- R3 relationships: provisional `relationship_state` rows, not CanonWriter.
+- Graph: `src/novel_agent/graph/projector.py` reads canon only.
 
 ### Fresh validation evidence
 
-Collected on 2026-08-13 (M3.2):
+Collected on 2026-08-13 (Story Bible):
 
 ```text
-uv run pytest -q       -> 127 passed
+uv run pytest -q       -> 153 passed
 uv run ruff check .    -> All checks passed
-uv run mypy src        -> Success: no issues found in 50 source files
+uv run mypy src        -> Success: no issues found in 57 source files
 ```
 
-Offline planning-chain contracts (mock only, no network): generate 3 kernels →
-select/approve one → persist characters, volume, plot unit, 5 chapter outlines +
-scene cards, all queryable via `PlanningRepo`. Abort-before-characters and
-`--yes` CLI paths are covered.
+Offline Story Bible contracts (mock only, no network): spark → R0 brief → kernel →
+structure map → characters + provisional relations → conflicts/爽点 on planned
+`v1c001..N` → rolling 5 outlines that cite conflicts/beats. Abort R3 keeps kernel.
+Resume after R3 skips R0–R3. Graph empty after R1, populated after R3; alias merge;
+missing evidence labeled not dropped.
 
 M2.6 paid smoke remains archived (not re-run in this milestone):
 
@@ -106,24 +120,27 @@ The local `.env` contains credentials and must never be printed or committed.
 
 ### Next implementation sequence
 
-1. M3.3 单章循环编排: N1→N9 接 FSM(评审并行、Judge、两轮修订上限、HUMAN_REVIEW)。
-   mock 下 PASS / REVISE_LOCAL 两轮 / REPLAN / 两轮失败→HUMAN_REVIEW 各一条集成测试;
-   另需真实模型单章冒烟(不要求质量达标)。
-2. M3.3b `novel edit-outline` YAML 导出/导入, bump outline_ver, 回 N1。
-3. M3.4 `novel review-batch` / `novel approve`(canon 提交 + git 检查点)。
-4. M3.5 `novel write-batch`(D15 provisional overlay) / `resume` / `export`。
-5. M4 回归集、Judge 校准、三章真实模型验收。
+1. M3.3 单章循环编排: N1→N9 接 FSM(评审并行、Judge、两轮修订上限、HUMAN_REVIEW).
+   Independent of this branch; leave that PR alone.
+2. M3.3b `novel edit-outline` YAML 导出/导入, bump outline_ver, 回 N1.
+3. M3.4 `novel review-batch` / `novel approve`(canon 提交 + git 检查点).
+4. M3.5 `novel write-batch`(D15 provisional overlay) / `resume` / `export`.
+5. M4 回归集、Judge 校准、三章真实模型验收.
 
 ### Important paths
 
 - Product/architecture source: `docs/AI_Novel_Agent_PRD_Architecture.md`
 - Frozen implementation spec: `.omc/autopilot/spec.md`
 - Milestone plan and DoD: `.omc/plans/autopilot-impl.md`
+- Story Bible design: `docs/superpowers/specs/2026-08-13-story-bible-from-spark-design.md`
+- Story Bible plan: `docs/superpowers/plans/2026-08-13-story-bible-from-spark.md`
 - Prior adversarial review: `.omc/autopilot/review-findings.md`
 - Dependency/API verification: `docs/verification-report.md`
-- Planning chain: `src/novel_agent/planning/`
-- Planning CLI: `src/novel_agent/cli/main.py` (`init` / `plan`)
-- Planning contracts: `tests/contract/test_planning_chain.py`
+- Story Bible conversation: `src/novel_agent/planning/conversation.py`
+- M3.2 chain (subroutine): `src/novel_agent/planning/chain.py`
+- Planning CLI: `src/novel_agent/cli/main.py` (`init` / `bible` / `plan` / `graph`)
+- Bible contracts: `tests/contract/test_story_bible.py`
+- Graph contracts: `tests/contract/test_graph_projector.py`
 - Runtime agents: `src/novel_agent/runtime/agents.py`
 - Runtime boundary: `src/novel_agent/runtime/adapter.py`
 - Model gateway: `src/novel_agent/gateway/`
@@ -145,3 +162,4 @@ data/
 ```
 
 There is an unrelated open Dependabot PR (`cryptography` bump); leave it alone.
+M3.3 chapter-loop PR is independent; leave it alone.
