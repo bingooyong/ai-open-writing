@@ -1,8 +1,9 @@
 """novel 命令行入口(阶段0:Typer)。
 
 命令面随里程碑逐步填充:
-  Story Bible  init / bible
+  Story Bible  init / bible / graph
   M3.2         plan (规划链子程序)
+  M3.3         write-chapter / smoke-chapter
   M3.3b        edit-outline
   M3.4         review-batch / approve
   M3.5         write-batch / resume / export
@@ -37,12 +38,16 @@ from novel_agent.planning.chain import (
 )
 from novel_agent.planning.conversation import BibleResult, run_bible_conversation
 from novel_agent.planning.runtime import build_planning_deps
+from novel_agent.production.loop import ChapterLoopError, ChapterLoopGates, run_chapter_loop
+from novel_agent.production.runtime import build_production_deps
 from novel_agent.runtime.agents import AgentDeps
 from novel_agent.verification.m26_smoke import (
     SmokeExecutionError,
     SmokeGateError,
     run_m26_smoke,
 )
+from novel_agent.verification.m33_smoke import run_m33_smoke
+from novel_agent.workflow.errors import WorkflowPaused
 
 app = typer.Typer(help="本地优先的 AI 长篇小说创作智能体(阶段0)", no_args_is_help=True)
 
@@ -385,6 +390,103 @@ def graph(
         typer.echo(to_json(projection))
     else:
         typer.echo(to_mermaid(projection))
+
+
+@app.command("write-chapter")
+def write_chapter(
+    project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
+    chapter_key: Annotated[str, typer.Option("--chapter-key", help="章节业务键,如 v1c001")],
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="PASS 后自动批准并提交正史")] = False,
+) -> None:
+    """对已规划章节跑 N1→N9 单章循环;默认在 HUMAN_REVIEW 停下。"""
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        try:
+            repo.get_project(project_id)
+            repo.get_chapter(project_id, chapter_key)
+        except NoResultFound:
+            typer.echo(
+                f"拒绝: 项目或章节不存在 project_id={project_id} chapter_key={chapter_key}",
+                err=True,
+            )
+            raise typer.Exit(2) from None
+        if yes:
+            gates = ChapterLoopGates.auto()
+        elif sys.stdin.isatty():
+            gates = ChapterLoopGates(
+                approve=lambda _preview: bool(typer.confirm("批准本章并提交正史?", default=False))
+            )
+        else:
+            gates = ChapterLoopGates.hold()
+        deps = build_production_deps(settings, session, project_id)
+        try:
+            result = asyncio.run(
+                run_chapter_loop(
+                    session,
+                    deps,
+                    project_id,
+                    chapter_key,
+                    gates=gates,
+                    settings=settings,
+                )
+            )
+        except ChapterLoopError as exc:
+            typer.echo(f"单章循环失败: {exc}", err=True)
+            raise typer.Exit(1) from None
+        except WorkflowPaused as exc:
+            typer.echo(f"工作流暂停: {exc}", err=True)
+            raise typer.Exit(1) from None
+        session.commit()
+    typer.echo(f"project_id={result.project_id}")
+    typer.echo(f"chapter_key={result.chapter_key}")
+    typer.echo(f"status={result.status.value}")
+    typer.echo(f"verdict={result.verdict.value if result.verdict else ''}")
+    typer.echo(f"revision_round={result.revision_round}")
+    typer.echo(f"stopped_at={result.stopped_at}")
+
+
+@app.command("smoke-chapter")
+def smoke_chapter(
+    confirm_real_models: Annotated[
+        bool,
+        typer.Option(
+            "--confirm-real-models",
+            help="显式确认本命令将调用并计费真实模型",
+        ),
+    ] = False,
+    budget_usd: Annotated[
+        float | None,
+        typer.Option("--budget-usd", help="本次运行不可超过的 USD 硬上限"),
+    ] = None,
+    report: Annotated[
+        Path | None, typer.Option("--report", help="脱敏 JSON 证据报告路径")
+    ] = None,
+) -> None:
+    """M3.3 受限真实模型单章冒烟;默认拒绝执行。"""
+    if not confirm_real_models:
+        typer.echo("拒绝: 缺少 --confirm-real-models", err=True)
+        raise typer.Exit(2)
+    if budget_usd is None or budget_usd <= 0:
+        typer.echo("拒绝: --budget-usd 必须是正数", err=True)
+        raise typer.Exit(2)
+
+    try:
+        path = asyncio.run(
+            run_m33_smoke(get_settings(), budget_usd=budget_usd, report_path=report)
+        )
+    except SmokeGateError as exc:
+        typer.echo(f"拒绝: {exc}", err=True)
+        raise typer.Exit(2) from None
+    except ValidationError:
+        typer.echo("拒绝: 模型槽位配置无效（详情已脱敏）", err=True)
+        raise typer.Exit(2) from None
+    except SmokeExecutionError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from None
+    typer.echo(f"M3.3 chapter smoke finished; redacted report: {path}")
 
 
 if __name__ == "__main__":

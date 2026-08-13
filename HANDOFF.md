@@ -1,19 +1,19 @@
 # Project Handoff
 
-## 2026-08-13 - Story Bible conversation
+## 2026-08-13 - M3.3 chapter loop on Story Bible main
 
 ### Current target
 
 Complete Stage 0 of the local-first AI long-form novel agent described in
 `.omc/autopilot/spec.md` and `.omc/plans/autopilot-impl.md`.
 
-The repository is at **Story Bible from a Spark** on top of M3.2. M0, M1, M2
-(including ContextBuilder / M2.6 real-model smoke evidence), M3.1-equivalent
-context assembly, and M3.2 planning-chain are complete. **Story Bible
-conversation is the planning entry**; `run_planning_chain` (M3.2) remains a
-callable subroutine (`novel plan`). M3.3 chapter production loop is independent
-and in flight on another branch — do not mix it here. M3.3b, M3.4, M3.5, and M4
-have not started on this line.
+The repository is at **M3.3 (single-chapter N1→N9 loop)** on top of
+**Story Bible from a Spark**. M0, M1, M2 (including ContextBuilder / M2.6
+real-model smoke evidence), M3.1-equivalent context assembly, M3.2
+planning-chain, Story Bible conversation, and M3.3 chapter loop are complete.
+**Story Bible conversation is the planning entry**; `run_planning_chain` (M3.2)
+remains a callable subroutine (`novel plan`). M3.3b, M3.4, M3.5, and M4 have
+not started.
 
 ### Resume here
 
@@ -27,6 +27,7 @@ uv run ruff check .
 uv run mypy src
 uv run novel init "说书人传奇" --brief "说书人发现故事会成真" --yes
 uv run novel graph --project-id 1 --format json
+uv run novel write-chapter --project-id 1 --chapter-key v1c001 --yes
 ```
 
 ### Stable architecture and decisions
@@ -54,6 +55,10 @@ uv run novel graph --project-id 1 --format json
 - Judge and creative slots must use different model families.
 - Stage 0 planning is single-round generate + human confirm. No planning adversarial /
   Concept Judge (that is Stage 1).
+- Evidence-less issues are down-ranked in code, still sent to Judge, and stripped as
+  blockers after the verdict (`sanitize_verdict`). Two `REVISE_LOCAL` rounds max; a
+  further hard-gate / revise verdict upgrades to `HUMAN_REVIEW`. `REPLAN_*` stops at
+  `NEEDS_REPLAN` (no auto-replan agent in Stage 0).
 
 ### Completed work
 
@@ -68,14 +73,14 @@ uv run novel graph --project-id 1 --format json
 - M3.2: planning-chain CLI and orchestration (`novel plan` still calls it).
 - Story Bible: R0–R5 conversation, bible schemas/tables/repo, lint, structure/conflict/payoff
   planners, graph projector/export.
+- M3.3: single-chapter N1→N9 loop wired to the existing FSM.
 
 Relevant commits, newest first:
 
 ```text
-docs: HANDOFF for Story Bible conversation
-feat(graph): canon projector and novel graph export
-feat(cli): novel init/bible conversation entrypoints
-feat(bible): R0–R5 conversation orchestrator
+dc465d6 feat: Story Bible from a Spark (R0–R5 conversation + canon graph) (#5)
+4c2368d feat(M3.2): 规划链 CLI (init/plan) 与 mock 入库契约 (#2)
+36cbc81 feat(M2.6): context 构建器、真实模型 smoke 收尾与 M2 验证证据归档
 ```
 
 ### Story Bible command split
@@ -94,14 +99,34 @@ feat(bible): R0–R5 conversation orchestrator
 - R3 relationships: provisional `relationship_state` rows, not CanonWriter.
 - Graph: `src/novel_agent/graph/projector.py` reads canon only.
 
+### M3.3 chapter loop
+
+- Programmatic entry: `run_chapter_loop` in `src/novel_agent/production/loop.py`.
+  Advances chapter status via `transition()`, executes nodes via `run_node` /
+  `run_node_async`, and calls existing `ContextBuilder`, runtime agents, lint,
+  and `CanonWriter`.
+- Node map: N1 outline guard → N2 context → N3 Writer A (D16 two-part) → N4 lint
+  → N5 parallel reviewers (per-reviewer NodeRun snapshots; Continuity/RedTeam
+  required) → N6 Judge (blinded + anonymized + down-rank sanitize) → N7 Reviser
+  (max 2 rounds, then back to N4) → N8 human gate (PASS only) → N9 Canon Curator
+  + `CanonWriter.finalize`.
+- CLI: `novel write-chapter --project-id ID --chapter-key KEY [--yes]`.
+  `--yes` auto-approves a PASS verdict and commits canon. Without `--yes`, the
+  automated N1–N7 path still runs; N8 waits (`HUMAN_REVIEW`) so non-TTY CI
+  does not hang.
+- Paid smoke: `novel smoke-chapter --confirm-real-models --budget-usd N`.
+  Default refuses (same spirit as `smoke-m26`). Not part of the default pytest
+  suite; do not run it unless you intend to spend. Mock merge gate is the four
+  integration paths in `tests/workflow/test_chapter_loop.py`.
+
 ### Fresh validation evidence
 
-Collected on 2026-08-13 (Story Bible):
+Collected on 2026-08-13 after rebasing M3.3 onto Story Bible main:
 
 ```text
-uv run pytest -q       -> 153 passed
-uv run ruff check .    -> All checks passed
-uv run mypy src        -> Success: no issues found in 57 source files
+uv run pytest -q       -> (re-run after rebase)
+uv run ruff check .    -> (re-run after rebase)
+uv run mypy src        -> (re-run after rebase)
 ```
 
 Offline Story Bible contracts (mock only, no network): spark → R0 brief → kernel →
@@ -110,22 +135,42 @@ structure map → characters + provisional relations → conflicts/爽点 on pla
 Resume after R3 skips R0–R3. Graph empty after R1, populated after R3; alias merge;
 missing evidence labeled not dropped.
 
+Offline chapter-loop contracts (mock only, no network): planning-chain fixture
+(`run_planning_chain`) or Story Bible `novel init --yes`, then one chapter
+through N1→N9.
+
+- PASS → auto-approve → `CANON_LOCKED` (parallel 5 reviewers, downweighted
+  issues still reach Judge and are not treated as blockers)
+- `REVISE_LOCAL` twice then PASS (revision_round=2, two N7 nodes)
+- `REPLAN_CHAPTER` → `NEEDS_REPLAN` (no reviser, no canon commit)
+- two-round hard-gate / revise failure → `HUMAN_REVIEW` (no third revise, no N9)
+
 M2.6 paid smoke remains archived (not re-run in this milestone):
 
 - Redacted report: `artifacts/verification/g001-minimax-evidence-repair6.json`
 - 12 prompt roles passed structured output; actual cost `$0.096965` under `$1.00`.
+
+M3.3 paid single-chapter smoke is **not** in CI. To run it deliberately:
+
+```bash
+uv run novel smoke-chapter --confirm-real-models --budget-usd 1.00
+```
+
+Requires real four-slot config (judge family ≠ creative) and will spend money.
+Quality is not a pass criterion; the command only needs to complete a chapter
+and write a redacted report under `artifacts/verification/`.
 
 The local `.env` contains credentials and must never be printed or committed.
 `data/novel.db` is local runtime data and must not be committed.
 
 ### Next implementation sequence
 
-1. M3.3 单章循环编排: N1→N9 接 FSM(评审并行、Judge、两轮修订上限、HUMAN_REVIEW).
-   Independent of this branch; leave that PR alone.
-2. M3.3b `novel edit-outline` YAML 导出/导入, bump outline_ver, 回 N1.
-3. M3.4 `novel review-batch` / `novel approve`(canon 提交 + git 检查点).
-4. M3.5 `novel write-batch`(D15 provisional overlay) / `resume` / `export`.
-5. M4 回归集、Judge 校准、三章真实模型验收.
+1. M3.3b `novel edit-outline` YAML 导出/导入, bump outline_ver, 回 N1。
+   REPLAN 裁决后经 edit-outline 修改再续跑的集成测试。
+2. M3.4 `novel review-batch` / `novel approve`(canon 提交 + git 检查点)。
+   N8 人工门禁的完整 CLI;批准后 chapter→CANON_LOCKED。
+3. M3.5 `novel write-batch`(D15 provisional overlay) / `resume` / `export`。
+4. M4 回归集、Judge 校准、三章真实模型验收。
 
 ### Important paths
 
@@ -138,9 +183,13 @@ The local `.env` contains credentials and must never be printed or committed.
 - Dependency/API verification: `docs/verification-report.md`
 - Story Bible conversation: `src/novel_agent/planning/conversation.py`
 - M3.2 chain (subroutine): `src/novel_agent/planning/chain.py`
-- Planning CLI: `src/novel_agent/cli/main.py` (`init` / `bible` / `plan` / `graph`)
+- Chapter loop: `src/novel_agent/production/loop.py`
+- CLI: `src/novel_agent/cli/main.py`
+  (`init` / `bible` / `plan` / `graph` / `write-chapter` / `smoke-chapter`)
 - Bible contracts: `tests/contract/test_story_bible.py`
 - Graph contracts: `tests/contract/test_graph_projector.py`
+- Chapter-loop contracts: `tests/workflow/test_chapter_loop.py`
+- Planning contracts: `tests/contract/test_planning_chain.py`
 - Runtime agents: `src/novel_agent/runtime/agents.py`
 - Runtime boundary: `src/novel_agent/runtime/adapter.py`
 - Model gateway: `src/novel_agent/gateway/`
@@ -162,4 +211,3 @@ data/
 ```
 
 There is an unrelated open Dependabot PR (`cryptography` bump); leave it alone.
-M3.3 chapter-loop PR is independent; leave it alone.
