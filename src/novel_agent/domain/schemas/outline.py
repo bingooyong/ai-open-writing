@@ -57,3 +57,5 @@ class ChapterOutline(VersionedSchema):
     entry_point: str = Field(min_length=1, description="章首进入点")
     exit_hook: str = Field(min_length=1, description="章尾推动力")
     target_words: int = Field(gt=0)
+    cited_conflict_ids: list[str] = Field(default_factory=list)
+    cited_beat_ids: list[str] = Field(default_factory=list)
