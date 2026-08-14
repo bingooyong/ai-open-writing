@@ -34,7 +34,7 @@ uv run novel export --project-id 1 --format epub --out /tmp/book.epub
 
 `--yes` 在非 TTY 下跳过人工确认（自动选内核候选 1，PASS 章自动批准并提交正史）。不要把 `.env`、`data/novel.db` 提交进 Git。
 
-其它常用命令：`novel graph --project-id 1 --format mermaid`、`novel write-chapter --project-id 1 --chapter-key v1c001 --yes`、`novel resume --project-id 1 --yes`、`novel review-batch --project-id 1`、`novel edit-outline v1c001 --project-id 1 --out outline.yaml`、`novel plan-more --project-id 1 --yes`（`--open-volume` 开下一卷）、`novel retrieve --project-id 1 --query "西市火灾"`（Stage 2 检索调试）、`novel export --project-id 1 --channel qidian --format txt`（渠道模板；默认只出已锁定章，`--include-drafts` 含草稿）。
+其它常用命令：`novel graph --project-id 1 --format mermaid`、`novel write-chapter --project-id 1 --chapter-key v1c001 --yes`、`novel resume --project-id 1 --yes`、`novel review-batch --project-id 1`、`novel edit-outline v1c001 --project-id 1 --out outline.yaml`、`novel plan-more --project-id 1 --yes`（`--open-volume` 开下一卷）、`novel retrieve --project-id 1 --query "西市火灾"`（Stage 2 检索调试）、`novel retrieve-eval`（离线金标评测，默认 hash，不打付费嵌入）、`novel export --project-id 1 --channel qidian --format txt`（渠道模板；默认只出已锁定章，`--include-drafts` 含草稿）。
 
 ## 本地写作台（FastAPI + Vite）
 

@@ -1,0 +1,180 @@
+{
+  "version": 1,
+  "description": "Stage 2 检索金标问句。命中信号对齐 seed_golden_project 植入的正史事实。评分走生产 retrieve()（向量+词面混合）。",
+  "ks": [1, 3, 8],
+  "queries": [
+    {
+      "id": "entity-fire-literal",
+      "category": "entity",
+      "query": "西市火灾是谁编出来的",
+      "expect": {
+        "keywords": ["西市火灾"],
+        "fact_id_prefixes": ["entity:"],
+        "kinds": ["entity"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    },
+    {
+      "id": "character-su-identity",
+      "category": "character",
+      "query": "苏晚生是谁",
+      "expect": {
+        "keywords": ["苏晚生"],
+        "kinds": ["entity"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    },
+    {
+      "id": "character-mei-hostage",
+      "category": "character",
+      "query": "苏棠被扣在哪里",
+      "expect": {
+        "keywords": ["苏棠", "纸坊"],
+        "fact_id_prefixes": ["entity:ch_mei"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    },
+    {
+      "id": "alias-nickname",
+      "category": "alias",
+      "query": "晚生说书是哪一位",
+      "expect": {
+        "keywords": ["晚生说书"],
+        "fact_id_prefixes": ["entity:ch_su"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    },
+    {
+      "id": "relationship-siblings",
+      "category": "relationship",
+      "query": "苏晚生和苏棠是什么关系",
+      "expect": {
+        "keywords": ["兄妹"],
+        "fact_id_prefixes": ["relationship:"],
+        "kinds": ["relationship"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    },
+    {
+      "id": "relationship-threat",
+      "category": "relationship",
+      "query": "沈衡怎样胁迫苏晚生",
+      "expect": {
+        "keywords": ["胁迫"],
+        "fact_id_prefixes": ["relationship:"],
+        "kinds": ["relationship"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    },
+    {
+      "id": "scene-teahouse",
+      "category": "scene",
+      "query": "茶楼里他编了什么段子",
+      "expect": {
+        "keywords": ["西市失火"],
+        "fact_id_prefixes": ["scene:"],
+        "kinds": ["scene"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    },
+    {
+      "id": "scene-yamen",
+      "category": "scene",
+      "query": "衙役上门说了什么",
+      "expect": {
+        "keywords": ["衙役"],
+        "fact_id_prefixes": ["scene:"],
+        "kinds": ["scene"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    },
+    {
+      "id": "conflict-bureau",
+      "category": "conflict",
+      "query": "故事成真的解释权归谁",
+      "expect": {
+        "keywords": ["故事成真"],
+        "fact_id_prefixes": ["conflict:"],
+        "kinds": ["conflict"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    },
+    {
+      "id": "payoff-cost",
+      "category": "payoff",
+      "query": "成真的代价由谁承担",
+      "expect": {
+        "keywords": ["讲述者"],
+        "fact_id_prefixes": ["payoff:"],
+        "kinds": ["payoff"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    },
+    {
+      "id": "summary-ch1",
+      "category": "summary",
+      "query": "第一章的核心事件是什么",
+      "expect": {
+        "keywords": ["成真"],
+        "fact_id_prefixes": ["summary:"],
+        "kinds": ["summary"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    },
+    {
+      "id": "paraphrase-fire",
+      "category": "paraphrase",
+      "query": "谁随口讲了个着火的段子第二天就应验了",
+      "expect": {
+        "keywords": ["西市火灾", "西市失火", "一夜成真"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    },
+    {
+      "id": "implication-hostage",
+      "category": "implication",
+      "query": "谁被扣作人质换说书人就范",
+      "expect": {
+        "keywords": ["苏棠", "作质", "人质"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    },
+    {
+      "id": "implication-contract",
+      "category": "implication",
+      "query": "谁被逼着卖身换亲人平安",
+      "expect": {
+        "keywords": ["卖身", "签约"]
+      },
+      "negatives": {
+        "keywords": ["北境商队"]
+      }
+    }
+  ]
+}

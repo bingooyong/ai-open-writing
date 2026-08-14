@@ -4,18 +4,18 @@
 
 ## 当前状态（2026-08-14）
 
-**渠道导出模板已完成：generic / 起点 / 番茄 / 简易 EPUB3。** Stage 2 LanceDB 检索、长跑、写作台仍在。
+**检索质量/评测已完成。** 渠道导出模板、Stage 2 LanceDB 检索、长跑、写作台仍在。
 
-- 默认只导出 `CANON_LOCKED`（及 `EXPORTED`）章。`--include-drafts` / `include_drafts=true` 含未锁定稿，供写作台预览。
-- `novel export --project-id N --channel qidian|fanqie|generic|epub --format txt|md|epub [--out path] [--include-drafts]`
-- `--channel` 默认 `generic`（现有 txt/md 版式，清洗工程污染）。`--format epub` 视为 epub 渠道。
-- `GET /projects/{id}/export?channel=&format=&include_drafts=` 返回文件。
-- 写作台章节轨：渠道 + 格式下拉，可勾选「含草稿」后下载。
-- 起点：`第N章 标题` + 空行 + 正文；有卷名或多卷时加 `第X卷 卷名`。番茄：同形章标题，标题后直接接正文，无书名/卷名页。EPUB3 为 zip（`mimetype=application/epub+zip`，一章一个 xhtml）。
-- **不是** 起点/番茄官方投稿 API，不登录、不抓取。
-- 端口未改：前端 **18765**（strictPort）、API **8765**。禁止 5173。
+- 冻结金标：`eval/retrieval/golden_queries.json`（14 问，覆盖人物/关系/场景/冲突/爽点/摘要，含改写与暗示）。
+- 离线 runner：`novel_agent.eval.retrieval` 植入确定性项目、重建索引、对每问调用生产 `MemoryRetrieval.retrieve`。
+- 指标：recall@1/3/8、hit_rate、MRR；另报词面-only 对照。报告 stdout + `--out`（默认 `reports/retrieval-eval.md`）。
+- CLI：`novel retrieve-eval [--golden PATH] [--out PATH] [--compare-real]`。默认强制 `HashEmbedding`，不访问网络。`--compare-real` 仅当 `embedding.provider=openai_compat` 已配置。
+- pytest 锁文档化下限，见 `docs/retrieval-eval.md`。
+- **决策：默认继续 mock/hash，不换成真实嵌入。** hash 混合已过下限；词面-only 更好，说明短板是 hash 向量噪声，不是缺付费语义模型。
 
-下一任 **不要** 再做渠道导出骨架。下一刀是 **检索质量/评测** 或 **真实模型 Stage 0 冒烟**（若他们要）。
+端口未改：前端 **18765**（strictPort）、API **8765**。禁止 5173。
+
+下一任 **不要** 再做检索评测骨架。下一刀是 **真实模型 Stage 0 冒烟**。
 
 ## 给下一任：先做什么
 
@@ -27,11 +27,14 @@
 
 | 路径 | 作用 |
 |---|---|
+| `eval/retrieval/golden_queries.json` | 冻结检索金标问句 |
+| `src/novel_agent/eval/retrieval.py` | 植入语料、打分、报告 |
+| `docs/retrieval-eval.md` | hash vs 真实嵌入决策与实测 |
 | `src/novel_agent/production/export.py` | 渠道模板：generic / qidian / fanqie / epub |
 | `src/novel_agent/memory/` | `MemoryRetrieval` 协议、hash 嵌入、LanceDB 索引、收集器 |
 | `src/novel_agent/context/context_builder.py` | 组装包并填充 `retrieval_facts` |
 | `src/novel_agent/domain/canon_writer.py` | 正史提交成功后重建索引 |
-| `src/novel_agent/planning/volume.py` | `plan-more` 新章纲后重建索引 |
+| `tests/unit/test_retrieve_eval.py` | 金标下限 / 破坏期望命中 / CLI / 无网络 |
 | `tests/unit/test_memory_retrieval.py` | 植入事实命中 / 幂等 / 预算裁剪 |
 | `tests/unit/test_channel_export.py` | 起点/番茄标题、EPUB zip、默认不含草稿 |
 
@@ -44,6 +47,7 @@ cd apps/web && npm run dev   # http://127.0.0.1:18765
 ```
 
 CLI：`uv run novel retrieve --project-id 1 --query "西市火灾"`。
+评测：`uv run novel retrieve-eval`（临时库，默认 hash）。
 导出：`uv run novel export --project-id 1 --channel qidian --format txt --out /tmp/book.txt`。
 
 ## 明确不要做
@@ -54,10 +58,11 @@ CLI：`uv run novel retrieve --project-id 1 --query "西市火灾"`。
 - 不要新建 `source_record` / `timeline_event` 表
 - 不要训练自定义模型、不要上云向量库
 
-## 下一刀建议（二选一）
+## 下一刀建议
 
-1. **检索质量/评测**：固定问句集、命中率、以及是否值得换真实嵌入。
-2. **真实模型 Stage 0 冒烟**：`novel smoke-stage0 --confirm-real-models --budget-usd …`（不计默认 CI）。
+1. **真实模型 Stage 0 冒烟**：`novel smoke-stage0 --confirm-real-models --budget-usd …`（不计默认 CI）。
+
+若要动检索本身（本切片已冻结评测）：先用金标试词面权重，再考虑真实嵌入；真实嵌入保持 opt-in。
 
 ## 已知坑
 
@@ -67,3 +72,4 @@ CLI：`uv run novel retrieve --project-id 1 --query "西市火灾"`。
 - `max_calls_per_chapter` 为 40（双写手 + advocate）。
 - mock 的 `cost_estimate` 默认为 0；隔夜 mock 请带 `--max-chapters`，USD 硬上限主要约束真实模型。
 - LanceDB 表不能从空 list 创建；无事实时直接不建表，检索为空。
+- hash 混合在小语料上弱于纯词面：`lexical_overlap` 已能召回的事实会被 hash 向量往后推。
