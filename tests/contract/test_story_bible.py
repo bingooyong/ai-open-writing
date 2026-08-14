@@ -397,6 +397,9 @@ def test_structure_conflict_payoff_prompts_have_frontmatter() -> None:
     assert conflict.output_schema == "ConflictList"
     assert payoff.output_schema == "PayoffBeatList"
     assert structure.slot == "creative"
+    structure_body = structure.render(schema="{}", chapter_keys="v1c001,v1c002,v1c003")
+    assert "v1c001,v1c002,v1c003" in structure_body
+    assert "禁止发明" in structure_body or "窗口外" in structure_body
 
 
 async def test_structure_conflict_payoff_planners_return_valid_schemas(engine) -> None:
@@ -583,7 +586,7 @@ async def test_ensure_r2_accepts_named_protagonist_from_kernel(engine) -> None:
     from novel_agent.domain.repos import BibleRepo, PlanningRepo
     from novel_agent.domain.schemas import StoryBrief
     from novel_agent.planning.chain import PlanningGates
-    from novel_agent.planning.conversation import _ensure_r2
+    from novel_agent.planning.conversation import _ensure_r2, planned_chapter_keys
     from novel_agent.planning.mock_fixtures import PLANNING_STRUCTURE
 
     kernel = StoryKernel.model_validate(
@@ -618,6 +621,7 @@ async def test_ensure_r2_accepts_named_protagonist_from_kernel(engine) -> None:
             StoryBrief(spark="末世余烬回声"),
             PlanningGates.auto(),
             [],
+            planned_chapter_keys("v1", 3),
         )
         session.commit()
         saved = BibleRepo(session).get_structure_map(project.id)

@@ -247,7 +247,10 @@ async def _generate_artifact(
     if kernel is None:
         raise PlanningError("尚未确认故事内核")
     if round_index == 2:
-        smap = await run_structure_planner(deps, _kernel_text(kernel), _dump(brief))
+        keys = planned_chapter_keys(volume_id, chapters_needed)
+        smap = await run_structure_planner(
+            deps, _kernel_text(kernel), _dump(brief), chapter_keys=keys
+        )
         report = lint_bible(structure=smap, live_names=live_names_from_kernel(kernel))
         if not report.passed:
             raise _lint_error(report)

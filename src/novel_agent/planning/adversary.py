@@ -85,6 +85,7 @@ async def ensure_concept_judge(
 
     conflicts = bible.list_conflicts(project_id) if after_round == "R4" else None
     payoffs = bible.list_payoff_beats(project_id) if after_round == "R4" else None
+    keys = _chapter_keys(volume_id, chapters_needed)
     verdict = await run_concept_judge(
         deps,
         kernel=kernel,
@@ -92,6 +93,7 @@ async def ensure_concept_judge(
         after_round=after_round,
         conflicts=conflicts,
         payoffs=payoffs,
+        rolling_keys=keys,
     )
     if verdict.verdict is ConceptJudgeDecision.PASS:
         bible.save_concept_judge(project_id, verdict)
@@ -126,6 +128,7 @@ async def ensure_concept_judge(
         after_round=after_round,
         conflicts=conflicts,
         payoffs=payoffs,
+        rolling_keys=keys,
     )
     final = second.model_copy(
         update={
@@ -162,9 +165,14 @@ async def _repair_once(
     chapters_needed: int,
 ) -> bool:
     brief_text = _dump(brief) if brief is not None else ""
+    keys = _chapter_keys(volume_id, chapters_needed)
     if after_round == "R2":
         smap = await run_structure_planner(
-            deps, _kernel_text(kernel), brief_text, repair_notes=repair_notes
+            deps,
+            _kernel_text(kernel),
+            brief_text,
+            repair_notes=repair_notes,
+            chapter_keys=keys,
         )
         report = lint_bible(structure=smap, live_names=live_names_from_kernel(kernel))
         if not report.passed:
@@ -174,7 +182,6 @@ async def _repair_once(
         return True
 
     characters = planning.list_characters(project_id)
-    keys = _chapter_keys(volume_id, chapters_needed)
     characters_text = json.dumps(
         [card.model_dump() for card in characters], ensure_ascii=False
     )

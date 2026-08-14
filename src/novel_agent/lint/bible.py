@@ -1,4 +1,4 @@
-"""Story Bible 确定性 lint:黄金三章、爽点间距、孤儿冲突、关系证据。"""
+"""Story Bible 确定性 lint:黄金三章、爽点间距、孤儿冲突、空冲突、关系证据。"""
 
 from __future__ import annotations
 
@@ -110,6 +110,14 @@ def lint_payoff_spacing(beats: Sequence[PayoffBeat]) -> list[LintFinding]:
     return []
 
 
+def lint_empty_conflicts(
+    conflicts: Sequence[Conflict], rolling_keys: Sequence[str] | None
+) -> list[LintFinding]:
+    if rolling_keys is None or conflicts:
+        return []
+    return [LintFinding("empty_conflict", "冲突系统为空,滚动窗口没有可兑现的冲突")]
+
+
 def lint_orphan_conflicts(
     conflicts: Sequence[Conflict], rolling_keys: Sequence[str]
 ) -> list[LintFinding]:
@@ -219,6 +227,7 @@ def lint_bible(
         findings.extend(lint_golden_three(structure.golden_three, live_names))
     findings.extend(lint_payoff_spacing(payoff_beats))
     findings.extend(lint_relationship_evidence(relationship_proposals))
+    findings.extend(lint_empty_conflicts(conflicts, rolling_keys))
     if rolling_keys is not None:
         findings.extend(lint_orphan_conflicts(conflicts, rolling_keys))
     for chapter_key, conflict_ids, beat_ids in outline_citations:

@@ -98,7 +98,8 @@ async def run_bible_conversation(
     )
     if "kernel" in skipped:
         skipped[skipped.index("kernel")] = "R1"
-    await _ensure_r2(bible, deps, project_id, kernel, brief, gates, skipped)
+    keys = planned_chapter_keys(volume_id, chapters_needed)
+    await _ensure_r2(bible, deps, project_id, kernel, brief, gates, skipped, keys)
     await ensure_concept_judge(
         bible,
         planning,
@@ -112,7 +113,6 @@ async def run_bible_conversation(
     characters = await _ensure_r3(
         planning, bible, canon, deps, project_id, kernel, brief, gates, skipped
     )
-    keys = planned_chapter_keys(volume_id, chapters_needed)
     await _ensure_r4(
         bible, deps, project_id, kernel, characters, keys, gates, skipped
     )
@@ -189,11 +189,14 @@ async def _ensure_r2(
     brief: StoryBrief,
     gates: PlanningGates,
     skipped: list[str],
+    chapter_keys: list[str],
 ) -> None:
     if bible.get_structure_map(project_id) is not None:
         skipped.append("R2")
         return
-    smap = await run_structure_planner(deps, _kernel_text(kernel), _dump(brief))
+    smap = await run_structure_planner(
+        deps, _kernel_text(kernel), _dump(brief), chapter_keys=chapter_keys
+    )
     report = lint_bible(structure=smap, live_names=live_names_from_kernel(kernel))
     if not report.passed:
         raise _lint_error(report)
