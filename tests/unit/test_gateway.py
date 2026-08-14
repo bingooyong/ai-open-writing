@@ -18,6 +18,7 @@ from novel_agent.gateway import (
 )
 from novel_agent.gateway.structured import (
     StructuredOutputError,
+    _extract_json,
     call_structured,
     call_two_part,
     parse_two_part,
@@ -184,6 +185,63 @@ async def test_structured_final_failure(session) -> None:
         )
 
 
+def test_extract_json_strips_think_prefix_that_failed_line2_col11() -> None:
+    """Live MiniMax-M3: think 块内的 `{` 曾让 json.loads 报 line 2 column 11."""
+    import json
+
+    text = (
+        "<think>{\n"
+        "          先规划单元与章纲\n"
+        "</think>\n"
+        + json.dumps(KERNEL, ensure_ascii=False)
+    )
+    naive = text[text.find("{") : text.rfind("}") + 1]
+    with pytest.raises(json.JSONDecodeError, match="line 2 column 11") as exc:
+        json.loads(naive)
+    assert exc.value.pos == 12
+    parsed = json.loads(_extract_json(text))
+    assert parsed["premise"] == KERNEL["premise"]
+
+
+async def test_structured_repair_from_think_only_truncated_json(session) -> None:
+    """首包只有思维链 + 截断 JSON 时,修复轮仍能吃带 think 的完整 JSON."""
+    import json
+
+    state = {"n": 0}
+
+    def handler(req: ModelRequest) -> str:
+        state["n"] += 1
+        if state["n"] == 1:
+            return (
+                "<think>{\n"
+                "          只推理还没写完\n"
+                "</think>\n"
+                '{"premise": "截断'
+            )
+        assert "校验" in req.user
+        assert "<think>" not in req.user
+        assert "截断" in req.user
+        return (
+            "<think>{\n"
+            "          补全 JSON\n"
+            "</think>\n"
+            + json.dumps(KERNEL, ensure_ascii=False)
+        )
+
+    mock = MockProvider()
+    mock.register("planner", handler)
+    gw = _gateway(session, mock)
+    k = await call_structured(
+        gw,
+        "creative",
+        ModelRequest(user="出内核", max_tokens=40),
+        StoryKernel,
+        agent_role="planner",
+        prompt_version="v1",
+    )
+    assert k.premise == KERNEL["premise"] and state["n"] == 2
+
+
 # ---------- D16 两段式 ----------
 
 GOOD_TWO_PART = """<<<SCENE:s1>>>
@@ -198,6 +256,14 @@ GOOD_TWO_PART = """<<<SCENE:s1>>>
 
 def test_parse_two_part_good() -> None:
     scenes, meta = parse_two_part(GOOD_TWO_PART, ["s1", "s2"])
+    assert scenes["s1"].startswith("茶楼") and meta["chapter_summary"]
+
+
+def test_parse_two_part_strips_think_wrapper() -> None:
+    scenes, meta = parse_two_part(
+        "<think>{\n          先想场景再写正文\n</think>\n" + GOOD_TWO_PART,
+        ["s1", "s2"],
+    )
     assert scenes["s1"].startswith("茶楼") and meta["chapter_summary"]
 
 

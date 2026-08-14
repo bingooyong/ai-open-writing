@@ -22,7 +22,7 @@ from novel_agent.planning.settings import BASE_REVIEW_ROLES, desk_settings, revi
 from novel_agent.production.batch import resume_project, run_write_batch
 from novel_agent.production.loop import ChapterLoopResult
 from novel_agent.production.runtime import build_production_deps
-from novel_agent.runtime.agents import AgentDeps
+from novel_agent.runtime.agents import OUTLINE_PLANNER_MAX_TOKENS, AgentDeps
 from novel_agent.verification.m26_smoke import SmokeExecutionError, SmokeGateError
 
 _SLOT_NAMES = ("creative", "review", "judge", "extract")
@@ -36,7 +36,11 @@ _REVIEWERS_PER_CHAPTER = len(BASE_REVIEW_ROLES) + 1
 _JUDGES_PER_CHAPTER = 1
 _EXTRACTS_PER_CHAPTER = 1
 STAGE0_PREFLIGHT = (
-    ("creative", _PLANNING_CREATIVE + _STAGE0_CHAPTERS * _WRITERS_PER_CHAPTER, 16_000),
+    (
+        "creative",
+        _PLANNING_CREATIVE + _STAGE0_CHAPTERS * _WRITERS_PER_CHAPTER,
+        OUTLINE_PLANNER_MAX_TOKENS,
+    ),
     ("review", _STAGE0_CHAPTERS * _REVIEWERS_PER_CHAPTER, 8_000),
     ("judge", _STAGE0_CHAPTERS * _JUDGES_PER_CHAPTER, 6_000),
     ("extract", _STAGE0_CHAPTERS * _EXTRACTS_PER_CHAPTER, 6_000),

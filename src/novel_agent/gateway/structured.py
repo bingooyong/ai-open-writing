@@ -15,18 +15,44 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from novel_agent.gateway.base import ModelGateway, ModelRequest
+from novel_agent.gateway.base import ModelGateway, ModelRequest, ModelResponse
 
 T = TypeVar("T", bound=BaseModel)
+
+_REASONING_BLOCK_RE = re.compile(
+    r"<(think|thinking|reason|reasoning)\b[^>]*>.*?</\1\s*>",
+    re.DOTALL | re.IGNORECASE,
+)
+_REASONING_OPEN_RE = re.compile(
+    r"<(think|thinking|reason|reasoning)\b[^>]*>",
+    re.IGNORECASE,
+)
+_TRUNCATION_REASONS = frozenset({"length", "max_tokens"})
 
 
 class StructuredOutputError(Exception):
     """修复重试后仍无法产出合法结构。按节点失败策略处理(Spec §7)。"""
 
 
+def _strip_reasoning_wrappers(text: str) -> str:
+    """去掉思维链包装后再找 JSON / 两段式标记。
+
+    MiniMax-M3 OpenAI 兼容默认把自适应思考内联为 ``<think>...</think>``;
+    块内若出现 ``{`` ,旧逻辑会从思维链截到正文末尾,json.loads 报
+    ``line 2 column 11``。
+    """
+    t = _REASONING_BLOCK_RE.sub("", text)
+    open_match = _REASONING_OPEN_RE.search(t)
+    if open_match:
+        rest = t[open_match.end() :]
+        cut_at = [idx for idx in (rest.find("{"), rest.find("<<<")) if idx >= 0]
+        t = t[: open_match.start()] + (rest[min(cut_at) :] if cut_at else "")
+    return t.strip()
+
+
 def _extract_json(text: str) -> str:
-    """剥离 markdown 代码栅栏与前后噪声,取最外层 JSON 对象。"""
-    t = text.strip()
+    """剥离思维链包装、markdown 代码栅栏与前后噪声,取最外层 JSON 对象。"""
+    t = _strip_reasoning_wrappers(text)
     fence = re.search(r"```(?:json)?\s*(.*?)```", t, re.DOTALL)
     if fence:
         t = fence.group(1).strip()
@@ -35,6 +61,19 @@ def _extract_json(text: str) -> str:
     if start >= 0 and end > start:
         return t[start : end + 1]
     return t
+
+
+def _output_truncated(resp: ModelResponse, req: ModelRequest) -> bool:
+    if resp.finish_reason in _TRUNCATION_REASONS:
+        return True
+    return req.max_tokens > 0 and resp.output_tokens >= req.max_tokens
+
+
+def _repair_previous_output(text: str) -> str:
+    snippet = _extract_json(text).strip()
+    if not snippet:
+        return "(无合法 JSON 片段;上次输出可能只有思维链或被截断)"
+    return snippet
 
 
 async def call_structured(
@@ -58,6 +97,7 @@ async def call_structured(
     resp = await gateway.call(slot_name, req, **meta)  # type: ignore[arg-type]
     last_err: Exception | None = None
     text = resp.text
+    truncated = _output_truncated(resp, req)
 
     for attempt in range(repair_attempts + 1):
         try:
@@ -66,12 +106,19 @@ async def call_structured(
             last_err = exc
         if attempt == repair_attempts:
             break
-        # 修复轮:回传校验错误,要求只输出修正后的 JSON
+        # 修复轮:回传校验错误与剥离后的片段,要求只输出修正后的 JSON
+        note = ""
+        if truncated:
+            note = (
+                "上次输出因达到 max_tokens 被截断,请重新输出完整 JSON,"
+                "不要思维链或解释。\n\n"
+            )
         repair_req = ModelRequest(
             system=req.system,
             user=(
                 f"你上一次的输出无法通过 Schema 校验。错误信息:\n{last_err}\n\n"
-                f"上一次输出:\n{text}\n\n"
+                f"{note}"
+                f"上一次输出:\n{_repair_previous_output(text)}\n\n"
                 + (f"{repair_instructions}\n\n" if repair_instructions else "")
                 + "请只输出修正后的 JSON,不要任何解释。"
             ),
@@ -82,9 +129,11 @@ async def call_structured(
         )
         resp = await gateway.call(slot_name, repair_req, **meta)  # type: ignore[arg-type]
         text = resp.text
+        truncated = truncated or _output_truncated(resp, req)
 
+    suffix = "; 输出因 max_tokens 被截断" if truncated else ""
     raise StructuredOutputError(
-        f"{schema.__name__} 校验失败(修复后仍不合法): {last_err}"
+        f"{schema.__name__} 校验失败(修复后仍不合法): {last_err}{suffix}"
     ) from last_err
 
 
@@ -103,6 +152,7 @@ def parse_two_part(text: str, expected_scene_ids: list[str]) -> tuple[dict[str, 
 
     校验:场景 id 集合与场景卡一致;正文非空;META 可解析。
     """
+    text = _strip_reasoning_wrappers(text)
     blocks = [
         (match.group("sid").strip(), match.group("body").strip())
         for match in _SCENE_RE.finditer(text)

@@ -139,3 +139,108 @@ async def test_anthropic_json_mode_unwraps_minimax_json_data_envelope(
     )
 
     assert json.loads(response.text) == {"answer": "ok"}
+
+
+async def test_openai_compat_minimax_json_mode_disables_thinking(
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+
+    class Response:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": '{"answer": "ok"}'},
+                    }
+                ],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7},
+            }
+
+    class Client:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 600.0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            pass
+
+        async def post(self, url: str, *, headers: dict, json: dict) -> Response:
+            captured.update({"url": url, "headers": headers, "body": json})
+            return Response()
+
+    monkeypatch.setattr(real.httpx, "AsyncClient", Client)
+    response = await real.OpenAICompatProvider().complete(
+        SlotConfig(
+            provider="openai_compat",
+            model="MiniMax-M3",
+            family="minimax-m3",
+            api_key="secret",
+            base_url="https://api.example/v1",
+        ),
+        ModelRequest(
+            user="return data",
+            json_mode=True,
+            json_schema={"type": "object", "properties": {"answer": {"type": "string"}}},
+            max_tokens=32768,
+        ),
+        "outline_planner",
+    )
+
+    body = captured["body"]
+    assert body["thinking"] == {"type": "disabled"}
+    assert body["reasoning_split"] is True
+    assert body["max_tokens"] == 32768
+    assert body["max_completion_tokens"] == 32768
+    assert response.text == '{"answer": "ok"}'
+    assert response.finish_reason == "stop"
+
+
+async def test_openai_compat_non_minimax_omits_thinking_extras(monkeypatch) -> None:
+    captured: dict = {}
+
+    class Response:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {
+                "choices": [{"finish_reason": "stop", "message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+            }
+
+    class Client:
+        def __init__(self, *, timeout: float) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            pass
+
+        async def post(self, url: str, *, headers: dict, json: dict) -> Response:
+            captured["body"] = json
+            return Response()
+
+    monkeypatch.setattr(real.httpx, "AsyncClient", Client)
+    await real.OpenAICompatProvider().complete(
+        SlotConfig(
+            provider="openai_compat",
+            model="deepseek-chat",
+            family="deepseek",
+            api_key="secret",
+            base_url="https://api.example/v1",
+        ),
+        ModelRequest(user="hello", json_mode=True),
+        "kernel_planner",
+    )
+    assert "thinking" not in captured["body"]
+    assert "reasoning_split" not in captured["body"]
+    assert "max_completion_tokens" not in captured["body"]

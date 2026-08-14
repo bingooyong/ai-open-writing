@@ -16,6 +16,24 @@ from novel_agent.gateway.base import ModelRequest, ModelResponse
 REAL_REQUEST_TIMEOUT_S = 600.0
 
 
+def _is_minimax(slot: SlotConfig) -> bool:
+    return "minimax" in f"{slot.model} {slot.family}".casefold()
+
+
+def _apply_minimax_openai_extras(body: dict[str, Any], req: ModelRequest) -> None:
+    """Official MiniMax OpenAI-compat fields only.
+
+    Source: https://platform.minimax.io/docs/api-reference/text-openai-api
+    ``thinking.type=disabled`` skips M3 adaptive thinking (M2.x accepts but keeps
+    thinking on). ``reasoning_split`` moves leftover thinking out of ``content``.
+    ``max_completion_tokens`` is the documented generation cap.
+    """
+    body["reasoning_split"] = True
+    if req.json_mode:
+        body["thinking"] = {"type": "disabled"}
+    body["max_completion_tokens"] = req.max_tokens
+
+
 def _unwrap_structured_tool_input(
     value: dict[str, Any], schema: dict[str, Any] | None
 ) -> dict[str, Any]:
@@ -66,6 +84,8 @@ class OpenAICompatProvider:
         }
         if req.json_mode:
             body["response_format"] = {"type": "json_object"}
+        if _is_minimax(slot):
+            _apply_minimax_openai_extras(body, req)
 
         start = time.monotonic()
         async with httpx.AsyncClient(timeout=REAL_REQUEST_TIMEOUT_S) as client:
@@ -77,13 +97,17 @@ class OpenAICompatProvider:
             r.raise_for_status()
             data = r.json()
         usage = data.get("usage", {})
+        choice = data["choices"][0]
+        message = choice.get("message") or {}
+        content = message.get("content")
         return ModelResponse(
-            text=data["choices"][0]["message"]["content"],
+            text=content if isinstance(content, str) else "",
             input_tokens=usage.get("prompt_tokens", 0),
             output_tokens=usage.get("completion_tokens", 0),
             latency_ms=int((time.monotonic() - start) * 1000),
             provider="openai_compat",
             model=slot.model,
+            finish_reason=str(choice.get("finish_reason") or ""),
         )
 
 
@@ -156,4 +180,5 @@ class AnthropicProvider:
             latency_ms=int((time.monotonic() - start) * 1000),
             provider="anthropic",
             model=slot.model,
+            finish_reason=str(data.get("stop_reason") or ""),
         )

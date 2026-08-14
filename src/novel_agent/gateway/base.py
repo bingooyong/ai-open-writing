@@ -36,6 +36,7 @@ class ModelResponse(BaseModel):
     provider: str = ""
     model: str = ""
     retries: int = 0
+    finish_reason: str = ""
 
 
 class GatewayError(Exception):

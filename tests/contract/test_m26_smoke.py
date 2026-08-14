@@ -260,7 +260,8 @@ async def test_full_smoke_is_bounded_persisted_and_redacted(tmp_path: Path) -> N
     assert report["role_call_limit"] == 2
     assert report["missing_roles"] == []
     assert len(report["calls"]) == len(PROMPT_ROLES)
-    assert provider.max_tokens["outline_planner"] == [16_000]
+    assert provider.max_tokens["outline_planner"] == [32_768]
+    assert provider.max_tokens["character_planner"] == [16_384]
     assert {call["prompt_role"] for call in report["calls"]} == set(PROMPT_ROLES)
     assert all(call["structured_output_valid"] for call in report["calls"])
     required = {
