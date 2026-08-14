@@ -23,46 +23,39 @@ export function RelationshipPanorama({ dto, range, selectedId, onSelect }: Props
     const graph = new Graph({
       container,
       autoFit: "view",
-      padding: 56,
+      padding: 40,
       data: { nodes: mapped.nodes, edges: mapped.edges },
-      layout: { type: "force", preventOverlap: true, nodeSize: 72, linkDistance: 148 },
+      layout: { type: "force", preventOverlap: true, nodeSize: 28, linkDistance: 110 },
       node: {
         type: "circle",
         style: {
           cursor: "pointer",
-          labelPlacement: "center",
-          labelFill: "#efe6d6",
-          labelFontSize: 12,
-          labelFontWeight: 600,
-          labelFontFamily: '"Noto Serif SC", "Source Serif 4", serif',
-          labelWordWrap: true,
-          labelMaxWidth: 46,
+          labelPlacement: "bottom",
+          labelFill: "#a1a1aa",
+          labelFontSize: 11,
+          labelFontFamily: '"IBM Plex Sans", "Noto Sans SC", sans-serif',
         },
         state: {
           selected: {
-            stroke: "#d45a45",
-            lineWidth: 3,
-            shadowColor: "rgba(212, 90, 69, 0.5)",
-            shadowBlur: 18,
-            size: 60,
+            fill: "#3b82f6",
+            stroke: "#3b82f6",
+            lineWidth: 1,
+            size: 20,
           },
         },
       },
       edge: {
         style: {
           endArrow: true,
-          lineWidth: 1.6,
+          lineWidth: 1,
           labelAutoRotate: false,
           labelPlacement: "center",
           labelFontSize: 10,
-          labelFill: "#efe6d6",
+          labelFill: "#a1a1aa",
           labelFontFamily: '"IBM Plex Sans", "Noto Sans SC", sans-serif',
           labelBackground: true,
-          labelBackgroundFill: "rgba(16, 20, 26, 0.9)",
-          labelBackgroundRadius: 3,
-          labelPadding: [3, 7],
-          labelWordWrap: true,
-          labelMaxWidth: 88,
+          labelBackgroundFill: "#09090b",
+          labelPadding: [1, 4],
         },
       },
       behaviors: ["drag-canvas", "zoom-canvas", "drag-element"],
@@ -116,14 +109,11 @@ export function RelationshipPanorama({ dto, range, selectedId, onSelect }: Props
   return (
     <div className="panorama-shell">
       <div className="panorama-meta">
-        力导向 · 当前 {mapped.edges.length} / {dto.edges.length}
+        {mapped.edges.length} / {dto.edges.length}
       </div>
-      <div className="panorama-pick">
-        {selectedId ? `已选 · ${selectedLabel}` : "未选择人物"}
-      </div>
+      <div className="panorama-pick">{selectedId ? selectedLabel : ""}</div>
       <div className="panorama" ref={host} />
       <div className="panorama-tools">
-        <span>图谱</span>
         <button type="button" onClick={() => void graphRef.current?.zoomBy(1.2)}>
           放大
         </button>
@@ -134,7 +124,7 @@ export function RelationshipPanorama({ dto, range, selectedId, onSelect }: Props
           居中
         </button>
       </div>
-      <div className="panorama-hint">点击节点查看档案</div>
+      <div className="panorama-hint">点击节点查看</div>
     </div>
   );
 }

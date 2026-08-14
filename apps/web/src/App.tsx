@@ -196,28 +196,13 @@ export function App() {
   return (
     <div className="app">
       <header className="masthead">
-        <div>
-          <div className="eyebrow">本地写作台</div>
+        <div className="brand">
           <h1>墨案</h1>
-          <div className="muted">{selectedProject?.title ?? "未打开作品"}</div>
+          <span className="muted">{selectedProject?.title ?? "未打开作品"}</span>
         </div>
         <div className="mast-stats">
-          <div>
-            <strong>{deskCensus.people}</strong>
-            <span>人物</span>
-          </div>
-          <div>
-            <strong>{deskCensus.relations}</strong>
-            <span>关系</span>
-          </div>
-          <div>
-            <strong>{chapters.length}</strong>
-            <span>章节</span>
-          </div>
-          <div className={`status-pill${busy || volumeRunning ? " busy" : ""}`}>
-            <i />
-            {busy || volumeRunning ? "忙碌" : "空闲"}
-          </div>
+          {deskCensus.people} 人物 · {deskCensus.relations} 关系 · {chapters.length} 章节
+          {busy || volumeRunning ? " · 处理中" : ""}
         </div>
       </header>
       <div className="desk">

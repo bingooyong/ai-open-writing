@@ -97,11 +97,11 @@ function asKind(kind: string): GraphNodeKind {
 function kindPaint(kind: GraphNodeKind): { fill: string; stroke: string; size: number } {
   switch (kind) {
     case "character":
-      return { fill: "#24332f", stroke: "#8fbfa3", size: 54 };
+      return { fill: "#d4d4d8", stroke: "#d4d4d8", size: 18 };
     case "faction":
-      return { fill: "#2c2618", stroke: "#d4b37a", size: 50 };
+      return { fill: "#71717a", stroke: "#71717a", size: 16 };
     case "alias":
-      return { fill: "#2a2d33", stroke: "#7d848e", size: 44 };
+      return { fill: "#52525b", stroke: "#71717a", size: 14 };
     default: {
       const exhaustive: never = kind;
       return exhaustive;
@@ -189,7 +189,7 @@ export function toG6Data(
         lineDash: dashed ? [6, 4] : undefined,
         fill: paint.fill,
         stroke: paint.stroke,
-        lineWidth: dashed ? 1 : 2,
+        lineWidth: 1,
       },
     };
   });
@@ -211,7 +211,7 @@ export function toG6Data(
           labelText: shortEdgeLabel(fullLabel),
           labelAutoRotate: false as const,
           lineDash: edge.provisional ? [8, 4] : undefined,
-          stroke: edge.provisional ? "#d4b37a" : "#c75a45",
+          stroke: edge.provisional ? "#71717a" : "#3f3f46",
         },
       };
     });

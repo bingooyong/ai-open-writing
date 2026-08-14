@@ -14,35 +14,20 @@ export function CharacterDossier({ inspector, insight }: Props) {
   if (!inspector || !insight) {
     return (
       <>
-        <p className="dossier-kicker">人物档案</p>
-        <h3 className="dossier-name muted-name">未选择人物</h3>
-        <p className="muted">
-          点选图中节点，查看身份、关系与证据。无证据时标注「{MISSING_EVIDENCE}」。
-        </p>
+        <h2>人物</h2>
+        <p className="muted">点选图中节点查看关系与证据。无证据时标注「{MISSING_EVIDENCE}」。</p>
       </>
     );
   }
 
   return (
     <>
-      <p className="dossier-kicker">人物档案</p>
+      <h2>人物</h2>
       <h3 className="dossier-name">{insight.name}</h3>
-      <div className="stat-tiles">
-        <div>
-          <strong>{inspector.degree}</strong>
-          <span>关系数</span>
-        </div>
-        <div>
-          <strong>{inspector.appearanceChapters}</strong>
-          <span>出现章节</span>
-        </div>
-        <div>
-          <strong>{inspector.turningBeats}</strong>
-          <span>关系转折</span>
-        </div>
-      </div>
       <p className="dossier-oneliner">{insight.oneLiner}</p>
-      <p className="dossier-note">依据已落库的图谱与圣经快照，不另跑一层分析。</p>
+      <p className="dossier-meta">
+        关系 {inspector.degree} · 章节 {inspector.appearanceChapters} · 转折 {inspector.turningBeats}
+      </p>
       <h2>直接关系</h2>
       {inspector.edges.length === 0 ? (
         <p className="muted">当前范围内没有连到此人的边。</p>
