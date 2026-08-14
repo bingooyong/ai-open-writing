@@ -4,7 +4,18 @@
 
 ## 当前状态（2026-08-14）
 
-**黄金三章 lint 不再要求字面「主角」。** 由一次真实 MiniMax-M3 Story Bible 跑（末世《余烬回声》）发现：模型用姓名（林暮）+ 封口/停电写第 1 章，`lint_golden_three` 只认 `主角/危机/问题/冲突/当场/眼前/承诺`，R2 整份结构被丢弃。现在传入内核抽出的活人名（名叫/名为/化妆师 后的词）即算「有活人」；纯世界观/历史沿革/地理志第 1 章仍失败。端口未改：前端 **18765**、API **8765**。
+**第三次真实 MiniMax 现场：R5 outline planner 死于思维链截断 JSON。** 末世《余烬回声》Story Bible 走到 R5，`outline_planner` 两次 `_PlanOut` 校验失败：`Expecting value: line 2 column 11 (char 12)`。首呼 `16000/16000`（打满当时上限，截断），修复轮 2332 token 仍解析失败。更早一次 MiniMax ping 的 `content` 以 `<think>...` 开头。根因：MiniMax-M3 OpenAI 兼容默认 adaptive thinking，推理吃掉输出预算，JSON 被截断或被 think 块污染；旧 `_extract_json` 只剥 markdown 栅栏，think 内的 `{` 会把思维链和正文粘成非法 JSON。
+
+已做（本分支，未合并）：
+- `_extract_json` / `parse_two_part` 先剥 `<think>` / `<thinking>` / `<reason>` / `<reasoning>`（含未闭合标签）再找 `{...}`。
+- 修复轮只回传剥离后的 JSON 片段；若 `finish_reason=length|max_tokens` 或 `output_tokens >= max_tokens`，明确告知截断，不再把 16k 思维链塞回下一轮。
+- 官方 MiniMax OpenAI-compat 字段（见 [text-openai-api](https://platform.minimax.io/docs/api-reference/text-openai-api)）：`json_mode` 时 `thinking: {type: disabled}`（M3 可关；M2.x 接受但关不掉）；一律 `reasoning_split=true`；同时传 `max_completion_tokens`。未发明非官方参数。
+- 规划胖调用上限：outline `32768`，people/structure `16384`。Writer 两段式仍 16k，未改写手声口。
+- pytest 仍只走 MockProvider，不打付费 API。
+
+**黄金三章 lint 不再要求字面「主角」（已合进 `main`）。** 同一次 MiniMax-M3 跑里，模型用姓名（林暮）+ 封口/停电写第 1 章，`lint_golden_three` 只认 `主角/危机/问题/冲突/当场/眼前/承诺`，R2 整份结构被丢弃。现在传入内核抽出的活人名（名叫/名为/化妆师 后的词）即算「有活人」；纯世界观/历史沿革/地理志第 1 章仍失败。不要改回只认「主角」二字。
+
+仍勿回退：冲突/爽点 lint 的 `rolling_keys` 若被一次性铺成全书 115 章，窗口与 Concept Judge 会对不上。滚动窗口应保持切片，不要把全书章键塞进单次 R3/R4/R5。
 
 **真实模型 Stage 0 冒烟（代码侧）已完成。** 未跑付费 API；默认 CI 仍不进入该命令。
 
@@ -76,9 +87,9 @@ uv run novel smoke-stage0 --confirm-real-models --budget-usd 15
 
 ## 下一刀建议
 
-1. **人工本地跑付费 Stage 0 冒烟**并审清单（代码侧骨架已齐；本仓未花模型钱）。
-2. 付费跑若暴露缺口再开刀；否则转向写作台/长跑体验，不要再改冒烟预检表。
-3. 不要把黄金三章 lint 改回只认字面「主角」；不要改回端口 5173。
+1. **合入本分支后**，用 MiniMax-M3 重跑《余烬回声》Story Bible R5（outline 现 32k + 关 thinking）。不要在 pytest 里打付费 API。
+2. 若仍要一次规划全书 100+ 章：先拆滚动窗口，不要让 R3/R4/R5 吃 115 个章键。
+3. 人工本地跑付费 Stage 0 冒烟并审清单。不要再改冒烟预检表，除非付费跑再暴露缺口。不要把黄金三章 lint 改回只认字面「主角」；不要改回端口 5173。
 
 若要动检索本身（评测已冻结）：先用金标试词面权重，再考虑真实嵌入；真实嵌入保持 opt-in。
 

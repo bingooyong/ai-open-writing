@@ -54,6 +54,9 @@ from novel_agent.runtime.prompts import PromptSpec, load_prompt
 CRITICAL_REVIEWERS = frozenset({ReviewerRole.CONTINUITY, ReviewerRole.RED_TEAM})
 EVIDENCE_FUZZY_THRESHOLD = 0.80
 EVIDENCE_REPAIR_MAX_TOKENS = 4_000
+OUTLINE_PLANNER_MAX_TOKENS = 32_768
+PEOPLE_PLANNER_MAX_TOKENS = 16_384
+STRUCTURE_PLANNER_MAX_TOKENS = 16_384
 EVIDENCE_REPAIR_INSTRUCTIONS = (
     "连续正文引文修复要求：每条 evidence.quote 必须从对应场景复制连续的正文原文，"
     "至少12个汉字，不得概括、改写、拼接或引用场景卡；无法逐字定位的问题请删除。"
@@ -670,7 +673,7 @@ async def run_people_planner(
     req = ModelRequest(
         system=spec.render(schema=schema),
         user=f"# 创作简报\n{brief}\n\n# 已确认故事内核\n{kernel_text}",
-        max_tokens=10000,
+        max_tokens=PEOPLE_PLANNER_MAX_TOKENS,
     )
     return await CognitiveAgent(
         deps, "character_planner", CognitiveTask.PLANNING, _PeoplePlan
@@ -685,7 +688,9 @@ async def run_structure_planner(
     user = f"# 创作简报\n{brief}\n\n# 已确认故事内核\n{kernel_text}"
     if repair_notes.strip():
         user = f"# 修订要求\n{repair_notes.strip()}\n\n{user}"
-    req = ModelRequest(system=spec.render(schema=schema), user=user, max_tokens=8000)
+    req = ModelRequest(
+        system=spec.render(schema=schema), user=user, max_tokens=STRUCTURE_PLANNER_MAX_TOKENS
+    )
     return await CognitiveAgent(
         deps, "structure_planner", CognitiveTask.PLANNING, StructureMap
     ).run(req)
@@ -791,7 +796,7 @@ async def run_outline_planner(
         user=(
             f"# 故事内核\n{kernel_text}\n\n# 角色\n{characters_text}\n\n{unit_part}\n\n{extra}"
         ),
-        max_tokens=16000,
+        max_tokens=OUTLINE_PLANNER_MAX_TOKENS,
     )
     out = await CognitiveAgent(deps, "outline_planner", CognitiveTask.PLANNING, _PlanOut).run(
         req
