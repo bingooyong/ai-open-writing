@@ -9,6 +9,7 @@
   M3.5         write-batch / resume / export
   卷工厂        plan-more
   长跑          run-volume
+  Stage 2      retrieve
   M4           smoke-stage0
   Stage 1      serve
 """
@@ -33,6 +34,7 @@ from novel_agent.domain.repos.planning import PlanningRepo
 from novel_agent.domain.schemas import StoryKernel
 from novel_agent.graph.export import to_json, to_mermaid
 from novel_agent.graph.projector import project_graph
+from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.chain import (
     PlanningAborted,
     PlanningError,
@@ -98,6 +100,9 @@ def doctor() -> None:
         typer.echo(
             f"{name:8s} provider={slot.provider:12s} model={slot.model} family={slot.family}"
         )
+    typer.echo(
+        f"embedding provider={s.embedding.provider:12s} model={s.embedding.model}"
+    )
     typer.echo(
         f"预算: 单章最大调用 {s.max_calls_per_chapter} 次;"
         f"修订轮次上限 {s.max_revision_rounds}(固定)"
@@ -1038,6 +1043,51 @@ def export(
         typer.echo(f"exported={result}")
     else:
         typer.echo(result)
+
+
+@app.command()
+def retrieve(
+    project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
+    query: Annotated[str, typer.Option("--query", help="检索问句")],
+    limit: Annotated[int, typer.Option("--limit", help="返回条数")] = 8,
+    include_provisional: Annotated[
+        bool, typer.Option("--include-provisional", help="包含提案态事实")
+    ] = False,
+) -> None:
+    """打印与问句最相关的已索引事实(调试用,不改正史)。"""
+    cleaned = query.strip()
+    if not cleaned:
+        typer.echo("拒绝: --query 不能为空", err=True)
+        raise typer.Exit(2)
+    if limit < 1:
+        typer.echo("拒绝: --limit 必须 >= 1", err=True)
+        raise typer.Exit(2)
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    with Session(engine) as session:
+        repo = PlanningRepo(session)
+        try:
+            repo.get_project(project_id)
+        except NoResultFound:
+            typer.echo(f"拒绝: 项目不存在 project_id={project_id}", err=True)
+            raise typer.Exit(2) from None
+        hits = memory_retrieval_for_session(session, settings).retrieve(
+            project_id,
+            cleaned,
+            limit=limit,
+            include_provisional=include_provisional,
+        )
+    if not hits:
+        typer.echo("(无检索命中)")
+        return
+    for fact in hits:
+        flag = "provisional" if fact.provisional else "committed"
+        typer.echo(
+            f"fact_id={fact.fact_id} kind={fact.kind.value} "
+            f"source={fact.source} score={fact.score:.3f} {flag}"
+        )
+        typer.echo(fact.text)
 
 
 if __name__ == "__main__":

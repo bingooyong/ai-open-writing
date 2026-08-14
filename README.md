@@ -32,7 +32,7 @@ uv run novel export --project-id 1 --format md --out /tmp/book.md
 
 `--yes` 在非 TTY 下跳过人工确认（自动选内核候选 1，PASS 章自动批准并提交正史）。不要把 `.env`、`data/novel.db` 提交进 Git。
 
-其它常用命令：`novel graph --project-id 1 --format mermaid`、`novel write-chapter --project-id 1 --chapter-key v1c001 --yes`、`novel resume --project-id 1 --yes`、`novel review-batch --project-id 1`、`novel edit-outline v1c001 --project-id 1 --out outline.yaml`、`novel plan-more --project-id 1 --yes`（`--open-volume` 开下一卷）。
+其它常用命令：`novel graph --project-id 1 --format mermaid`、`novel write-chapter --project-id 1 --chapter-key v1c001 --yes`、`novel resume --project-id 1 --yes`、`novel review-batch --project-id 1`、`novel edit-outline v1c001 --project-id 1 --out outline.yaml`、`novel plan-more --project-id 1 --yes`（`--open-volume` 开下一卷）、`novel retrieve --project-id 1 --query "西市火灾"`（Stage 2 检索调试）。
 
 ## 本地写作台（FastAPI + Vite）
 
@@ -47,7 +47,9 @@ cd apps/web && npm run dev  # http://localhost:18765 ，Vite 代理 /projects �
 
 不要用 Vite 默认端口 5173（会和本机其它服务冲突）。`novel doctor` 会打印 `api_url` 与 `desk_url`。`POST /projects` 带 spark 且 `auto_bible=true`（默认）时，等价于 `novel init --yes`。交互 UI 走 `POST /projects/{id}/bible/rounds/{n}/confirm`。`GET /projects/{id}/bible` 含 `concept_judge` 与 `settings`。项目设置可开关 Writer B / Reader Advocate（默认开）。Source Reviewer 仅当存在 `source_record` 表才加入（当前仓库无此表则跳过）。五级大纲读 `GET /projects/{id}/outline-tree`（从 PlanningRepo 现有行组装，不另存）。窗口不足时 `POST /projects/{id}/plan-more` 续规划；审稿台读 `GET /projects/{id}/review`；批准 / 退回 / `locked_ranges` 走已有编排器。关系全景读 `GET /projects/{id}/graph`（Graph DTO，不调 LLM）。`write-batch` 可带 `from_chapter`，默认跳过已锁定章。
 
-本 slice 不含：渠道导出模板、新 `source_record` / `timeline_event` 表、CI 内百万字实跑。
+`GET /projects/{id}/retrieve?q=` 返回索引命中（章摘要 / 实体关系 / 场景卡 / 冲突爽点）。写作台章节轨展示「本上下文检索到」。索引是 LanceDB，真源仍是 SQLite。
+
+本 slice 不含：渠道导出模板、新 `source_record` / `timeline_event` 表、CI 内百万字实跑、云向量库或付费嵌入。
 
 ## 测试
 

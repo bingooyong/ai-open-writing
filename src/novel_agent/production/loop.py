@@ -32,6 +32,7 @@ from novel_agent.domain.schemas import (
 )
 from novel_agent.gateway.structured import StructuredOutputError
 from novel_agent.lint import lint_draft
+from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.settings import desk_settings, review_roles_for
 from novel_agent.runtime.agents import (
     CRITICAL_REVIEWERS,
@@ -207,7 +208,7 @@ async def run_chapter_loop(
     production = ProductionRepo(session)
     ops = OpsRepo(session)
     canon = CanonRepo(session)
-    builder = ContextBuilder(planning, canon)
+    builder = ContextBuilder(planning, canon, retrieval=memory_retrieval_for_session(session))
 
     try:
         planning.get_project(project_id)
@@ -944,6 +945,7 @@ async def stage_chapter_overlay(
     planning = PlanningRepo(session)
     production = ProductionRepo(session)
     canon = CanonRepo(session)
+    builder = ContextBuilder(planning, canon, retrieval=memory_retrieval_for_session(session))
     draft_rec = production.latest_chapter_draft(project_id, chapter_key)
     if draft_rec is None or draft_rec.id is None:
         return
@@ -951,7 +953,6 @@ async def stage_chapter_overlay(
     if canon.get_by_idempotency_key(key) is not None:
         return
     draft = draft_from_record(draft_rec)
-    builder = ContextBuilder(planning, canon)
     outline = planning.get_outline(project_id, chapter_key)
     chapter = planning.get_chapter(project_id, chapter_key)
     package = builder.build(

@@ -270,6 +270,26 @@ h2 {
   background: #e8eef4;
 }
 
+.retrieval-chip {
+  min-width: 220px;
+  max-width: 280px;
+  border: 1px dashed var(--rule);
+  background: #f7fafc;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+.retrieval-chip ul {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+}
+
+.retrieval-chip li {
+  margin-top: 0.2rem;
+  line-height: 1.35;
+}
+
 .slug {
   min-width: 148px;
   font-variant-numeric: tabular-nums;

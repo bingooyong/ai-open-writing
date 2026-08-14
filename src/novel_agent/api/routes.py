@@ -25,6 +25,7 @@ from novel_agent.config import Settings
 from novel_agent.domain.models import ProjectRecord
 from novel_agent.domain.repos import BibleRepo, CanonRepo, OpsRepo, PlanningRepo
 from novel_agent.graph.projector import project_graph
+from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.chain import PlanningAborted, PlanningError, PlanningGates
 from novel_agent.planning.conversation import run_bible_conversation
 from novel_agent.planning.outline_tree import assemble_outline_tree
@@ -602,6 +603,32 @@ def get_run_volume(
     if run is None:
         return idle_volume_status(project_id)
     return status_from_run(project_id, run)
+
+
+@router.get("/projects/{project_id}/retrieve")
+def retrieve_facts(
+    project_id: int,
+    q: str = Query(default="", min_length=0),
+    limit: int = Query(default=8, ge=1, le=32),
+    include_provisional: bool = Query(default=False),
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> dict[str, object]:
+    require_project(PlanningRepo(session), project_id)
+    query = q.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="q 不能为空")
+    hits = memory_retrieval_for_session(session, settings).retrieve(
+        project_id,
+        query,
+        limit=limit,
+        include_provisional=include_provisional,
+    )
+    return {
+        "project_id": project_id,
+        "query": query,
+        "facts": [fact.to_dict() for fact in hits],
+    }
 
 
 @router.get("/projects/{project_id}/export")

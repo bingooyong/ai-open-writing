@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from novel_agent import __version__
-from novel_agent.config import Settings, SlotConfig
+from novel_agent.config import EmbeddingConfig, Settings, SlotConfig
 
 
 def test_version() -> None:
@@ -77,6 +77,21 @@ def test_real_provider_rejects_mock_family_variants(family: str) -> None:
 def test_price_override_requires_positive_input_and_output_pair() -> None:
     with pytest.raises(ValidationError, match="input/output"):
         SlotConfig(input_price_usd_per_million=1.0)
+
+
+def test_embedding_defaults_to_mock() -> None:
+    s = Settings(_env_file=None)
+    assert s.embedding.provider == "mock"
+    assert s.embedding.model == "mock-embed"
+
+
+def test_real_embedding_requires_api_key_and_base_url() -> None:
+    with pytest.raises(ValidationError, match="api_key"):
+        EmbeddingConfig(provider="openai_compat", model="text-embedding-3-small")
+    with pytest.raises(ValidationError, match="base_url"):
+        EmbeddingConfig(
+            provider="openai_compat", model="text-embedding-3-small", api_key="k"
+        )
 
 
 def test_revision_rounds_not_configurable() -> None:

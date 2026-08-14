@@ -6,6 +6,7 @@ import {
   type PendingRound,
   type Project,
   type ReviewItem,
+  type RetrievedFact,
   type VolumeRunStatus,
 } from "./api";
 import { conceptJudgeNotes } from "./bible/mapConceptJudge";
@@ -53,6 +54,7 @@ export function App() {
   const [volumeRun, setVolumeRun] = useState<VolumeRunStatus | null>(null);
   const [volumeBudget, setVolumeBudget] = useState("1");
   const [volumeMaxChapters, setVolumeMaxChapters] = useState("8");
+  const [retrievalFacts, setRetrievalFacts] = useState<RetrievedFact[]>([]);
   const volumeRunning = volumeRun?.status === "running";
 
   const range: ChapterRange | undefined = useMemo(() => {
@@ -93,6 +95,25 @@ export function App() {
     }
     loadDesk(selectedId).catch((err: Error) => setError(err.message));
   }, [selectedId, loadDesk]);
+
+  useEffect(() => {
+    if (selectedId == null) {
+      setRetrievalFacts([]);
+      return;
+    }
+    const kernel = bible?.kernel;
+    const logline = typeof kernel?.logline === "string" ? kernel.logline : "";
+    const selected = chapters.find((chapter) => chapter.chapter_key === selectedChapterKey);
+    const query = selected?.title || selectedChapterKey || chapters[0]?.title || logline || spark;
+    if (!query.trim()) {
+      setRetrievalFacts([]);
+      return;
+    }
+    void api
+      .retrieve(selectedId, query)
+      .then((result) => setRetrievalFacts(result.facts))
+      .catch(() => setRetrievalFacts([]));
+  }, [selectedId, selectedChapterKey, chapters, bible, spark]);
 
   useEffect(() => {
     if (selectedId == null || !volumeRunning) {
@@ -464,9 +485,23 @@ export function App() {
         </aside>
       </div>
       <footer className="chapter-rail">
+        {retrievalFacts.length > 0 ? (
+          <div className="retrieval-chip">
+            <div className="muted">本上下文检索到</div>
+            <ul>
+              {retrievalFacts.slice(0, 4).map((fact) => (
+                <li key={fact.fact_id}>{fact.text}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {chapters.length === 0 ? <span className="muted">尚无章节</span> : null}
         {chapters.map((chapter) => (
-          <div key={chapter.chapter_key} className="slug">
+          <div
+            key={chapter.chapter_key}
+            className={chapter.chapter_key === selectedChapterKey ? "slug active" : "slug"}
+            onClick={() => setSelectedChapterKey(chapter.chapter_key)}
+          >
             <div className="key">{chapter.chapter_key}</div>
             <div className="muted">{chapter.status}</div>
             <div className="row">

@@ -16,6 +16,7 @@ from pydantic import BaseModel, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ProviderName = Literal["mock", "openai_compat", "anthropic"]
+EmbeddingProviderName = Literal["mock", "openai_compat"]
 
 
 class SlotConfig(BaseModel):
@@ -52,6 +53,34 @@ class SlotConfig(BaseModel):
         return self
 
 
+class EmbeddingConfig(BaseModel):
+    """嵌入槽位。pytest / 默认均为 mock,不访问网络。"""
+
+    provider: EmbeddingProviderName = "mock"
+    model: str = "mock-embed"
+    api_key: SecretStr | None = None
+    base_url: str | None = None
+    dim: int = 64
+
+    @field_validator("dim")
+    @classmethod
+    def _positive_dim(cls, value: int) -> int:
+        if value < 8:
+            raise ValueError("embedding.dim 必须 >= 8")
+        return value
+
+    @model_validator(mode="after")
+    def _require_key_for_real_provider(self) -> "EmbeddingConfig":
+        if self.provider != "mock" and self.api_key is None:
+            raise ValueError(
+                "embedding.provider 非 mock 时需要 api_key"
+                "(环境变量 NOVEL_EMBEDDING__API_KEY)"
+            )
+        if self.provider == "openai_compat" and not self.base_url:
+            raise ValueError("openai_compat 嵌入需要 base_url")
+        return self
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="NOVEL_",
@@ -69,6 +98,9 @@ class Settings(BaseSettings):
 
     # 存储
     db_path: Path = Path("data/novel.db")
+
+    # Stage 2 检索嵌入(默认 mock/hash,pytest 无网络)
+    embedding: EmbeddingConfig = EmbeddingConfig()
 
     # 本地写作台 API(默认只绑 localhost);前端 Vite 固定 18765,避开 5173
     api_host: str = "127.0.0.1"

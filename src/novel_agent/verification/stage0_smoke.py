@@ -16,6 +16,7 @@ from novel_agent.domain.db import build_engine, create_all
 from novel_agent.domain.models import ModelRunRecord, NodeRunRecord
 from novel_agent.domain.repos import CanonRepo, PlanningRepo, ProductionRepo
 from novel_agent.gateway.base import ModelGateway, Provider, estimate_cost, slot_pricing
+from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.chain import PlanningGates, run_planning_chain
 from novel_agent.production.batch import resume_project, run_write_batch
 from novel_agent.production.loop import ChapterLoopResult
@@ -173,7 +174,7 @@ async def run_stage0_smoke(
 
         production = ProductionRepo(session)
         canon = CanonRepo(session)
-        builder = ContextBuilder(repo, canon)
+        builder = ContextBuilder(repo, canon, retrieval=memory_retrieval_for_session(session))
         chapter_rows: list[dict[str, Any]] = []
         later_has_prior = False
         for index, item in enumerate(batch.results):

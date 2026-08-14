@@ -83,6 +83,7 @@ def test_unknown_project_is_404(client: TestClient) -> None:
     assert client.get("/projects/99").status_code == 404
     assert client.get("/projects/99/bible").status_code == 404
     assert client.get("/projects/99/graph").status_code == 404
+    assert client.get("/projects/99/retrieve?q=西市").status_code == 404
 
 
 def test_cors_localhost_only(client: TestClient) -> None:
@@ -411,3 +412,37 @@ def test_review_diff_when_two_drafts_exist(client: TestClient) -> None:
     assert item["draft_text"] == "修订后的第二稿：茶楼已打烊。"
     assert item["diff"]
     assert "修订后的第二稿" in item["diff"]
+
+
+def test_retrieve_api_and_cli(
+    client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid = _bible_project(client, "检索台")
+    empty = client.get(f"/projects/{pid}/retrieve?q=")
+    assert empty.status_code == 400
+    found = client.get(f"/projects/{pid}/retrieve?q=说书人")
+    assert found.status_code == 200, found.text
+    payload = found.json()
+    assert payload["project_id"] == pid
+    assert payload["query"] == "说书人"
+    assert payload["facts"]
+    assert all("text" in fact and "fact_id" in fact for fact in payload["facts"])
+
+    monkeypatch.setenv("NOVEL_DB_PATH", str(tmp_path / "cli-retrieve.db"))
+    monkeypatch.setenv("NOVEL_CREATIVE__PROVIDER", "mock")
+    monkeypatch.setenv("NOVEL_REVIEW__PROVIDER", "mock")
+    monkeypatch.setenv("NOVEL_JUDGE__PROVIDER", "mock")
+    monkeypatch.setenv("NOVEL_EXTRACT__PROVIDER", "mock")
+    monkeypatch.setenv("NOVEL_EMBEDDING__PROVIDER", "mock")
+    reset_settings_cache()
+    init = CliRunner().invoke(
+        cli_app,
+        ["init", "检索CLI", "--brief", "说书人发现故事会成真", "--yes", "--skip-concept-judge"],
+    )
+    assert init.exit_code == 0, init.output
+    result = CliRunner().invoke(
+        cli_app, ["retrieve", "--project-id", "1", "--query", "说书人"]
+    )
+    reset_settings_cache()
+    assert result.exit_code == 0, result.output
+    assert "fact_id=" in result.output or "章纲" in result.output or "冲突" in result.output
