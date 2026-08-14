@@ -33,6 +33,7 @@
 | `src/novel_agent/domain/canon_writer.py` | 正史提交成功后重建索引 |
 | `src/novel_agent/planning/volume.py` | `plan-more` 新章纲后重建索引 |
 | `tests/unit/test_memory_retrieval.py` | 植入事实命中 / 幂等 / 预算裁剪 |
+| `tests/unit/test_channel_export.py` | 起点/番茄标题、EPUB zip、默认不含草稿 |
 
 ## 本地怎么跑
 
