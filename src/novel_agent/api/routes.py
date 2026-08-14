@@ -480,6 +480,7 @@ async def write_batch(
             yes=payload.yes,
             settings=settings,
             from_chapter=payload.from_chapter,
+            keep_going=payload.keep_going,
         )
     except (BatchError, ChapterLoopError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

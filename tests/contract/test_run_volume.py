@@ -168,6 +168,96 @@ async def test_second_run_volume_skips_canon_locked(
         session.close()
 
 
+async def test_needs_replan_does_not_stop_volume_by_default(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session, deps, planning, pid = await _bibled(tmp_path)
+
+    async def replan_first(session: Session, project_id: int, chapter_key: str):
+        if chapter_key == "v1c001":
+            PlanningRepo(session).set_status(
+                project_id, chapter_key, ChapterStatus.NEEDS_REPLAN
+            )
+            session.commit()
+            return _loop_result(project_id, chapter_key, ChapterStatus.NEEDS_REPLAN)
+        PlanningRepo(session).set_status(project_id, chapter_key, ChapterStatus.CANON_LOCKED)
+        session.commit()
+        return _loop_result(project_id, chapter_key, ChapterStatus.CANON_LOCKED)
+
+    written = _patch_loop(monkeypatch, replan_first)
+    try:
+        result = await run_volume(
+            session, deps, pid, budget_usd=1.0, yes=True, max_chapters=2
+        )
+        session.commit()
+        assert result.stop_reason == VolumeStopReason.MAX_CHAPTERS.value
+        assert written == ["v1c001", "v1c002", "v1c003"]
+        assert result.chapter_keys == ["v1c002", "v1c003"]
+        assert planning.get_chapter(pid, "v1c001").status is ChapterStatus.NEEDS_REPLAN
+        assert planning.get_chapter(pid, "v1c002").status is ChapterStatus.CANON_LOCKED
+        assert planning.get_chapter(pid, "v1c003").status is ChapterStatus.CANON_LOCKED
+        assert planning.get_chapter(pid, "v1c004").status is ChapterStatus.PLANNED
+    finally:
+        session.close()
+
+
+async def test_volume_stop_on_replan_when_keep_going_off(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session, deps, planning, pid = await _bibled(tmp_path)
+
+    async def replan_first(session: Session, project_id: int, chapter_key: str):
+        PlanningRepo(session).set_status(
+            project_id, chapter_key, ChapterStatus.NEEDS_REPLAN
+        )
+        session.commit()
+        return _loop_result(project_id, chapter_key, ChapterStatus.NEEDS_REPLAN)
+
+    written = _patch_loop(monkeypatch, replan_first)
+    try:
+        result = await run_volume(
+            session,
+            deps,
+            pid,
+            budget_usd=1.0,
+            yes=True,
+            max_chapters=5,
+            keep_going=False,
+        )
+        session.commit()
+        assert result.stop_reason == VolumeStopReason.NEEDS_REPLAN.value
+        assert written == ["v1c001"]
+        assert planning.get_chapter(pid, "v1c001").status is ChapterStatus.NEEDS_REPLAN
+        assert planning.get_chapter(pid, "v1c002").status is ChapterStatus.PLANNED
+    finally:
+        session.close()
+
+
+async def test_volume_skips_already_parked_replan_chapter(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session, deps, planning, pid = await _bibled(tmp_path)
+    planning.set_status(pid, "v1c001", ChapterStatus.NEEDS_REPLAN)
+    session.commit()
+
+    async def cheap(session: Session, project_id: int, chapter_key: str):
+        PlanningRepo(session).set_status(project_id, chapter_key, ChapterStatus.CANON_LOCKED)
+        session.commit()
+        return _loop_result(project_id, chapter_key, ChapterStatus.CANON_LOCKED)
+
+    written = _patch_loop(monkeypatch, cheap)
+    try:
+        result = await run_volume(
+            session, deps, pid, budget_usd=1.0, yes=True, max_chapters=2
+        )
+        session.commit()
+        assert written == ["v1c002", "v1c003"]
+        assert result.chapter_keys == ["v1c002", "v1c003"]
+        assert planning.get_chapter(pid, "v1c001").status is ChapterStatus.NEEDS_REPLAN
+    finally:
+        session.close()
+
+
 async def test_human_review_stops_without_writing_later_chapters(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -38,6 +38,7 @@ class WriteBatchBody(BaseModel):
     chapters: int = Field(default=3, ge=3, le=5)
     yes: bool = False
     from_chapter: str | None = None
+    keep_going: bool = False
 
 
 class PlanMoreBody(BaseModel):

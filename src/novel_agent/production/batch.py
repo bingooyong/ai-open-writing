@@ -87,6 +87,7 @@ async def run_write_batch(
     settings: Settings | None = None,
     git_root: Path | None = None,
     from_chapter: str | None = None,
+    keep_going: bool = False,
 ) -> BatchResult:
     if chapter_count < 3 or chapter_count > 5:
         raise BatchError("write-batch 的 --chapters 必须是 3~5")
@@ -123,7 +124,7 @@ async def run_write_batch(
             await stage_chapter_overlay(session, deps, project_id, key)
             session.commit()
         results.append(result)
-        if result.status is ChapterStatus.NEEDS_REPLAN:
+        if result.status is ChapterStatus.NEEDS_REPLAN and not keep_going:
             break
     return BatchResult(project_id=project_id, results=results, batch_id=batch_id)
 

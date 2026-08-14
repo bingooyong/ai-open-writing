@@ -4,6 +4,8 @@
 
 ## 当前状态（2026-08-14）
 
+**长跑默认不因单章 REPLAN 停卷；该章挂起，后续章继续。** 交互 `write-batch` 仍默认停批；隔夜 `run-volume` / 写作台长跑默认 keep-going。
+
 **写作台长跑控制台已落地。** 未跑付费 API；默认 CI 仍不打网。
 
 工厂仍是原来的 `novel run-volume` / `POST /projects/{id}/run-volume`。没有第二套 runner、没有 Redis、没有云队列。
@@ -14,6 +16,7 @@
 - 跑中：当前章、已完成 / 计划章数、花费 vs 预算；可协作停止。
 - 停止：`POST /projects/{id}/run-volume/stop` 只在进程内记下请求，循环在**下一章检查点**（与预算 / 章数上限同一处）停下，不杀进程。
 - 人门：`HUMAN_REVIEW` 给出批准 + 续跑；`NEEDS_REPLAN` 给出续规划 / 开下一卷 + 续跑；`STALE` 续跑；`BUDGET` 说明预算用尽并给出续跑 / 再开跑。不再只显示一句「已停」。
+- 长跑默认不因单章 REPLAN 停卷；该章挂起，后续章继续。交互 `write-batch` 仍默认停批，需 `--keep-going` / `--continue-on-replan` 才继续。
 - 轮询仍在 `status === "running"` 时每 1.5s 拉一次；`current_chapter` / `chapters_done` / `status` / `stop_reason` 变化时刷新大纲 / 审稿 / 章节轨。
 
 `VolumeRunStatus` 原有字段已够用，只加了 `cancel_requested`。`stop_reason` 就是门禁种类。
@@ -116,6 +119,7 @@ uv run novel smoke-stage0 --confirm-real-models --budget-usd 15
 - 不要训练自定义模型、不要上云向量库
 - 不要再改 Stage 0 冒烟骨架，除非人工付费跑暴露缺口
 - 不要另起一套 runner / Redis / 云队列；长跑只走现有 `run-volume`
+- 不要让隔夜 `run-volume` 因单章 `NEEDS_REPLAN` 停卷；该章挂起，后续已规划章继续
 - 不要重写 Writer / Judge / retrieval；这是台子体验，不是工厂重写
 - 不要让写手在正文里写「第N章 / 第一章」；不要把章标题格式写成「第一章」或 `v1c001 标题`
 - 不要把两段式示例写成 `<<<SCENE:场景id>>>` / `<<<SCENE:scene_id>>>`；格式说明必须用真实 scene_id

@@ -860,6 +860,14 @@ def write_batch(
     from_chapter: Annotated[
         str, typer.Option("--from-chapter", help="从指定章起写;缺省则跳过已锁定章")
     ] = "",
+    keep_going: Annotated[
+        bool,
+        typer.Option(
+            "--keep-going",
+            "--continue-on-replan",
+            help="遇 NEEDS_REPLAN 时挂起该章并继续写后续已规划章;默认停批",
+        ),
+    ] = False,
 ) -> None:
     """3~5 章顺序连跑;后章可读前章 provisional canon overlay(D15)。"""
     if chapters < 3 or chapters > 5:
@@ -886,6 +894,7 @@ def write_batch(
                     yes=yes,
                     settings=settings,
                     from_chapter=from_chapter or None,
+                    keep_going=keep_going,
                 )
             )
         except (BatchError, ChapterLoopError) as exc:
@@ -917,7 +926,10 @@ def run_volume_cmd(
         bool, typer.Option("--open-volume", help="窗口续规划时开下一卷")
     ] = False,
 ) -> None:
-    """无人值守卷长跑:窗口不足则 plan-more,再写未锁定章;遇预算/人工门禁停下。"""
+    """无人值守卷长跑:窗口不足则 plan-more,再写未锁定章;遇预算/人工门禁停下。
+
+    默认不因单章 NEEDS_REPLAN 停卷;该章挂起,后续已规划章继续。
+    """
     _require_yes_or_tty(yes)
     if budget_usd is None or budget_usd <= 0:
         typer.echo("拒绝: --budget-usd 必须是正数", err=True)
