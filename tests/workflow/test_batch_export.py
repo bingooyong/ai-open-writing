@@ -164,7 +164,8 @@ async def test_export_files_contain_chapter_text(tmp_path) -> None:
         txt = out_txt.read_text(encoding="utf-8")
         assert "苏晚生" in md and "醒木" in md
         assert "苏晚生" in txt and "醒木" in txt
-        assert "v1c001" in md and "v1c003" in md
+        assert "第1章" in md and "第3章" in md
+        assert "v1c001 醒木" not in md and "v1c003" not in md
     finally:
         session.close()
 

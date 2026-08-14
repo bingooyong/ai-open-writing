@@ -84,6 +84,8 @@ export type ReviewIssueView = {
 export type ReviewItem = {
   chapter_key: string;
   title: string;
+  order_index: number;
+  heading: string;
   status: string;
   bucket: "HUMAN_REVIEW" | "IN_PROGRESS" | "CANON_LOCKED";
   verdict: string | null;

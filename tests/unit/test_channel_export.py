@@ -168,9 +168,13 @@ def test_generic_txt_md_stay_cleaned(tmp_path: Path) -> None:
         txt = render_export(session, project_id, "txt")
         md = render_export(session, project_id, "md")
         assert txt.startswith("说书人传奇\n")
-        assert "v1c001 醒木" in txt
+        assert "第1章 醒木" in txt
+        assert "第2章 后巷" in txt
+        assert "v1c001 醒木" not in txt
         assert md.startswith("# 说书人传奇\n")
-        assert "## v1c001 醒木" in md
+        assert "## 第1章 醒木" in md
+        assert "## 第2章 后巷" in md
+        assert "## v1c001 醒木" not in md
         assert LOCKED_1 in txt and LOCKED_1 in md
         assert LEAK_LINE not in txt and LEAK_LINE not in md
         assert DRAFT_BODY not in txt
@@ -210,7 +214,8 @@ def test_epub_is_zip_with_mimetype_and_chapter_xhtml(tmp_path: Path) -> None:
             xhtml = [name for name in names if name.endswith(".xhtml")]
             assert any("chapter" in name for name in xhtml)
             joined = b"".join(zf.read(name) for name in xhtml)
-            assert "第1章".encode() in joined or LOCKED_1.encode("utf-8") in joined
+            assert "第1章 醒木".encode() in joined
+            assert "第2章 后巷".encode() in joined
             assert DRAFT_BODY.encode("utf-8") not in joined
             opf = next(name for name in names if name.endswith(".opf"))
             meta = zf.read(opf).decode("utf-8")

@@ -45,6 +45,8 @@
 
 仍勿回退：冲突/爽点 lint 的 `rolling_keys` 若被一次性铺成全书 115 章，窗口与 Concept Judge 会对不上。滚动窗口应保持切片，不要把全书章键塞进单次 R3/R4/R5。
 
+**章标题由系统盖章。** 按 `order_index` 生成「第N章 标题」（阿拉伯数字，如 `第1章 醒木`，不是「第一章」）。写手禁止写入正文；审稿页 / generic·起点·番茄·EPUB 导出共用 `novel_agent.production.heading.chapter_heading`。
+
 端口未改：前端 **18765**（strictPort）、API **8765**。禁止 5173。
 
 Stage 0 冒烟骨架不要再动，除非人工付费跑暴露缺口。
@@ -71,6 +73,7 @@ Stage 0 冒烟骨架不要再动，除非人工付费跑暴露缺口。
 | `eval/retrieval/golden_queries.json` | 冻结检索金标问句 |
 | `src/novel_agent/eval/retrieval.py` | 植入语料、打分、报告 |
 | `docs/retrieval-eval.md` | hash vs 真实嵌入决策与实测 |
+| `src/novel_agent/production/heading.py` | 章标题唯一函数：`第N章 标题` |
 | `src/novel_agent/production/export.py` | 渠道模板：generic / qidian / fanqie / epub |
 | `src/novel_agent/memory/` | `MemoryRetrieval` 协议、hash 嵌入、LanceDB 索引、收集器 |
 | `src/novel_agent/context/context_builder.py` | 组装包并填充 `retrieval_facts` |
@@ -112,6 +115,7 @@ uv run novel smoke-stage0 --confirm-real-models --budget-usd 15
 - 不要再改 Stage 0 冒烟骨架，除非人工付费跑暴露缺口
 - 不要另起一套 runner / Redis / 云队列；长跑只走现有 `run-volume`
 - 不要重写 Writer / Judge / retrieval；这是台子体验，不是工厂重写
+- 不要让写手在正文里写「第N章 / 第一章」；不要把章标题格式写成「第一章」或 `v1c001 标题`
 
 ## 下一刀建议
 

@@ -51,7 +51,7 @@ cd apps/web && npm run dev  # http://localhost:18765 ，Vite 代理 /projects �
 
 `GET /projects/{id}/retrieve?q=` 返回索引命中（章摘要 / 实体关系 / 场景卡 / 冲突爽点）。写作台章节轨展示「本上下文检索到」。索引是 LanceDB，真源仍是 SQLite。
 
-`GET /projects/{id}/export?channel=qidian|fanqie|generic|epub&format=txt|md|epub` 返回可下载文件。写作台章节轨用渠道 + 格式下拉导出。默认只含 `CANON_LOCKED`；勾选「含草稿」预览未锁定稿。起点/番茄是排版模板，不是官方投稿 API。
+`GET /projects/{id}/export?channel=qidian|fanqie|generic|epub&format=txt|md|epub` 返回可下载文件。写作台章节轨用渠道 + 格式下拉导出。默认只含 `CANON_LOCKED`；勾选「含草稿」预览未锁定稿。起点/番茄是排版模板，不是官方投稿 API。章标题一律由系统按 `order_index` 盖成「第N章 标题」（审稿台与各渠道导出共用同一函数）；写手不得把章名写入正文。
 
 本 slice 不含：新 `source_record` / `timeline_event` 表、CI 内百万字实跑、云向量库或付费嵌入、真实起点/番茄登录或抓取。
 
