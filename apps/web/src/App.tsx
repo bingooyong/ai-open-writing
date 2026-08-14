@@ -10,11 +10,12 @@ import {
   type VolumeRunStatus,
 } from "./api";
 import { conceptJudgeNotes } from "./bible/mapConceptJudge";
+import { CharacterDossier } from "./graph/CharacterDossier";
 import { RelationshipPanorama } from "./graph/RelationshipPanorama";
 import {
-  MISSING_EVIDENCE,
+  characterInsight,
+  graphCensus,
   inspectorFor,
-  labeledEvidence,
   type ChapterRange,
   type GraphDto,
 } from "./graph/mapGraphDto";
@@ -174,6 +175,9 @@ export function App() {
   }
 
   const inspector = nodeId && graph ? inspectorFor(graph, nodeId, range) : null;
+  const insight = inspector?.node ? characterInsight(inspector.node, bible?.characters) : null;
+  const census = graphCensus(graph, range);
+  const deskCensus = graphCensus(graph);
   const selectedProject = projects.find((item) => item.id === selectedId) ?? null;
 
   async function selectChapter(chapterKey: string) {
@@ -193,10 +197,28 @@ export function App() {
     <div className="app">
       <header className="masthead">
         <div>
-          <div className="eyebrow">Local writing desk</div>
+          <div className="eyebrow">本地写作台</div>
           <h1>墨案</h1>
+          <div className="muted">{selectedProject?.title ?? "未打开作品"}</div>
         </div>
-        <div className="muted">{selectedProject?.title ?? "未打开作品"}</div>
+        <div className="mast-stats">
+          <div>
+            <strong>{deskCensus.people}</strong>
+            <span>人物</span>
+          </div>
+          <div>
+            <strong>{deskCensus.relations}</strong>
+            <span>关系</span>
+          </div>
+          <div>
+            <strong>{chapters.length}</strong>
+            <span>章节</span>
+          </div>
+          <div className={`status-pill${busy || volumeRunning ? " busy" : ""}`}>
+            <i />
+            {busy || volumeRunning ? "忙碌" : "空闲"}
+          </div>
+        </div>
       </header>
       <div className="desk">
         <aside className="rail">
@@ -446,21 +468,28 @@ export function App() {
             </section>
           ) : null}
           {stageTab === "graph" ? (
-          <section className="panel">
-            <h2>关系全景</h2>
-            <div className="range">
-              <span>章节范围</span>
-              <input
-                value={rangeFrom}
-                placeholder="v1c001"
-                onChange={(event) => setRangeFrom(event.target.value)}
-              />
-              <span>—</span>
-              <input
-                value={rangeTo}
-                placeholder="v1c005"
-                onChange={(event) => setRangeTo(event.target.value)}
-              />
+          <section className="panel graph-panel">
+            <div className="graph-toolbar">
+              <div>
+                <h2>关系全景</h2>
+                <p className="census">
+                  {census.people} 人物 · {census.relations} 关系
+                </p>
+              </div>
+              <div className="range">
+                <span>章节范围</span>
+                <input
+                  value={rangeFrom}
+                  placeholder="v1c001"
+                  onChange={(event) => setRangeFrom(event.target.value)}
+                />
+                <span>—</span>
+                <input
+                  value={rangeTo}
+                  placeholder="v1c005"
+                  onChange={(event) => setRangeTo(event.target.value)}
+                />
+              </div>
             </div>
             <RelationshipPanorama
               dto={graph}
@@ -472,44 +501,17 @@ export function App() {
           ) : null}
         </main>
         <aside className="inspector">
-          <h2>人物检视</h2>
-          {inspector && nodeId ? (
+          <CharacterDossier inspector={inspector} insight={insight} />
+          {!inspector ? (
             <>
-              <p>
-                <strong>{nodeId}</strong>
-                <br />
-                <span className="muted">度数 {inspector.degree}</span>
-              </p>
+              <h2>图中关系</h2>
               <ul className="tracks">
-                {inspector.evidence.map((item, index) => (
-                  <li key={`${item}-${index}`}>{item}</li>
-                ))}
-              </ul>
-              <h2>关系轨迹</h2>
-              <ul className="tracks">
-                {inspector.tracks.map((track) => (
-                  <li key={track.parties.join("-")}>
-                    {track.parties.join(" · ")}
-                    {track.beats.map((beat) => (
-                      <div key={beat.chapter_key} className="muted">
-                        {beat.chapter_key}: {beat.from_state} → {beat.to_state}
-                        <br />
-                        {labeledEvidence(beat.evidence)}
-                      </div>
-                    ))}
-                  </li>
+                {(graph?.tracks ?? []).map((track) => (
+                  <li key={track.parties.join("-")}>{track.parties.join(" · ")}</li>
                 ))}
               </ul>
             </>
-          ) : (
-            <p className="muted">点选图中人物。无证据时标注「{MISSING_EVIDENCE}」。</p>
-          )}
-          <h2>全部轨迹</h2>
-          <ul className="tracks">
-            {(graph?.tracks ?? []).map((track) => (
-              <li key={track.parties.join("-")}>{track.parties.join(" · ")}</li>
-            ))}
-          </ul>
+          ) : null}
         </aside>
       </div>
       <footer className="chapter-rail">
