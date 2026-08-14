@@ -202,20 +202,22 @@ def _unified_diff(previous: str, current: str) -> str:
 
 
 def list_review_desk(session: Session, project_id: int) -> list[dict[str, object]]:
-    """HUMAN_REVIEW / 进行中 / CANON_LOCKED 审稿台列表(含证据定位与双稿 diff)。"""
+    """审稿台列表:状态桶 + 任何已有正文的草稿(含证据定位与双稿 diff)。"""
     planning = PlanningRepo(session)
     production = ProductionRepo(session)
     items: list[dict[str, object]] = []
     for chapter in planning.list_chapters(project_id):
-        bucket = review_bucket(chapter.status)
-        if bucket is None:
-            continue
         drafts = _active_drafts(production, project_id, chapter.chapter_key)
         latest = production.latest_chapter_draft(project_id, chapter.chapter_key)
         previous = None
         if latest is not None and latest.revision_of is not None:
             previous = next((row for row in drafts if row.id == latest.revision_of), None)
         text = _draft_text(latest) if latest is not None else ""
+        bucket = review_bucket(chapter.status)
+        if bucket is None:
+            if not text:
+                continue
+            bucket = "IN_PROGRESS"
         prev_text = _draft_text(previous) if previous is not None else None
         issues = production.list_issues(latest.id) if latest is not None and latest.id else []
         verdict = production.latest_verdict(chapter.chapter_key)

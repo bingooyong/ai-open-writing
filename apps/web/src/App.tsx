@@ -422,7 +422,7 @@ export function App() {
           ) : null}
           {stageTab === "review" ? (
             <section className="panel review-panel">
-              <h2>批次审稿</h2>
+              <h2>审稿</h2>
               <ReviewDesk
                 items={reviewItems}
                 selectedKey={selectedChapterKey}

@@ -497,12 +497,121 @@ h3 {
   padding: 0.2rem 0.35rem;
 }
 
-.outline-desk,
-.review-desk {
+.outline-desk {
   display: grid;
   grid-template-columns: minmax(170px, 0.85fr) minmax(0, 1.4fr);
   gap: 0.7rem;
   min-height: 0;
+}
+
+.review-desk {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr) 230px;
+  min-height: 0;
+  height: 100%;
+}
+
+.review-toc,
+.review-notes {
+  overflow: auto;
+  min-height: 0;
+}
+
+.review-toc {
+  padding-right: 0.45rem;
+  border-right: 1px solid var(--rule);
+}
+
+.review-notes {
+  padding-left: 0.65rem;
+  border-left: 1px solid var(--rule);
+}
+
+.toc-row {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 0.35rem 0.4rem;
+  margin-bottom: 0.1rem;
+  border-radius: 6px;
+  color: var(--text);
+}
+
+.toc-row:hover,
+.toc-row.active {
+  background: var(--hover);
+}
+
+.toc-title {
+  display: block;
+  font-size: 0.8rem;
+}
+
+.toc-status {
+  display: block;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.review-page {
+  overflow: auto;
+  min-height: 0;
+  padding: 0 0.85rem 1.2rem;
+}
+
+.reader-chrome {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.45rem 0.7rem;
+  margin-bottom: 0.85rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.reader-chrome label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.reader-chrome select {
+  border: 1px solid var(--rule);
+  background: var(--raised);
+  color: var(--text);
+  padding: 0.1rem 0.25rem;
+  border-radius: 6px;
+}
+
+.reader-article {
+  margin: 0 auto;
+}
+
+.reader-header {
+  margin-bottom: 1.1rem;
+}
+
+.reader-header h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.15em;
+  font-weight: 600;
+}
+
+.reader-article p {
+  margin: 0;
+}
+
+.reader-article mark {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: inherit;
+  padding: 0;
+}
+
+.reader-empty {
+  text-align: center;
+  margin-top: 2rem;
 }
 
 .tree-row {
@@ -578,11 +687,6 @@ h3 {
   border-radius: 6px;
 }
 
-.draft-view mark {
-  background: rgba(59, 130, 246, 0.28);
-  color: inherit;
-}
-
 .issue-list {
   list-style: none;
   padding: 0;
@@ -608,6 +712,13 @@ h3 {
 .outline-panel,
 .review-panel {
   min-height: 0;
+}
+
+.review-panel {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+  overflow: hidden;
 }
 
 @media (prefers-reduced-motion: reduce) {
