@@ -645,7 +645,13 @@ def smoke_stage0(
         Path | None, typer.Option("--report", help="脱敏 JSON 证据报告路径")
     ] = None,
 ) -> None:
-    """M4.2 受限真实模型三章冒烟;默认拒绝。四槽位为 mock 时跳过并说明。"""
+    """受限真实模型三章冒烟;默认拒绝,不进默认 CI。
+
+    必须同时提供 --confirm-real-models 与正数 --budget-usd。
+    四槽位任一为 mock 则拒绝(视为跳过付费冒烟)。
+    judge.family 必须不同于 creative.family。
+    保守预检按当前工厂首轮计价,必须落入 --budget-usd。
+    """
     if not confirm_real_models:
         typer.echo("拒绝: 缺少 --confirm-real-models", err=True)
         raise typer.Exit(2)
