@@ -4,7 +4,21 @@
 
 ## 当前状态（2026-08-14）
 
-**第三次真实 MiniMax 现场：R5 outline planner 死于思维链截断 JSON。** 末世《余烬回声》Story Bible 走到 R5，`outline_planner` 两次 `_PlanOut` 校验失败：`Expecting value: line 2 column 11 (char 12)`。首呼 `16000/16000`（打满当时上限，截断），修复轮 2332 token 仍解析失败。更早一次 MiniMax ping 的 `content` 以 `<think>...` 开头。根因：MiniMax-M3 OpenAI 兼容默认 adaptive thinking，推理吃掉输出预算，JSON 被截断或被 think 块污染；旧 `_extract_json` 只剥 markdown 栅栏，think 内的 `{` 会把思维链和正文粘成非法 JSON。
+**写作台长跑控制台已落地。** 未跑付费 API；默认 CI 仍不打网。
+
+工厂仍是原来的 `novel run-volume` / `POST /projects/{id}/run-volume`。没有第二套 runner、没有 Redis、没有云队列。
+
+写作台（`apps/web`，**18765** strictPort）现在有一条常驻「长跑控制台」：
+
+- 开跑：预算 USD + 最多章数（原 `跑一卷` 仍走同一路由）。
+- 跑中：当前章、已完成 / 计划章数、花费 vs 预算；可协作停止。
+- 停止：`POST /projects/{id}/run-volume/stop` 只在进程内记下请求，循环在**下一章检查点**（与预算 / 章数上限同一处）停下，不杀进程。
+- 人门：`HUMAN_REVIEW` 给出批准 + 续跑；`NEEDS_REPLAN` 给出续规划 / 开下一卷 + 续跑；`STALE` 续跑；`BUDGET` 说明预算用尽并给出续跑 / 再开跑。不再只显示一句「已停」。
+- 轮询仍在 `status === "running"` 时每 1.5s 拉一次；`current_chapter` / `chapters_done` / `status` / `stop_reason` 变化时刷新大纲 / 审稿 / 章节轨。
+
+`VolumeRunStatus` 原有字段已够用，只加了 `cancel_requested`。`stop_reason` 就是门禁种类。
+
+**第三次真实 MiniMax 现场：R5 outline planner 死于思维链截断 JSON（#21 已合进 `main`）。** 末世《余烬回声》Story Bible 走到 R5，`outline_planner` 两次 `_PlanOut` 校验失败：`Expecting value: line 2 column 11 (char 12)`。首呼 `16000/16000`（打满当时上限，截断），修复轮 2332 token 仍解析失败。更早一次 MiniMax ping 的 `content` 以 `<think>...` 开头。根因：MiniMax-M3 OpenAI 兼容默认 adaptive thinking，推理吃掉输出预算，JSON 被截断或被 think 块污染；旧 `_extract_json` 只剥 markdown 栅栏，think 内的 `{` 会把思维链和正文粘成非法 JSON。
 
 已做（#21 已合进 `main`）：
 - `_extract_json` / `parse_two_part` 先剥 `<think>` / `<thinking>` / `<reason>` / `<reasoning>`（含未闭合标签）再找 `{...}`。
@@ -15,7 +29,7 @@
 
 **黄金三章 lint 不再要求字面「主角」（已合进 `main`）。** 同一次 MiniMax-M3 跑里，模型用姓名（林暮）+ 封口/停电写第 1 章，`lint_golden_three` 只认 `主角/危机/问题/冲突/当场/眼前/承诺`，R2 整份结构被丢弃。现在传入内核抽出的活人名（名叫/名为/化妆师 后的词）即算「有活人」；纯世界观/历史沿革/地理志第 1 章仍失败。不要改回只认「主角」二字。
 
-**`--chapters N` Story Bible 窗口范围已收口。** 同一场 MiniMax-M3 开书《余烬回声》(`novel init --chapters 3`) 在 Concept Judge R4 死于范围错位，不是文笔差。
+**`--chapters N` Story Bible 窗口范围已收口（#20 已合进 `main`）。** 同一场 MiniMax-M3 开书《余烬回声》(`novel init --chapters 3`) 在 Concept Judge R4 死于范围错位，不是文笔差。
 
 现场形态：
 - 结构策划发明了 115 章全书（中点 ch48 / 绝境 ch79 / 高潮 ch108 / 终局 ch115）。
@@ -31,20 +45,9 @@
 
 仍勿回退：冲突/爽点 lint 的 `rolling_keys` 若被一次性铺成全书 115 章，窗口与 Concept Judge 会对不上。滚动窗口应保持切片，不要把全书章键塞进单次 R3/R4/R5。
 
-**真实模型 Stage 0 冒烟（代码侧）已完成。** 未跑付费 API；默认 CI 仍不进入该命令。
-
-- 命令：`uv run novel smoke-stage0 --confirm-real-models --budget-usd …`
-- 实现：`src/novel_agent/verification/stage0_smoke.py`；CLI 在 `smoke-stage0`。
-- 规划仍走紧凑链 `run_planning_chain`（kernel / character / outline），不跑完整 Story Bible R0–R5 / Concept Judge，以免把三章预算打爆。
-- 章节循环走生产工厂默认：Writer A+B、5 名基线评审 + reader-advocate、Judge、PASS 后 overlay extract、ContextBuilder `retrieval_facts`。
-- 预检按**当前工厂首轮**计价：creative 9（规划 3 + 双写手×3）、review 18（6 角色×3）、judge 3、extract 3。不含修订轮；超支仍由事后 `spent > budget` 与 `max_calls_per_chapter=40` 兜住。
-- 硬门：无 `--confirm-real-models` 拒绝；缺/零预算拒绝；任一槽位 mock 拒绝；`judge.family` 必须不同于 `creative.family`；预检必须落入预算。
-- pytest 只走 `providers=` 注入的 `MockProvider`，不打网。报告脱敏（无 api_key / 无场景标记泄漏）。
-- 退出条件 6 项：三章草稿、植入冲突（仍指回归门）、resume 幂等、修订上限、ModelRun 完整、后章 `retrieval_facts`。
-
 端口未改：前端 **18765**（strictPort）、API **8765**。禁止 5173。
 
-下一任 **不要** 再改冒烟骨架，除非人工付费跑暴露缺口。
+Stage 0 冒烟骨架不要再动，除非人工付费跑暴露缺口。
 
 ## 给下一任：先做什么
 
@@ -56,9 +59,14 @@
 
 | 路径 | 作用 |
 |---|---|
+| `apps/web/src/volume/VolumeRunConsole.tsx` | 写作台长跑控制台 |
+| `apps/web/src/volume/mapVolumeConsole.ts` | idle / running / gate / budget 视图模型 |
+| `src/novel_agent/production/volume_run.py` | `run_volume`、协作停止、`VolumeRunStatus` |
+| `src/novel_agent/api/routes.py` | `POST/GET .../run-volume`、`POST .../run-volume/stop` |
 | `src/novel_agent/domain/window_scope.py` | 滚动窗 vs 全书草图；Judge 入参裁剪远章键 |
 | `tests/unit/test_window_scope.py` | 余烬回声 ch48/ch108 结构 + 三章冲突不得当范围错位失败 |
 | `src/novel_agent/verification/stage0_smoke.py` | 三章真实模型冒烟（gated） |
+| `tests/contract/test_run_volume.py` | 长跑契约：门禁、预算、协作停止、控制台字段 |
 | `tests/regression/test_stage0_smoke.py` | 门闩 / 离线清单 / 预检锁当前工厂 |
 | `eval/retrieval/golden_queries.json` | 冻结检索金标问句 |
 | `src/novel_agent/eval/retrieval.py` | 植入语料、打分、报告 |
@@ -82,6 +90,7 @@ cd apps/web && npm run dev   # http://127.0.0.1:18765
 CLI：`uv run novel retrieve --project-id 1 --query "西市火灾"`。
 评测：`uv run novel retrieve-eval`（临时库，默认 hash）。
 导出：`uv run novel export --project-id 1 --channel qidian --format txt --out /tmp/book.txt`。
+长跑：`uv run novel run-volume --project-id 1 --yes --budget-usd 1 --max-chapters 8`。
 
 **人工付费 Stage 0 冒烟（本环境未跑）：**
 
@@ -100,15 +109,19 @@ uv run novel smoke-stage0 --confirm-real-models --budget-usd 15
 - 不要在 CI 里真的生成百万字
 - 不要新建 `source_record` / `timeline_event` 表
 - 不要训练自定义模型、不要上云向量库
+- 不要再改 Stage 0 冒烟骨架，除非人工付费跑暴露缺口
+- 不要另起一套 runner / Redis / 云队列；长跑只走现有 `run-volume`
+- 不要重写 Writer / Judge / retrieval；这是台子体验，不是工厂重写
 
 ## 下一刀建议
 
 1. **人工本地用 MiniMax 再跑** `novel init --chapters 3`（余烬回声或同类火花），确认 R4 不再因「没给 ch48 写冲突」停死；真质量 REVISE 仍只有一轮。
-2. **合入本分支后**，用 MiniMax-M3 重跑《余烬回声》Story Bible R5（outline 现 32k + 关 thinking）。不要在 pytest 里打付费 API。
+2. 用 MiniMax-M3 重跑《余烬回声》Story Bible R5（outline 现 32k + 关 thinking）。不要在 pytest 里打付费 API。
 3. 若仍要一次规划全书 100+ 章：先拆滚动窗口，不要让 R3/R4/R5 吃 115 个章键。
-4. 人工本地跑付费 Stage 0 冒烟并审清单。不要再改冒烟预检表，除非付费跑再暴露缺口。不要把黄金三章 lint 改回只认字面「主角」；不要改回端口 5173。
-
-若要动检索本身（评测已冻结）：先用金标试词面权重，再考虑真实嵌入；真实嵌入保持 opt-in。
+4. 人工本地跑付费 Stage 0 冒烟并审清单。不要再改冒烟预检表，除非付费跑再暴露缺口。
+5. 看写作台还缺什么（审稿台与长跑控制台的衔接、过夜 mock 的章数体验），不要重启 smoke-stage0。
+6. 不要把黄金三章 lint 改回只认字面「主角」；不要改回端口 5173。
+7. 若要动检索本身（评测已冻结）：先用金标试词面权重，再考虑真实嵌入；真实嵌入保持 opt-in。
 
 ## 已知坑
 
@@ -117,6 +130,8 @@ uv run novel smoke-stage0 --confirm-real-models --budget-usd 15
 - 默认 plan-more **不**因结构图高潮已锁定就开 v2；要开卷需 `--open-volume` 或把当前单元标成 `locked`。
 - `max_calls_per_chapter` 为 40（双写手 + advocate）。
 - mock 的 `cost_estimate` 默认为 0；隔夜 mock 请带 `--max-chapters`，USD 硬上限主要约束真实模型。
+- 协作停止只在章与章之间生效；正在写的那一章会跑完当前 `run_chapter_loop`。
+- 停止旗标是**进程内**的；换一个 API 进程看不到。单进程 `uvicorn` 写作台够用。
 - LanceDB 表不能从空 list 创建；无事实时直接不建表，检索为空。
 - hash 混合在小语料上弱于纯词面：`lexical_overlap` 已能召回的事实会被 hash 向量往后推。
 - `stage_provisional`（批次 overlay）不重建检索索引；后章 `retrieval_facts` 主要来自规划期场景/章纲（首次 retrieve 会懒加载 reindex）。正史 `finalize` 才会 `_reindex`。

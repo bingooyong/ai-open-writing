@@ -129,6 +129,7 @@ export type VolumeRunStatus = {
   stop_reason: string;
   current_chapter: string;
   max_chapters: number | null;
+  cancel_requested: boolean;
 };
 
 async function parse<T>(responsePromise: Promise<Response>): Promise<T> {
@@ -269,6 +270,8 @@ export const api = {
       }),
     ),
   getRunVolume: (id: number) => parse<VolumeRunStatus>(fetch(`/projects/${id}/run-volume`)),
+  stopRunVolume: (id: number) =>
+    parse<VolumeRunStatus>(fetch(`/projects/${id}/run-volume/stop`, { method: "POST" })),
   retrieve: (id: number, q: string, limit = 6) =>
     parse<RetrieveResult>(
       fetch(`/projects/${id}/retrieve?q=${encodeURIComponent(q)}&limit=${limit}`),

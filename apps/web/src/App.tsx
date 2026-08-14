@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   type BibleSnapshot,
@@ -31,6 +31,8 @@ import {
 import { ReviewDesk } from "./review/ReviewDesk";
 import { ThemeSwitch } from "./theme/ThemeSwitch";
 import { useTheme } from "./theme/useTheme";
+import { VolumeRunConsole } from "./volume/VolumeRunConsole";
+import { volumeDeskDirty } from "./volume/mapVolumeConsole";
 
 type StageTab = "conversation" | "outline" | "review" | "graph";
 
@@ -70,6 +72,8 @@ export function App() {
   const [includeDrafts, setIncludeDrafts] = useState(false);
   const volumeRunning = volumeRun?.status === "running";
   const { mode: themeMode, resolved: theme, setMode: setThemeMode } = useTheme();
+  const volumeSnap = useRef<VolumeRunStatus | null>(null);
+  volumeSnap.current = volumeRun;
 
   function changeExportChannel(next: ExportChannel) {
     setExportChannel(next);
@@ -155,8 +159,9 @@ export function App() {
       void api
         .getRunVolume(selectedId)
         .then(async (status) => {
+          const dirty = volumeDeskDirty(volumeSnap.current, status);
           setVolumeRun(status);
-          if (status.status !== "running") {
+          if (dirty) {
             await loadDesk(selectedId);
           }
         })
@@ -182,6 +187,33 @@ export function App() {
   const census = graphCensus(graph, range);
   const deskCensus = graphCensus(graph);
   const selectedProject = projects.find((item) => item.id === selectedId) ?? null;
+
+  function startVolumeRun() {
+    if (selectedId == null) {
+      return;
+    }
+    setError("");
+    const budget = Number(volumeBudget);
+    const maxChapters = volumeMaxChapters.trim() ? Number(volumeMaxChapters) : undefined;
+    if (!(budget > 0)) {
+      setError("跑一卷需要正数 USD 预算");
+      return;
+    }
+    if (maxChapters != null && (!Number.isInteger(maxChapters) || maxChapters < 1)) {
+      setError("最多章数必须是正整数");
+      return;
+    }
+    void api
+      .startRunVolume(selectedId, {
+        budget_usd: budget,
+        max_chapters: maxChapters,
+        yes: true,
+      })
+      .then((started) => {
+        setVolumeRun(started);
+      })
+      .catch((err: Error) => setError(err.message));
+  }
 
   async function selectChapter(chapterKey: string) {
     setSelectedChapterKey(chapterKey);
@@ -508,6 +540,46 @@ export function App() {
           </aside>
         ) : null}
       </div>
+      {selectedId != null ? (
+        <VolumeRunConsole
+          status={volumeRun}
+          budget={volumeBudget}
+          maxChapters={volumeMaxChapters}
+          busy={busy}
+          onBudgetChange={setVolumeBudget}
+          onMaxChaptersChange={setVolumeMaxChapters}
+          onStart={startVolumeRun}
+          onStop={() =>
+            void run(async () => {
+              setVolumeRun(await api.stopRunVolume(selectedId));
+            })
+          }
+          onApprove={(chapterKey) =>
+            void run(async () => {
+              await api.approveChapter(selectedId, chapterKey);
+              await loadDesk(selectedId);
+            })
+          }
+          onResume={() =>
+            void run(async () => {
+              await api.resume(selectedId);
+              await loadDesk(selectedId);
+            })
+          }
+          onPlanMore={() =>
+            void run(async () => {
+              await api.planMore(selectedId);
+              await loadDesk(selectedId);
+            })
+          }
+          onOpenVolume={() =>
+            void run(async () => {
+              await api.planMore(selectedId, { open_volume: true });
+              await loadDesk(selectedId);
+            })
+          }
+        />
+      ) : null}
       <footer className="chapter-rail">
         {retrievalFacts.length > 0 ? (
           <div className="retrieval-chip">
@@ -579,67 +651,6 @@ export function App() {
             >
               写下一批
             </button>
-            <label className="muted">
-              $
-              <input
-                value={volumeBudget}
-                onChange={(event) => setVolumeBudget(event.target.value)}
-                style={{ width: "4.5rem" }}
-                inputMode="decimal"
-                aria-label="卷长跑预算 USD"
-              />
-            </label>
-            <label className="muted">
-              章
-              <input
-                value={volumeMaxChapters}
-                onChange={(event) => setVolumeMaxChapters(event.target.value)}
-                style={{ width: "3.5rem" }}
-                inputMode="numeric"
-                aria-label="最多章数"
-              />
-            </label>
-            <button
-              className="btn teal"
-              disabled={busy || volumeRunning}
-              type="button"
-              onClick={() => {
-                setError("");
-                const budget = Number(volumeBudget);
-                const maxChapters = volumeMaxChapters.trim()
-                  ? Number(volumeMaxChapters)
-                  : undefined;
-                if (!(budget > 0)) {
-                  setError("跑一卷需要正数 USD 预算");
-                  return;
-                }
-                if (maxChapters != null && (!Number.isInteger(maxChapters) || maxChapters < 1)) {
-                  setError("最多章数必须是正整数");
-                  return;
-                }
-                void api
-                  .startRunVolume(selectedId, {
-                    budget_usd: budget,
-                    max_chapters: maxChapters,
-                    yes: true,
-                  })
-                  .then((started) => {
-                    setVolumeRun(started);
-                  })
-                  .catch((err: Error) => setError(err.message));
-              }}
-            >
-              跑一卷
-            </button>
-            {volumeRun && volumeRun.status !== "idle" ? (
-              <span className="muted volume-progress">
-                {volumeRun.status === "running"
-                  ? `长跑中 ${volumeRun.chapters_done} 章`
-                  : `已停 ${volumeRun.chapters_done} 章`}
-                {volumeRun.stop_reason ? ` · ${volumeRun.stop_reason}` : ""}
-                {` · $${volumeRun.spent_usd}`}
-              </span>
-            ) : null}
             <button
               className="btn ghost"
               disabled={busy}
