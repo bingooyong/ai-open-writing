@@ -7,7 +7,7 @@ from test_schemas import KERNEL
 from novel_agent.config import Settings
 from novel_agent.domain.db import build_engine, create_all
 from novel_agent.domain.models import ModelRunRecord
-from novel_agent.domain.schemas import StoryKernel
+from novel_agent.domain.schemas import JudgeVerdict, StoryKernel
 from novel_agent.gateway import (
     GatewayError,
     MockProvider,
@@ -201,6 +201,58 @@ def test_extract_json_strips_think_prefix_that_failed_line2_col11() -> None:
     assert exc.value.pos == 12
     parsed = json.loads(_extract_json(text))
     assert parsed["premise"] == KERNEL["premise"]
+
+
+def test_extract_json_drops_trailing_second_object() -> None:
+    """Live MiniMax Judge: 合法对象后再拼一段 JSON,json.loads 报 Extra data。"""
+    import json
+
+    first = json.dumps(KERNEL, ensure_ascii=False)
+    text = first + '{"downweighted": true}'
+    with pytest.raises(json.JSONDecodeError, match="Extra data"):
+        json.loads(text)
+    parsed = json.loads(_extract_json(text))
+    assert parsed["premise"] == KERNEL["premise"]
+    assert "downweighted" not in parsed
+
+
+async def test_structured_judge_accepts_ruling_extra_and_trailing_json(session) -> None:
+    import json
+
+    payload = (
+        json.dumps(
+            {
+                "verdict": "PASS",
+                "selected_candidate": "candidate_1",
+                "reasoning_summary": "无硬门禁失败",
+                "rulings": [
+                    {
+                        "issue_id": "issue_1",
+                        "accepted": False,
+                        "reason": "证据不足",
+                        "downweighted": True,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+        + '{"extra": 1}'
+    )
+
+    mock = MockProvider()
+    mock.register("judge", lambda req: payload)
+    gw = _gateway(session, mock)
+    verdict = await call_structured(
+        gw,
+        "judge",
+        ModelRequest(user="裁"),
+        JudgeVerdict,
+        agent_role="judge",
+        prompt_version="v1",
+    )
+    assert verdict.verdict.value == "PASS"
+    assert verdict.rulings[0].issue_id == "issue_1"
+    assert "downweighted" not in verdict.rulings[0].model_dump()
 
 
 async def test_structured_repair_from_think_only_truncated_json(session) -> None:
