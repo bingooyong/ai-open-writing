@@ -41,7 +41,7 @@ from novel_agent.domain.schemas import (
 )
 from novel_agent.domain.window_scope import scope_structure_for_judge
 from novel_agent.gateway.base import ModelGateway, ModelRequest
-from novel_agent.gateway.structured import TWO_PART_FORMAT_INSTRUCTIONS, StructuredOutputError
+from novel_agent.gateway.structured import StructuredOutputError, two_part_format_instructions
 from novel_agent.runtime.adapter import CognitiveRuntime, GatewayRuntimeAdapter, RuntimeCall
 from novel_agent.runtime.blinding import (
     DEFAULT_FORBIDDEN,
@@ -312,7 +312,7 @@ async def run_writer(
             + user
         )
     req = ModelRequest(
-        system=spec.render(format_instructions=TWO_PART_FORMAT_INSTRUCTIONS),
+        system=spec.render(format_instructions=two_part_format_instructions(scene_ids)),
         user=user,
         max_tokens=16000,
     )
@@ -589,7 +589,7 @@ async def run_reviser(
     selected = [i for i in issues if i.issue_id in order.issue_ids]
     scene_ids = [s.scene_id for s in draft.scenes]
     req = ModelRequest(
-        system=spec.render(format_instructions=TWO_PART_FORMAT_INSTRUCTIONS),
+        system=spec.render(format_instructions=two_part_format_instructions(scene_ids)),
         user="\n\n".join(
             [
                 f"# 修订工单\n{json.dumps(order.model_dump(), ensure_ascii=False)}",

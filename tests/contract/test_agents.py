@@ -130,6 +130,22 @@ async def test_writer_two_part_assembly(deps) -> None:
     assert draft.chapter_summary == "说书人卷入失火案"
 
 
+async def test_writer_format_instructions_use_real_scene_ids(deps) -> None:
+    captured: dict[str, str] = {}
+
+    def handler(req):
+        captured["system"] = req.system
+        return TWO_PART
+
+    deps.mock.register("writer_a", handler)  # type: ignore[attr-defined]
+    await run_writer(deps, _ctx(), writer_id="writer_a")
+    system = captured["system"]
+    assert "<<<SCENE:v1c001_s1>>>" in system
+    assert "v1c001_s2" in system
+    assert "<<<SCENE:场景id>>>" not in system
+    assert "<<<SCENE:scene_id>>>" not in system
+
+
 async def test_reviewer_downweights_unlocatable_evidence(deps) -> None:
     draft = await run_writer(deps, _ctx(), writer_id="writer_a")
     report = await run_reviewer(deps, ReviewerRole.PLOT, draft, _ctx())
