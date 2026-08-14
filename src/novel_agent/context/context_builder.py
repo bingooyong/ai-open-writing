@@ -4,15 +4,27 @@ import json
 
 from novel_agent.domain.repos.canon import CanonRepo
 from novel_agent.domain.repos.planning import PlanningRepo
-from novel_agent.domain.schemas import CanonFact, ChapterContextPackage, ThreadStatus
+from novel_agent.domain.schemas import (
+    CanonFact,
+    ChapterContextPackage,
+    ChapterOutline,
+    ThreadStatus,
+)
+from novel_agent.memory.protocol import MemoryRetrieval
 
 
 class ContextBuilder:
     """只读仓储，将单章写作必需信息按稳定顺序组装为上下文包。"""
 
-    def __init__(self, planning: PlanningRepo, canon: CanonRepo) -> None:
+    def __init__(
+        self,
+        planning: PlanningRepo,
+        canon: CanonRepo,
+        retrieval: MemoryRetrieval | None = None,
+    ) -> None:
         self._planning = planning
         self._canon = canon
+        self._retrieval = retrieval
 
     def build(
         self,
@@ -40,6 +52,10 @@ class ContextBuilder:
         if not scene_cards:
             raise ValueError("无法构建上下文: 缺少场景卡")
         unit = self._planning.get_unit(project_id, outline.unit_id)
+        if retrieval_facts is None:
+            retrieval_facts = self._retrieve_facts(
+                project_id, outline, include_provisional=include_provisional
+            )
 
         hard_constraints = [CanonFact(content=f"故事内核: {kernel.reader_promise}")]
         hard_constraints.extend(CanonFact(content=item) for item in kernel.do_not_write)
@@ -122,3 +138,36 @@ class ContextBuilder:
         if self.context_size(package) > max_chars:
             package = package.model_copy(update={"previous_ending": ""})
         return package
+
+    def _retrieve_facts(
+        self,
+        project_id: int,
+        outline: ChapterOutline,
+        *,
+        include_provisional: bool,
+    ) -> list[str]:
+        if self._retrieval is None:
+            return []
+        query_parts = [
+            outline.title,
+            outline.core_event,
+            outline.protagonist_goal,
+            *outline.cited_conflict_ids,
+            *outline.cited_beat_ids,
+        ]
+        for character in self._planning.list_characters(project_id):
+            query_parts.append(character.name)
+            query_parts.append(character.character_id)
+        for thread in self._canon.list_threads(project_id):
+            query_parts.append(thread.thread_id)
+            if thread.setup:
+                query_parts.append(thread.setup)
+        query = "\n".join(part for part in query_parts if str(part).strip())
+        if not query:
+            return []
+        return [
+            fact.text
+            for fact in self._retrieval.retrieve(
+                project_id, query, include_provisional=include_provisional
+            )
+        ]

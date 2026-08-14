@@ -21,6 +21,8 @@ from novel_agent.domain.models import CanonDeltaRecord
 from novel_agent.domain.repos.canon import CanonRepo
 from novel_agent.domain.repos.ops import OpsRepo
 from novel_agent.domain.schemas import CanonDelta, EntityStateChange
+from novel_agent.memory.factory import memory_retrieval_for_session
+from novel_agent.memory.protocol import MemoryRetrieval
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +34,17 @@ class CanonConflict(Exception):
 
 
 class CanonWriter:
-    def __init__(self, session: Session, project_id: int, git_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        session: Session,
+        project_id: int,
+        git_root: Path | None = None,
+        retrieval: MemoryRetrieval | None = None,
+    ) -> None:
         self.s = session
         self.project_id = project_id
         self.git_root = git_root
+        self.retrieval = retrieval
         self.canon = CanonRepo(session)
         self.ops = OpsRepo(session)
 
@@ -175,7 +184,12 @@ class CanonWriter:
             self.canon.mark_committed(rec.id)
 
         self._git_checkpoint(chapter_key)
+        self._reindex()
         return rec
+
+    def _reindex(self) -> None:
+        retrieval = self.retrieval or memory_retrieval_for_session(self.s)
+        retrieval.reindex(self.project_id)
 
     def _git_checkpoint(self, chapter_key: str) -> None:
         """D12:git 失败只告警,不回滚 canon 事务。"""

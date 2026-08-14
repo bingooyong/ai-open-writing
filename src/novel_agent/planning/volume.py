@@ -24,6 +24,7 @@ from novel_agent.domain.schemas import (
 from novel_agent.lint.bible import lint_bible
 from novel_agent.planning.chain import PlanningAborted, PlanningError, PlanningGates, _kernel_text
 from novel_agent.planning.conversation import _dump, _lint_error
+from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.runtime.agents import (
     AgentDeps,
     run_conflict_planner,
@@ -358,6 +359,7 @@ async def plan_more(
     if open_next:
         _lock_unit(planning, project_id, current_unit_id)
     planning.s.commit()
+    memory_retrieval_for_session(planning.s).reindex(project_id)
     return PlanMoreResult(
         project_id=project_id,
         volume_id=volume_id,

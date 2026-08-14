@@ -97,6 +97,21 @@ export type OutlineEditResult = {
   title: string;
 };
 
+export type RetrievedFact = {
+  fact_id: string;
+  text: string;
+  kind: string;
+  source: string;
+  provisional: boolean;
+  score: number;
+};
+
+export type RetrieveResult = {
+  project_id: number;
+  query: string;
+  facts: RetrievedFact[];
+};
+
 export type VolumeRunStatus = {
   project_id: number;
   run_id: number | null;
@@ -248,6 +263,10 @@ export const api = {
       }),
     ),
   getRunVolume: (id: number) => parse<VolumeRunStatus>(fetch(`/projects/${id}/run-volume`)),
+  retrieve: (id: number, q: string, limit = 6) =>
+    parse<RetrieveResult>(
+      fetch(`/projects/${id}/retrieve?q=${encodeURIComponent(q)}&limit=${limit}`),
+    ),
   exportMarkdown: async (id: number) => {
     const response = await fetch(`/projects/${id}/export?format=md`);
     if (!response.ok) {

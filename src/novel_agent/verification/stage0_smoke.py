@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 
 from novel_agent.config import Settings, SlotConfig
 from novel_agent.context.context_builder import ContextBuilder
+from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.domain.db import build_engine, create_all
 from novel_agent.domain.models import ModelRunRecord, NodeRunRecord
 from novel_agent.domain.repos import CanonRepo, PlanningRepo, ProductionRepo
@@ -173,7 +174,7 @@ async def run_stage0_smoke(
 
         production = ProductionRepo(session)
         canon = CanonRepo(session)
-        builder = ContextBuilder(repo, canon)
+        builder = ContextBuilder(repo, canon, retrieval=memory_retrieval_for_session(session))
         chapter_rows: list[dict[str, Any]] = []
         later_has_prior = False
         for index, item in enumerate(batch.results):
