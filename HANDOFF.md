@@ -47,6 +47,8 @@
 
 **章标题由系统盖章。** 按 `order_index` 生成「第N章 标题」（阿拉伯数字，如 `第1章 醒木`，不是「第一章」）。写手禁止写入正文；审稿页 / generic·起点·番茄·EPUB 导出共用 `novel_agent.production.heading.chapter_heading`。
 
+**两段式 SCENE 标记用真实 scene_id；解析容忍占位词与重复块。** 格式说明必须带本批真实 id 与 `<<<SCENE:v1c001_s1>>>` 这类例子，禁止示范「场景id」二字。`parse_two_part` 先剥 think 包装，把 `场景id` / `scene_id` / `场景ID` 按序填入剩余期望槽，重复真实 id 留最后一块非空正文。`call_two_part` 默认修复 2 次。
+
 端口未改：前端 **18765**（strictPort）、API **8765**。禁止 5173。
 
 Stage 0 冒烟骨架不要再动，除非人工付费跑暴露缺口。
@@ -116,10 +118,11 @@ uv run novel smoke-stage0 --confirm-real-models --budget-usd 15
 - 不要另起一套 runner / Redis / 云队列；长跑只走现有 `run-volume`
 - 不要重写 Writer / Judge / retrieval；这是台子体验，不是工厂重写
 - 不要让写手在正文里写「第N章 / 第一章」；不要把章标题格式写成「第一章」或 `v1c001 标题`
+- 不要把两段式示例写成 `<<<SCENE:场景id>>>` / `<<<SCENE:scene_id>>>`；格式说明必须用真实 scene_id
 
 ## 下一刀建议
 
-1. **人工本地用 MiniMax 再跑** `novel init --chapters 3`（余烬回声或同类火花），确认 R4 不再因「没给 ch48 写冲突」停死；真质量 REVISE 仍只有一轮。
+1. **人工本地用 MiniMax 再跑** `novel init --chapters 3`（同类火花即可），确认 R4 不再因「没给远章写冲突」停死；真质量 REVISE 仍只有一轮。写手两段式现在带真实 scene_id，解析也容忍占位词/重复块。
 2. 用 MiniMax-M3 重跑《余烬回声》Story Bible R5（outline 现 32k + 关 thinking）。不要在 pytest 里打付费 API。
 3. 若仍要一次规划全书 100+ 章：先拆滚动窗口，不要让 R3/R4/R5 吃 115 个章键。
 4. 人工本地跑付费 Stage 0 冒烟并审清单。不要再改冒烟预检表，除非付费跑再暴露缺口。

@@ -15,3 +15,10 @@ def test_writer_and_reviser_forbid_heading_in_body() -> None:
     for body in (writer, reviser):
         assert "不要在正文开头写「第N章 标题」或「第一章 xxx」" in body
         assert "章名由系统加" in body
+
+
+def test_writer_and_reviser_forbid_placeholder_scene_tag() -> None:
+    writer = (DEFAULT_PROMPTS_DIR / "writer.md").read_text(encoding="utf-8")
+    reviser = (DEFAULT_PROMPTS_DIR / "reviser.md").read_text(encoding="utf-8")
+    for body in (writer, reviser):
+        assert "SCENE 标记必须用场景卡上的 id（如 v1c001_s1），禁止写「场景id」二字。" in body

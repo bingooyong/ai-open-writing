@@ -17,7 +17,9 @@ from novel_agent.gateway import (
     ResponsePolicyError,
 )
 from novel_agent.gateway.structured import (
+    TWO_PART_FORMAT_INSTRUCTIONS,
     StructuredOutputError,
+    TwoPartParseError,
     _extract_json,
     call_structured,
     call_two_part,
@@ -268,12 +270,101 @@ def test_parse_two_part_strips_think_wrapper() -> None:
 
 
 def test_parse_two_part_mismatch_and_missing_meta() -> None:
-    from novel_agent.gateway.structured import TwoPartParseError
-
     with pytest.raises(TwoPartParseError, match="不匹配"):
         parse_two_part(GOOD_TWO_PART, ["s1", "s2", "s3"])
     with pytest.raises(TwoPartParseError, match="META"):
         parse_two_part("<<<SCENE:s1>>>x<<<END>>>", ["s1"])
+
+
+def test_parse_two_part_remaps_placeholder_sids() -> None:
+    text = """<<<SCENE:场景id>>>
+甲。
+<<<END>>>
+<<<SCENE:scene_id>>>
+乙。
+<<<END>>>
+<<<META>>>
+{"chapter_summary": "摘要", "deviation_notes": ""}"""
+    scenes, meta = parse_two_part(text, ["v1c001_s1", "v1c001_s2"])
+    assert scenes == {"v1c001_s1": "甲。", "v1c001_s2": "乙。"}
+    assert meta["chapter_summary"] == "摘要"
+
+
+def test_parse_two_part_remaps_cn_id_placeholder() -> None:
+    text = """<<<SCENE:场景ID>>>
+只此一块。
+<<<END>>>
+<<<META>>>
+{"chapter_summary": "摘要", "deviation_notes": ""}"""
+    scenes, _ = parse_two_part(text, ["v1c001_s1"])
+    assert scenes == {"v1c001_s1": "只此一块。"}
+
+
+def test_parse_two_part_placeholder_fills_remaining_expected() -> None:
+    text = """<<<SCENE:v1c001_s1>>>
+甲。
+<<<END>>>
+<<<SCENE:场景id>>>
+乙。
+<<<END>>>
+<<<META>>>
+{"chapter_summary": "摘要", "deviation_notes": ""}"""
+    scenes, _ = parse_two_part(text, ["v1c001_s1", "v1c001_s2"])
+    assert scenes == {"v1c001_s1": "甲。", "v1c001_s2": "乙。"}
+
+
+def test_parse_two_part_keeps_last_nonempty_duplicate() -> None:
+    text = """<<<SCENE:s1>>>
+第一版。
+<<<END>>>
+<<<SCENE:s1>>>
+第二版。
+<<<END>>>
+<<<META>>>
+{"chapter_summary": "摘要", "deviation_notes": ""}"""
+    scenes, _ = parse_two_part(text, ["s1"])
+    assert scenes["s1"] == "第二版。"
+
+
+def test_parse_two_part_duplicate_keeps_prior_when_reprint_empty() -> None:
+    text = """<<<SCENE:s1>>>
+第一版。
+<<<END>>>
+<<<SCENE:s1>>>
+
+<<<END>>>
+<<<META>>>
+{"chapter_summary": "摘要", "deviation_notes": ""}"""
+    scenes, _ = parse_two_part(text, ["s1"])
+    assert scenes["s1"] == "第一版。"
+
+
+def test_parse_two_part_rejects_unknown_extra_id() -> None:
+    text = """<<<SCENE:s1>>>
+甲。
+<<<END>>>
+<<<SCENE:totally_unknown>>>
+乙。
+<<<END>>>
+<<<META>>>
+{"chapter_summary": "摘要", "deviation_notes": ""}"""
+    with pytest.raises(TwoPartParseError, match="不匹配") as exc:
+        parse_two_part(text, ["s1"])
+    assert "totally_unknown" in str(exc.value)
+    assert "场景id" not in str(exc.value)
+
+
+def test_two_part_format_instructions_use_real_ids() -> None:
+    from novel_agent.gateway.structured import two_part_format_instructions
+
+    text = two_part_format_instructions(["v1c001_s1", "v1c001_s2"])
+    assert "<<<SCENE:v1c001_s1>>>" in text
+    assert "v1c001_s2" in text
+    assert "<<<SCENE:场景id>>>" not in text
+    assert "<<<SCENE:scene_id>>>" not in text
+    assert "<<<SCENE:v1c001_s1>>>" in TWO_PART_FORMAT_INSTRUCTIONS
+    assert "<<<SCENE:场景id>>>" not in TWO_PART_FORMAT_INSTRUCTIONS
+    assert "<<<SCENE:scene_id>>>" not in TWO_PART_FORMAT_INSTRUCTIONS
 
 
 async def test_call_two_part_repair(session) -> None:
@@ -291,3 +382,24 @@ async def test_call_two_part_repair(session) -> None:
         agent_role="writer", prompt_version="v1",
     )
     assert set(scenes) == {"s1", "s2"} and state["n"] == 2
+
+
+async def test_call_two_part_repairs_twice_by_default(session) -> None:
+    state = {"n": 0}
+    users: list[str] = []
+
+    def handler(req: ModelRequest) -> str:
+        state["n"] += 1
+        users.append(req.user)
+        return GOOD_TWO_PART if state["n"] >= 3 else "格式全错"
+
+    mock = MockProvider()
+    mock.register("writer", handler)
+    gw = _gateway(session, mock)
+    scenes, _ = await call_two_part(
+        gw, "creative", ModelRequest(user="写"), ["s1", "s2"],
+        agent_role="writer", prompt_version="v1",
+    )
+    assert set(scenes) == {"s1", "s2"} and state["n"] == 3
+    assert all("<<<SCENE:场景id>>>" not in user for user in users)
+    assert any("<<<SCENE:s1>>>" in user for user in users[1:])

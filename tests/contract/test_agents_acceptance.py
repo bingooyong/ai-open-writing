@@ -104,7 +104,7 @@ def test_prompt_render_rejects_missing_contract_variable(tmp_path: Path) -> None
         spec.render()
 
 
-def test_two_part_parser_rejects_duplicate_scene_blocks() -> None:
+def test_two_part_parser_keeps_last_nonempty_duplicate_scene_block() -> None:
     output = """<<<SCENE:s1>>>
 第一版。
 <<<END>>>
@@ -114,8 +114,8 @@ def test_two_part_parser_rejects_duplicate_scene_blocks() -> None:
 <<<META>>>
 {"chapter_summary": "摘要", "deviation_notes": ""}"""
 
-    with pytest.raises(TwoPartParseError, match="重复"):
-        parse_two_part(output, ["s1"])
+    scenes, _ = parse_two_part(output, ["s1"])
+    assert scenes["s1"] == "第二版。"
 
 
 def test_two_part_parser_rejects_non_object_metadata() -> None:

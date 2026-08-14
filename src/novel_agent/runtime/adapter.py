@@ -55,7 +55,7 @@ class GatewayRuntimeAdapter:
     """Stage-0 G0 adapter: single-shot calls through the audited ModelGateway."""
 
     gateway: ModelGateway
-    repair_attempts: int = 1
+    repair_attempts: int = 2
 
     async def structured(
         self,

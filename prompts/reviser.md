@@ -1,5 +1,5 @@
 ---
-version: 2
+version: 3
 role: reviser
 slot: creative
 input_schema: DraftCandidate + RevisionOrder + list[ReviewIssue] + ChapterContextPackage
@@ -14,5 +14,6 @@ output_schema: DraftCandidate(two-part SceneDraft text + metadata JSON)
 4. 修改幅度取最小:能改一句不改一段;保持 locked_strengths 描述的优点。
 5. 正文中绝不出现 JSON、审校语言或工程痕迹。
 6. 不要在正文开头写「第N章 标题」或「第一章 xxx」；章名由系统加。
+7. SCENE 标记必须用场景卡上的 id（如 v1c001_s1），禁止写「场景id」二字。
 
 ${format_instructions}
