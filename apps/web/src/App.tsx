@@ -20,6 +20,13 @@ import {
 } from "./graph/mapGraphDto";
 import { OutlineTree } from "./outline/OutlineTree";
 import type { OutlineTreeDto } from "./outline/mapOutlineTree";
+import {
+  EXPORT_CHANNELS,
+  EXPORT_FORMATS,
+  channelLabel,
+  type ExportChannel,
+  type ExportFormat,
+} from "./export/channelExport";
 import { ReviewDesk } from "./review/ReviewDesk";
 
 type StageTab = "conversation" | "outline" | "review" | "graph";
@@ -55,7 +62,28 @@ export function App() {
   const [volumeBudget, setVolumeBudget] = useState("1");
   const [volumeMaxChapters, setVolumeMaxChapters] = useState("8");
   const [retrievalFacts, setRetrievalFacts] = useState<RetrievedFact[]>([]);
+  const [exportChannel, setExportChannel] = useState<ExportChannel>("generic");
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("md");
+  const [includeDrafts, setIncludeDrafts] = useState(false);
   const volumeRunning = volumeRun?.status === "running";
+
+  function changeExportChannel(next: ExportChannel) {
+    setExportChannel(next);
+    if (next === "epub") {
+      setExportFormat("epub");
+    } else if (exportFormat === "epub") {
+      setExportFormat("txt");
+    }
+  }
+
+  function changeExportFormat(next: ExportFormat) {
+    setExportFormat(next);
+    if (next === "epub") {
+      setExportChannel("epub");
+    } else if (exportChannel === "epub") {
+      setExportChannel("generic");
+    }
+  }
 
   const range: ChapterRange | undefined = useMemo(() => {
     if (!rangeFrom && !rangeTo) {
@@ -629,24 +657,64 @@ export function App() {
             >
               续跑
             </button>
+            <label className="muted">
+              渠道
+              <select
+                aria-label="导出渠道"
+                value={exportChannel}
+                onChange={(event) => changeExportChannel(event.target.value as ExportChannel)}
+              >
+                {EXPORT_CHANNELS.map((item) => (
+                  <option key={item} value={item}>
+                    {channelLabel(item)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="muted">
+              格式
+              <select
+                aria-label="导出格式"
+                value={exportFormat}
+                onChange={(event) => changeExportFormat(event.target.value as ExportFormat)}
+              >
+                {EXPORT_FORMATS.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="muted">
+              <input
+                type="checkbox"
+                checked={includeDrafts}
+                onChange={(event) => setIncludeDrafts(event.target.checked)}
+              />{" "}
+              含草稿
+            </label>
             <button
               className="btn"
               disabled={busy}
               type="button"
               onClick={() =>
                 void run(async () => {
-                  const text = await api.exportMarkdown(selectedId);
-                  const blob = new Blob([text], { type: "text/markdown" });
+                  const { blob, filename } = await api.exportFile(
+                    selectedId,
+                    exportChannel,
+                    exportFormat,
+                    includeDrafts,
+                  );
                   const url = URL.createObjectURL(blob);
                   const link = document.createElement("a");
                   link.href = url;
-                  link.download = `project-${selectedId}.md`;
+                  link.download = filename;
                   link.click();
                   URL.revokeObjectURL(url);
                 })
               }
             >
-              导出 MD
+              导出
             </button>
           </div>
         ) : null}

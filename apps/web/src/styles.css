@@ -200,6 +200,14 @@ h2 {
   font-size: 0.82rem;
 }
 
+.chapter-rail select {
+  margin-left: 0.25rem;
+  border: 1px solid var(--rule);
+  background: #fff;
+  color: var(--ink);
+  padding: 0.2rem 0.35rem;
+}
+
 .round-card {
   border-left: 3px solid var(--teal);
   background: #fff;

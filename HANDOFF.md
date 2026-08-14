@@ -4,17 +4,18 @@
 
 ## 当前状态（2026-08-14）
 
-**Stage 2 检索已完成：`MemoryRetrieval` 协议 + 本地 LanceDB 索引 + ContextBuilder 注入。**
+**渠道导出模板已完成：generic / 起点 / 番茄 / 简易 EPUB3。** Stage 2 LanceDB 检索、长跑、写作台仍在。
 
-- SQLite 仍是工作流 / canon 真源。检索只是索引，不是第二本圣经。
-- 默认实现：项目旁 `memory/lancedb`（LanceDB）。嵌入默认 hash/mock，pytest 无网络；真实嵌入走 `NOVEL_EMBEDDING__*`，精神同模型槽位。
-- 索引对象：已提交（及标记好的提案态）章摘要、实体/关系事实、场景卡、冲突/爽点一句话。不索引 `.env`、密钥或正文全文。
-- `ContextBuilder.build` 在未显式传入 `retrieval_facts` 时经协议填充。提示词顺序：硬约束 → 检索事实 → 近文窗口。超预算仍先裁检索。
-- 重建索引：`CanonWriter.finalize` 成功后、`plan-more` 写入新章纲后。幂等。
-- `novel retrieve --project-id N --query "..."`；`GET /projects/{id}/retrieve?q=`。写作台章节轨展示「本上下文检索到」。
+- 默认只导出 `CANON_LOCKED`（及 `EXPORTED`）章。`--include-drafts` / `include_drafts=true` 含未锁定稿，供写作台预览。
+- `novel export --project-id N --channel qidian|fanqie|generic|epub --format txt|md|epub [--out path] [--include-drafts]`
+- `--channel` 默认 `generic`（现有 txt/md 版式，清洗工程污染）。`--format epub` 视为 epub 渠道。
+- `GET /projects/{id}/export?channel=&format=&include_drafts=` 返回文件。
+- 写作台章节轨：渠道 + 格式下拉，可勾选「含草稿」后下载。
+- 起点：`第N章 标题` + 空行 + 正文；有卷名或多卷时加 `第X卷 卷名`。番茄：同形章标题，标题后直接接正文，无书名/卷名页。EPUB3 为 zip（`mimetype=application/epub+zip`，一章一个 xhtml）。
+- **不是** 起点/番茄官方投稿 API，不登录、不抓取。
 - 端口未改：前端 **18765**（strictPort）、API **8765**。禁止 5173。
 
-下一任 **不要** 再做 Stage 2 检索骨架。下一刀是 **渠道导出** 或 **检索质量/评测**。
+下一任 **不要** 再做渠道导出骨架。下一刀是 **检索质量/评测** 或 **真实模型 Stage 0 冒烟**（若他们要）。
 
 ## 给下一任：先做什么
 
@@ -26,6 +27,7 @@
 
 | 路径 | 作用 |
 |---|---|
+| `src/novel_agent/production/export.py` | 渠道模板：generic / qidian / fanqie / epub |
 | `src/novel_agent/memory/` | `MemoryRetrieval` 协议、hash 嵌入、LanceDB 索引、收集器 |
 | `src/novel_agent/context/context_builder.py` | 组装包并填充 `retrieval_facts` |
 | `src/novel_agent/domain/canon_writer.py` | 正史提交成功后重建索引 |
@@ -41,6 +43,7 @@ cd apps/web && npm run dev   # http://127.0.0.1:18765
 ```
 
 CLI：`uv run novel retrieve --project-id 1 --query "西市火灾"`。
+导出：`uv run novel export --project-id 1 --channel qidian --format txt --out /tmp/book.txt`。
 
 ## 明确不要做
 
@@ -52,8 +55,8 @@ CLI：`uv run novel retrieve --project-id 1 --query "西市火灾"`。
 
 ## 下一刀建议（二选一）
 
-1. **渠道导出**：按渠道模板导出已锁定正文。
-2. **检索质量/评测**：固定问句集、命中率、以及是否值得换真实嵌入。
+1. **检索质量/评测**：固定问句集、命中率、以及是否值得换真实嵌入。
+2. **真实模型 Stage 0 冒烟**：`novel smoke-stage0 --confirm-real-models --budget-usd …`（不计默认 CI）。
 
 ## 已知坑
 
