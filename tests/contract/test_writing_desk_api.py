@@ -216,7 +216,8 @@ def test_chapters_write_approve_and_export(client: TestClient) -> None:
 
     exported = client.get(f"/projects/{pid}/export?format=md")
     assert exported.status_code == 200
-    assert "v1c001" in exported.text
+    assert "第1章" in exported.text
+    assert "v1c001" not in exported.text
 
 
 def test_write_batch_and_resume_endpoints(client: TestClient) -> None:
