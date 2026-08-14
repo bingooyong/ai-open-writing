@@ -586,7 +586,7 @@ async def test_ensure_r2_accepts_named_protagonist_from_kernel(engine) -> None:
     from novel_agent.domain.repos import BibleRepo, PlanningRepo
     from novel_agent.domain.schemas import StoryBrief
     from novel_agent.planning.chain import PlanningGates
-    from novel_agent.planning.conversation import _ensure_r2
+    from novel_agent.planning.conversation import _ensure_r2, planned_chapter_keys
     from novel_agent.planning.mock_fixtures import PLANNING_STRUCTURE
 
     kernel = StoryKernel.model_validate(
@@ -621,6 +621,7 @@ async def test_ensure_r2_accepts_named_protagonist_from_kernel(engine) -> None:
             StoryBrief(spark="末世余烬回声"),
             PlanningGates.auto(),
             [],
+            planned_chapter_keys("v1", 3),
         )
         session.commit()
         saved = BibleRepo(session).get_structure_map(project.id)
