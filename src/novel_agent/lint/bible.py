@@ -11,24 +11,79 @@ from novel_agent.domain.schemas import (
     PayoffBeat,
     PayoffScale,
     RelationshipProposal,
+    StoryKernel,
     StructureMap,
 )
 from novel_agent.lint import LintFinding, LintReport
 
 _LORE_MARKERS = ("世界观", "历史沿革", "地理志", "设定介绍", "传说考据")
 _LIVE_MARKERS = ("主角", "危机", "问题", "冲突", "当场", "眼前", "承诺")
+_NAME_LEADINS = ("名叫", "名为", "叫做", "叫作", "化妆师")
+_NAME_BOUNDARIES = set("的是在为与和及把被将从向对给了着用要想能会去来到得也还就都且但")
+_CJK_START = 0x4E00
+_CJK_END = 0x9FFF
 
 
 def _empty(text: str) -> bool:
     return not text.strip()
 
 
-def lint_golden_three(golden: Sequence[GoldenThreeChapter]) -> list[LintFinding]:
+def _is_cjk(ch: str) -> bool:
+    return _CJK_START <= ord(ch) <= _CJK_END
+
+
+def _take_name(rest: str) -> str | None:
+    chars: list[str] = []
+    for ch in rest:
+        if not _is_cjk(ch):
+            break
+        chars.append(ch)
+        if len(chars) >= 3:
+            break
+    if len(chars) < 2:
+        return None
+    if len(chars) == 3:
+        nxt = rest[3] if len(rest) > 3 else ""
+        if nxt and _is_cjk(nxt) and nxt not in _NAME_BOUNDARIES:
+            chars = chars[:2]
+    name = "".join(chars)
+    if name[-1] in _NAME_BOUNDARIES:
+        name = name[:-1]
+    if len(name) < 2:
+        return None
+    return name
+
+
+def live_names_from_kernel(kernel: StoryKernel) -> list[str]:
+    """从已确认内核的 logline/premise 抽出活人名,供黄金三章 lint 识别姓名指代。"""
+    blob = f"{kernel.logline}{kernel.premise}"
+    found: list[str] = []
+    seen: set[str] = set()
+    for leadin in _NAME_LEADINS:
+        start = 0
+        while True:
+            pos = blob.find(leadin, start)
+            if pos < 0:
+                break
+            start = pos + len(leadin)
+            name = _take_name(blob[start:])
+            if name and name not in seen:
+                seen.add(name)
+                found.append(name)
+    return found
+
+
+def lint_golden_three(
+    golden: Sequence[GoldenThreeChapter],
+    live_names: Sequence[str] = (),
+) -> list[LintFinding]:
     if len(golden) != 3:
         return [LintFinding("golden_three", f"黄金三章必须恰好 3 章,实际 {len(golden)}")]
     first = golden[0]
     text = f"{first.promise}{first.escalation}{first.payoff_or_hook}"
-    has_live = any(marker in text for marker in _LIVE_MARKERS)
+    has_live = any(marker in text for marker in _LIVE_MARKERS) or any(
+        name and name in text for name in live_names
+    )
     has_lore = any(marker in text for marker in _LORE_MARKERS)
     if has_lore and not has_live:
         return [LintFinding("golden_three", "黄金三章第1章是设定堆砌,缺少主角与当场问题")]
@@ -157,10 +212,11 @@ def lint_bible(
     outline_citations: Sequence[tuple[str, Sequence[str], Sequence[str]]] = (),
     previous_outlines: Sequence[ChapterOutline] = (),
     new_outlines: Sequence[ChapterOutline] = (),
+    live_names: Sequence[str] = (),
 ) -> LintReport:
     findings: list[LintFinding] = []
     if structure is not None:
-        findings.extend(lint_golden_three(structure.golden_three))
+        findings.extend(lint_golden_three(structure.golden_three, live_names))
     findings.extend(lint_payoff_spacing(payoff_beats))
     findings.extend(lint_relationship_evidence(relationship_proposals))
     if rolling_keys is not None:

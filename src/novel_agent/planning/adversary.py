@@ -12,7 +12,7 @@ from novel_agent.domain.schemas import (
     StoryBrief,
     StoryKernel,
 )
-from novel_agent.lint.bible import lint_bible
+from novel_agent.lint.bible import lint_bible, live_names_from_kernel
 from novel_agent.planning.chain import PlanningError, _kernel_text
 from novel_agent.runtime.agents import (
     AgentDeps,
@@ -166,7 +166,7 @@ async def _repair_once(
         smap = await run_structure_planner(
             deps, _kernel_text(kernel), brief_text, repair_notes=repair_notes
         )
-        report = lint_bible(structure=smap)
+        report = lint_bible(structure=smap, live_names=live_names_from_kernel(kernel))
         if not report.passed:
             return False
         bible.save_structure_map(project_id, smap)
