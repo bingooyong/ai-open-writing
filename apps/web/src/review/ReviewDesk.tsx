@@ -81,7 +81,7 @@ export function ReviewDesk({
             type="button"
             onClick={() => onSelect(item.chapter_key)}
           >
-            <span className="toc-title">{item.title || item.chapter_key}</span>
+            <span className="toc-title">{item.heading || item.title || item.chapter_key}</span>
             <span className="toc-status">{statusLabel(item.status)}</span>
           </button>
         ))}
@@ -170,7 +170,7 @@ export function ReviewDesk({
             }}
           >
             <header className="reader-header">
-              <h3>{selected.title || selected.chapter_key}</h3>
+              <h3>{selected.heading || selected.title || selected.chapter_key}</h3>
               <p className="muted">
                 {selected.chapter_key} · {statusLabel(selected.status)}
                 {selected.verdict ? ` · ${selected.verdict}` : ""}

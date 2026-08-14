@@ -14,6 +14,7 @@ from novel_agent.domain.models import DraftVersionRecord
 from novel_agent.domain.repos import CanonRepo, OpsRepo, PlanningRepo, ProductionRepo
 from novel_agent.domain.schemas import ChapterStatus, ReviewIssue, VerdictType
 from novel_agent.production.batch import cascade_stale
+from novel_agent.production.heading import chapter_heading
 from novel_agent.production.loop import (
     ChapterLoopGates,
     ChapterLoopResult,
@@ -225,6 +226,8 @@ def list_review_desk(session: Session, project_id: int) -> list[dict[str, object
             {
                 "chapter_key": chapter.chapter_key,
                 "title": chapter.title,
+                "order_index": chapter.order_index,
+                "heading": chapter_heading(chapter.order_index, chapter.title),
                 "status": chapter.status.value,
                 "bucket": bucket,
                 "verdict": verdict.verdict.value if verdict else None,

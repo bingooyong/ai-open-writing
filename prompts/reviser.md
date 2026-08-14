@@ -1,5 +1,5 @@
 ---
-version: 1
+version: 2
 role: reviser
 slot: creative
 input_schema: DraftCandidate + RevisionOrder + list[ReviewIssue] + ChapterContextPackage
@@ -13,5 +13,6 @@ output_schema: DraftCandidate(two-part SceneDraft text + metadata JSON)
 3. locked_ranges 中的片段必须原样保留。
 4. 修改幅度取最小:能改一句不改一段;保持 locked_strengths 描述的优点。
 5. 正文中绝不出现 JSON、审校语言或工程痕迹。
+6. 不要在正文开头写「第N章 标题」或「第一章 xxx」；章名由系统加。
 
 ${format_instructions}

@@ -6,7 +6,7 @@
 渠道差异(番茄相对起点):
 - 起点: `第N章 标题` 后空一行再接正文;有卷名或多卷时输出 `第X卷 卷名`。
 - 番茄: 同形章标题,标题后直接接正文(无空行);不输出书名页或卷名页。
-- generic: 现有 txt/md 版式(书名 + `chapter_key 标题`),并清洗工程污染。
+- generic: 书名 + `第N章 标题`(与起点/番茄同一 `chapter_heading`),并清洗工程污染。
 - epub: 简易 EPUB3,一章一个 xhtml,nav + 书名/火花元数据。
 """
 
@@ -28,6 +28,7 @@ from sqlmodel import Session
 from novel_agent.domain.models import ProjectRecord
 from novel_agent.domain.repos import PlanningRepo, ProductionRepo
 from novel_agent.domain.schemas import ChapterStatus
+from novel_agent.production.heading import chapter_heading
 from novel_agent.production.loop import draft_from_record
 
 ExportFormat = Literal["txt", "md", "epub"]
@@ -112,8 +113,7 @@ def _volume_number(volume_id: str) -> int:
 
 
 def _chapter_heading(chapter: _ChapterOut) -> str:
-    title = chapter.title.strip()
-    return f"第{chapter.number}章 {title}".rstrip()
+    return chapter_heading(chapter.number, chapter.title)
 
 
 def _collect_chapters(
@@ -150,11 +150,11 @@ def _collect_chapters(
 
 
 def _generic_block(fmt: Literal["txt", "md"], chapter: _ChapterOut) -> str:
-    heading = chapter.title or chapter.chapter_key
+    heading = _chapter_heading(chapter)
     if fmt == "md":
-        return f"## {chapter.chapter_key} {heading}\n\n{chapter.body}\n"
+        return f"## {heading}\n\n{chapter.body}\n"
     if fmt == "txt":
-        return f"{chapter.chapter_key} {heading}\n{chapter.body}\n"
+        return f"{heading}\n{chapter.body}\n"
     assert_never(fmt)
 
 

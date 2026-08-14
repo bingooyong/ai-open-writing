@@ -34,6 +34,8 @@ def test_list_review_desk_includes_any_chapter_with_draft_text(tmp_path) -> None
         assert len(planned) == 1
         assert planned[0]["status"] == "PLANNED"
         assert planned[0]["bucket"] == "IN_PROGRESS"
+        assert planned[0]["order_index"] == 1
+        assert planned[0]["heading"] == "第1章 开场"
         assert "茶楼" in str(planned[0]["draft_text"])
 
         planning.set_status(project_id, "v1c001", ChapterStatus.JUDGING)
