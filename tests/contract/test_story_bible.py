@@ -266,9 +266,58 @@ def test_bible_lint_golden_three_rejects_lore_only_chapter_one() -> None:
     report = lint_bible(structure=bad)
     assert not report.passed
     assert any(f.code == "golden_three" for f in report.findings)
+    assert not lint_bible(structure=bad, live_names=["林暮"]).passed
 
     good = StructureMap.model_validate(_structure_map())
     assert lint_bible(structure=good).passed
+
+
+def test_bible_lint_golden_three_accepts_named_protagonist() -> None:
+    """真实 MiniMax 余烬回声:第1章用姓名+封口/停电,没有「主角」字面。"""
+    from novel_agent.lint.bible import lint_bible
+
+    named = dict(
+        promise="林暮封口失败、全城停电",
+        escalation="失声潮吞没街区",
+        payoff_or_hook="天亮前必须找出改脸的人",
+    )
+    smap = StructureMap.model_validate(_structure_map(golden_three=[named, _GOLDEN, _GOLDEN]))
+    assert not lint_bible(structure=smap).passed
+    assert lint_bible(structure=smap, live_names=["林暮"]).passed
+
+
+def test_live_names_from_kernel_reads_leadins_not_hardcoded() -> None:
+    from novel_agent.lint.bible import live_names_from_kernel
+
+    makeup = StoryKernel.model_validate(
+        {
+            **KERNEL,
+            "logline": "化妆师林暮在停电夜必须完成封口",
+            "premise": "如果封口失败会让死者重新开口",
+        }
+    )
+    assert "林暮" in live_names_from_kernel(makeup)
+
+    called = StoryKernel.model_validate(
+        {
+            **KERNEL,
+            "logline": "名叫苏晚生的说书人要救妹妹",
+            "premise": "如果故事会成真",
+        }
+    )
+    called_names = live_names_from_kernel(called)
+    assert "苏晚生" in called_names
+    assert "林暮" not in called_names
+
+    titled = StoryKernel.model_validate(
+        {
+            **KERNEL,
+            "logline": "名为霍执事的人上门逼签",
+            "premise": "如果命运被写成纸墨",
+        }
+    )
+    assert "霍执事" in live_names_from_kernel(titled)
+    assert "林暮" not in live_names_from_kernel(StoryKernel.model_validate(KERNEL))
 
 
 def test_bible_lint_payoff_spacing_treats_whitespace_pressure_as_empty() -> None:
@@ -522,6 +571,58 @@ async def test_bible_conversation_resume_after_r3_skips_r0_to_r3(engine) -> None
         assert set(result.skipped) >= {"R0", "R1", "R2", "R3"}
         assert "R4" not in result.skipped
         assert len(planning.list_chapters(project.id)) == 5
+
+
+async def test_ensure_r2_accepts_named_protagonist_from_kernel(engine) -> None:
+    """R2 必须把内核里抽出的姓名交给黄金三章 lint,否则余烬回声这类结构会被丢弃。"""
+    import json
+    from copy import deepcopy
+
+    from sqlmodel import Session
+
+    from novel_agent.domain.repos import BibleRepo, PlanningRepo
+    from novel_agent.domain.schemas import StoryBrief
+    from novel_agent.planning.chain import PlanningGates
+    from novel_agent.planning.conversation import _ensure_r2
+    from novel_agent.planning.mock_fixtures import PLANNING_STRUCTURE
+
+    kernel = StoryKernel.model_validate(
+        {
+            **KERNEL,
+            "logline": "化妆师林暮在停电夜必须完成封口,否则失声潮吞没全城",
+            "premise": "如果末世封口失败会让死者重新开口",
+        }
+    )
+    structure = deepcopy(PLANNING_STRUCTURE)
+    structure["golden_three"][0] = {
+        "promise": "林暮封口失败、全城停电",
+        "escalation": "失声潮吞没街区",
+        "payoff_or_hook": "天亮前必须找出改脸的人",
+    }
+
+    with Session(engine) as session:
+        planning = PlanningRepo(session)
+        project = planning.create_project("余烬回声")
+        session.commit()
+        deps, mock = _bible_deps(session)
+        deps.project_id = project.id
+        mock.register(
+            "structure_planner",
+            lambda _req: json.dumps(structure, ensure_ascii=False),
+        )
+        await _ensure_r2(
+            BibleRepo(session),
+            deps,
+            project.id,
+            kernel,
+            StoryBrief(spark="末世余烬回声"),
+            PlanningGates.auto(),
+            [],
+        )
+        session.commit()
+        saved = BibleRepo(session).get_structure_map(project.id)
+        assert saved is not None
+        assert saved.golden_three[0].promise == "林暮封口失败、全城停电"
 
 
 async def test_bible_conversation_r5_lint_failure_does_not_persist_outlines(engine) -> None:

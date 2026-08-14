@@ -21,7 +21,7 @@ from novel_agent.domain.schemas import (
     StoryKernel,
     StructureMap,
 )
-from novel_agent.lint.bible import lint_bible
+from novel_agent.lint.bible import lint_bible, live_names_from_kernel
 from novel_agent.planning.adversary import (
     ConceptJudgeStopped,
     ensure_concept_judge,
@@ -248,7 +248,7 @@ async def _generate_artifact(
         raise PlanningError("尚未确认故事内核")
     if round_index == 2:
         smap = await run_structure_planner(deps, _kernel_text(kernel), _dump(brief))
-        report = lint_bible(structure=smap)
+        report = lint_bible(structure=smap, live_names=live_names_from_kernel(kernel))
         if not report.passed:
             raise _lint_error(report)
         return smap.model_dump(mode="json")
@@ -316,6 +316,7 @@ async def _generate_artifact(
             payoff_beats=bible.list_payoff_beats(project_id),
             rolling_keys=outline_keys,
             outline_citations=citations,
+            live_names=live_names_from_kernel(kernel),
         )
         if not report.passed:
             raise _lint_error(report)

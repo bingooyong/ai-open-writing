@@ -11,7 +11,7 @@ from novel_agent.domain.repos.canon import CanonRepo
 from novel_agent.domain.repos.planning import PlanningRepo
 from novel_agent.domain.schemas import CharacterCard, StoryBrief, StoryKernel
 from novel_agent.lint import LintReport
-from novel_agent.lint.bible import lint_bible
+from novel_agent.lint.bible import lint_bible, live_names_from_kernel
 from novel_agent.planning.adversary import ensure_concept_judge
 from novel_agent.planning.chain import (
     PlanningAborted,
@@ -194,7 +194,7 @@ async def _ensure_r2(
         skipped.append("R2")
         return
     smap = await run_structure_planner(deps, _kernel_text(kernel), _dump(brief))
-    report = lint_bible(structure=smap)
+    report = lint_bible(structure=smap, live_names=live_names_from_kernel(kernel))
     if not report.passed:
         raise _lint_error(report)
     if not gates.confirm("确认写入三幕图与黄金三章?"):
@@ -325,6 +325,7 @@ async def _ensure_r5(
         payoff_beats=bible.list_payoff_beats(project_id),
         rolling_keys=keys,
         outline_citations=citations,
+        live_names=live_names_from_kernel(kernel),
     )
     if not report.passed:
         raise _lint_error(report)

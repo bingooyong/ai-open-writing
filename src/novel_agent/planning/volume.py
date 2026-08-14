@@ -21,7 +21,7 @@ from novel_agent.domain.schemas import (
     SceneCard,
     StoryKernel,
 )
-from novel_agent.lint.bible import lint_bible
+from novel_agent.lint.bible import lint_bible, live_names_from_kernel
 from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.chain import PlanningAborted, PlanningError, PlanningGates, _kernel_text
 from novel_agent.planning.conversation import _dump, _lint_error
@@ -334,6 +334,7 @@ async def plan_more(
         outline_citations=citations,
         previous_outlines=previous_outlines,
         new_outlines=aligned,
+        live_names=live_names_from_kernel(kernel),
     )
     if not report.passed:
         raise _lint_error(report)
