@@ -414,7 +414,9 @@ def test_review_diff_when_two_drafts_exist(client: TestClient) -> None:
     assert "修订后的第二稿" in item["diff"]
 
 
-def test_retrieve_api_and_cli(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_retrieve_api_and_cli(
+    client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pid = _bible_project(client, "检索台")
     empty = client.get(f"/projects/{pid}/retrieve?q=")
     assert empty.status_code == 400

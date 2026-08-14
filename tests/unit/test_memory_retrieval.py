@@ -60,13 +60,13 @@ def test_retrieve_finds_planted_committed_fact_not_unrelated(tmp_path) -> None:
                 {
                     "chapter_key": "v1c001",
                     "base_canon_version": "canon_v0",
-                    "new_facts": [
+                    "character_state_changes": [
                         {
                             "entity_id": "ch_su",
-                            "state_type": "fact",
+                            "state_type": "status",
                             "old_value": "",
-                            "new_value": "临安西市火场已封锁",
-                            "reason": "火灾现场",
+                            "new_value": "被卷入西市火灾案",
+                            "reason": "正史提交",
                         }
                     ],
                 }

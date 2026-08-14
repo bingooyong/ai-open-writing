@@ -14,7 +14,6 @@ from sqlmodel import Session
 
 from novel_agent.config import Settings
 from novel_agent.context.context_builder import ContextBuilder
-from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.domain.canon_writer import CanonWriter
 from novel_agent.domain.models import DraftVersionRecord
 from novel_agent.domain.repos import CanonRepo, OpsRepo, PlanningRepo, ProductionRepo
@@ -33,6 +32,7 @@ from novel_agent.domain.schemas import (
 )
 from novel_agent.gateway.structured import StructuredOutputError
 from novel_agent.lint import lint_draft
+from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.settings import desk_settings, review_roles_for
 from novel_agent.runtime.agents import (
     CRITICAL_REVIEWERS,

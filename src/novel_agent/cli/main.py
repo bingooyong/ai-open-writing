@@ -34,6 +34,7 @@ from novel_agent.domain.repos.planning import PlanningRepo
 from novel_agent.domain.schemas import StoryKernel
 from novel_agent.graph.export import to_json, to_mermaid
 from novel_agent.graph.projector import project_graph
+from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.chain import (
     PlanningAborted,
     PlanningError,
@@ -67,7 +68,6 @@ from novel_agent.production.review import (
     reject_chapter,
 )
 from novel_agent.production.runtime import build_production_deps
-from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.production.volume_run import VolumeBusyError, VolumeRunError, run_volume
 from novel_agent.runtime.agents import AgentDeps
 from novel_agent.verification.m26_smoke import (

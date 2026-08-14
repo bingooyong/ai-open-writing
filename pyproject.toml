@@ -62,3 +62,7 @@ testpaths = ["tests"]
 python_version = "3.11"
 ignore_missing_imports = true
 check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*", "lancedb", "lancedb.*", "pyarrow", "pyarrow.*"]
+follow_imports = "skip"

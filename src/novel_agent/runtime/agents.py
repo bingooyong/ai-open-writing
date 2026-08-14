@@ -104,7 +104,9 @@ def _ctx_text(ctx: ChapterContextPackage) -> str:
         + "\n".join(json.dumps(c.model_dump(), ensure_ascii=False) for c in ctx.scene_cards),
     ]
     if ctx.retrieval_facts:
-        parts.append("# 检索到的相关事实\n" + "\n".join(f"- {item}" for item in ctx.retrieval_facts))
+        parts.append(
+            "# 检索到的相关事实\n" + "\n".join(f"- {item}" for item in ctx.retrieval_facts)
+        )
     if ctx.previous_ending:
         parts.append(f"# 上一章结尾\n{ctx.previous_ending}")
     if ctx.earlier_summaries:

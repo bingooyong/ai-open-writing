@@ -12,11 +12,11 @@ from sqlmodel import Session, select
 
 from novel_agent.config import Settings, SlotConfig
 from novel_agent.context.context_builder import ContextBuilder
-from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.domain.db import build_engine, create_all
 from novel_agent.domain.models import ModelRunRecord, NodeRunRecord
 from novel_agent.domain.repos import CanonRepo, PlanningRepo, ProductionRepo
 from novel_agent.gateway.base import ModelGateway, Provider, estimate_cost, slot_pricing
+from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.chain import PlanningGates, run_planning_chain
 from novel_agent.production.batch import resume_project, run_write_batch
 from novel_agent.production.loop import ChapterLoopResult
