@@ -39,9 +39,9 @@ from novel_agent.domain.schemas import (
     StoryKernel,
     StructureMap,
 )
+from novel_agent.domain.window_scope import scope_structure_for_judge
 from novel_agent.gateway.base import ModelGateway, ModelRequest
 from novel_agent.gateway.structured import TWO_PART_FORMAT_INSTRUCTIONS, StructuredOutputError
-from novel_agent.domain.window_scope import scope_structure_for_judge
 from novel_agent.runtime.adapter import CognitiveRuntime, GatewayRuntimeAdapter, RuntimeCall
 from novel_agent.runtime.blinding import (
     DEFAULT_FORBIDDEN,

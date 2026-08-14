@@ -7,6 +7,7 @@ import json
 import pytest
 from pydantic import ValidationError
 from sqlmodel import Session
+from tests.unit.test_window_scope import yu_jin_structure
 from typer.testing import CliRunner
 
 from novel_agent.cli.main import app
@@ -20,7 +21,6 @@ from novel_agent.planning.conversation import run_bible_conversation
 from novel_agent.planning.mock_fixtures import PLANNING_KERNELS, register_planning_defaults
 from novel_agent.runtime.agents import AgentDeps, run_concept_judge
 from novel_agent.runtime.prompts import load_prompt
-from tests.unit.test_window_scope import yu_jin_structure
 
 
 def _engine(tmp_path):

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from novel_agent.domain.schemas import Conflict, PayoffBeat, StructureMap
 from novel_agent.domain.schemas.structure import GoldenThreeChapter, StructureBeat
-from novel_agent.lint.bible import lint_bible
 from novel_agent.domain.window_scope import (
     allowed_named_chapter_keys,
     named_key_status,
@@ -12,6 +11,7 @@ from novel_agent.domain.window_scope import (
     parse_chapter_ref,
     scope_structure_for_judge,
 )
+from novel_agent.lint.bible import lint_bible
 
 _GOLDEN = GoldenThreeChapter(
     promise="主角当场面对余烬里的广播",
