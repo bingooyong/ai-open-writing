@@ -211,7 +211,7 @@ export function App() {
           <ThemeSwitch mode={themeMode} onChange={setThemeMode} />
         </div>
       </header>
-      <div className="desk">
+      <div className={`desk${stageTab === "graph" ? "" : " desk-wide"}`}>
         <aside className="rail">
           <h2>作品</h2>
           {projects.map((project) => (
@@ -492,19 +492,21 @@ export function App() {
           </section>
           ) : null}
         </main>
-        <aside className="inspector">
-          <CharacterDossier inspector={inspector} insight={insight} />
-          {!inspector ? (
-            <>
-              <h2>图中关系</h2>
-              <ul className="tracks">
-                {(graph?.tracks ?? []).map((track) => (
-                  <li key={track.parties.join("-")}>{track.parties.join(" · ")}</li>
-                ))}
-              </ul>
-            </>
-          ) : null}
-        </aside>
+        {stageTab === "graph" ? (
+          <aside className="inspector">
+            <CharacterDossier inspector={inspector} insight={insight} />
+            {!inspector ? (
+              <>
+                <h2>图中关系</h2>
+                <ul className="tracks">
+                  {(graph?.tracks ?? []).map((track) => (
+                    <li key={track.parties.join("-")}>{track.parties.join(" · ")}</li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+          </aside>
+        ) : null}
       </div>
       <footer className="chapter-rail">
         {retrievalFacts.length > 0 ? (

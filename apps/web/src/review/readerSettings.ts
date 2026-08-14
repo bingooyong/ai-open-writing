@@ -1,4 +1,4 @@
-export const READER_STORAGE_KEY = "moan-reader";
+export const READER_STORAGE_KEY = "moan-reader-v2";
 
 export type ReaderFont = "ui" | "song" | "hei";
 
@@ -14,14 +14,14 @@ export const READER_DEFAULTS: ReaderSettings = {
   fontSize: 18,
   lineHeight: 1.8,
   paragraphGap: 0.85,
-  measure: 38,
+  measure: 48,
   font: "ui",
 };
 
 export const READER_FONT_SIZES = [16, 18, 20, 22, 24] as const;
 export const READER_LINE_HEIGHTS = [1.5, 1.7, 1.8, 1.9, 2.2] as const;
 export const READER_PARAGRAPH_GAPS = [0.5, 0.85, 1.2] as const;
-export const READER_MEASURES = [36, 38, 40, 42] as const;
+export const READER_MEASURES = [38, 42, 48, 56, 64] as const;
 
 function nearest(value: number, allowed: readonly number[]): number {
   return allowed.reduce((best, item) =>

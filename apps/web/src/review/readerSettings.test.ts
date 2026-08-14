@@ -13,13 +13,13 @@ describe("clampReaderSettings", () => {
       fontSize: 19,
       lineHeight: 2.0,
       paragraphGap: 1,
-      measure: 41.6,
+      measure: 50,
       font: "song",
     });
     expect(next.fontSize).toBe(18);
     expect(next.lineHeight).toBe(1.9);
     expect(next.paragraphGap).toBe(0.85);
-    expect(next.measure).toBe(42);
+    expect(next.measure).toBe(48);
     expect(next.font).toBe("song");
   });
 });
