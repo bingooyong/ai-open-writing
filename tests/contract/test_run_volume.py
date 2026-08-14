@@ -13,7 +13,7 @@ from novel_agent.api.app import create_app
 from novel_agent.cli.main import app
 from novel_agent.config import Settings, reset_settings_cache
 from novel_agent.domain.db import build_engine, create_all
-from novel_agent.domain.repos import BibleRepo, CanonRepo, PlanningRepo
+from novel_agent.domain.repos import BibleRepo, CanonRepo, OpsRepo, PlanningRepo
 from novel_agent.domain.schemas import ChapterStatus
 from novel_agent.gateway import MockProvider, ModelGateway
 from novel_agent.planning.chain import PlanningGates
@@ -22,7 +22,13 @@ from novel_agent.planning.mock_fixtures import register_planning_defaults
 from novel_agent.planning.volume import plan_more
 from novel_agent.production.loop import ChapterLoopResult
 from novel_agent.production.mock_fixtures import register_chapter_loop_defaults
-from novel_agent.production.volume_run import VolumeStopReason, run_volume
+from novel_agent.production.volume_run import (
+    KIND,
+    VolumeStopReason,
+    _occupy,
+    request_volume_stop,
+    run_volume,
+)
 from novel_agent.runtime.agents import AgentDeps
 from novel_agent.workflow import WorkflowPaused
 
@@ -336,6 +342,9 @@ def test_cli_and_api_run_volume(tmp_path, monkeypatch: pytest.MonkeyPatch) -> No
         idle = client.get(f"/projects/{pid}/run-volume")
         assert idle.status_code == 200
         assert idle.json()["status"] == "idle"
+        assert idle.json()["current_chapter"] == ""
+        assert idle.json()["cancel_requested"] is False
+        assert idle.json()["max_chapters"] is None
         bad = client.post(f"/projects/{pid}/run-volume", json={"budget_usd": 0, "yes": True})
         assert bad.status_code == 400
         started = client.post(
@@ -349,3 +358,159 @@ def test_cli_and_api_run_volume(tmp_path, monkeypatch: pytest.MonkeyPatch) -> No
         assert body["stop_reason"] == "MAX_CHAPTERS"
         assert body["chapters_done"] == 2
         assert body["chapter_keys"] == ["v1c001", "v1c002"]
+        assert body["budget_usd"] == 1.0
+        assert body["max_chapters"] == 2
+        assert body["cancel_requested"] is False
+        assert "current_chapter" in body
+        assert "spent_usd" in body
+
+
+async def test_cooperative_stop_skips_later_chapters(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session, deps, planning, pid = await _bibled(tmp_path)
+
+    async def lock_then_stop(session: Session, project_id: int, chapter_key: str):
+        request_volume_stop(project_id)
+        PlanningRepo(session).set_status(project_id, chapter_key, ChapterStatus.CANON_LOCKED)
+        session.commit()
+        return _loop_result(project_id, chapter_key, ChapterStatus.CANON_LOCKED)
+
+    written = _patch_loop(monkeypatch, lock_then_stop)
+    try:
+        result = await run_volume(
+            session, deps, pid, budget_usd=1.0, yes=True, max_chapters=5
+        )
+        session.commit()
+        assert result.stop_reason == VolumeStopReason.CANCELLED.value
+        assert result.status == "cancelled"
+        assert written == ["v1c001"]
+        assert planning.get_chapter(pid, "v1c002").status is ChapterStatus.PLANNED
+    finally:
+        session.close()
+
+
+def test_get_run_volume_exposes_console_fields(tmp_path) -> None:
+    engine = build_engine(tmp_path / "console.db")
+    create_all(engine)
+    settings = Settings(_env_file=None, db_path=tmp_path / "console.db")
+    with Session(engine) as session:
+        project = PlanningRepo(session).create_project("控制台", genre="奇幻")
+        session.commit()
+        pid = project.id
+        assert pid is not None
+        ops = OpsRepo(session)
+        run = ops.create_workflow_run(pid, KIND)
+        assert run.id is not None
+        ops.update_workflow(
+            run.id,
+            status="running",
+            current_node="v1c003",
+            budget_spent={
+                "budget_usd": 1.0,
+                "spent_usd": 0.25,
+                "chapters_done": 2,
+                "chapter_keys": ["v1c001", "v1c002"],
+                "stop_reason": "",
+                "current_chapter": "v1c003",
+                "max_chapters": 8,
+                "cancel_requested": False,
+            },
+        )
+        session.commit()
+
+    with TestClient(create_app(settings=settings, engine=engine)) as client:
+        body = client.get(f"/projects/{pid}/run-volume").json()
+        assert body["status"] == "running"
+        assert body["current_chapter"] == "v1c003"
+        assert body["chapters_done"] == 2
+        assert body["chapter_keys"] == ["v1c001", "v1c002"]
+        assert body["spent_usd"] == 0.25
+        assert body["budget_usd"] == 1.0
+        assert body["max_chapters"] == 8
+        assert body["stop_reason"] == ""
+        assert body["cancel_requested"] is False
+
+
+def test_api_stop_run_volume(tmp_path) -> None:
+    engine = build_engine(tmp_path / "stop.db")
+    create_all(engine)
+    settings = Settings(_env_file=None, db_path=tmp_path / "stop.db")
+    with Session(engine) as session:
+        project = PlanningRepo(session).create_project("停跑", genre="奇幻")
+        session.commit()
+        pid = project.id
+        assert pid is not None
+        ops = OpsRepo(session)
+        run = ops.create_workflow_run(pid, KIND)
+        assert run.id is not None
+        ops.update_workflow(
+            run.id,
+            status="running",
+            current_node="v1c001",
+            budget_spent={
+                "budget_usd": 1.0,
+                "spent_usd": 0.0,
+                "chapters_done": 0,
+                "chapter_keys": [],
+                "stop_reason": "",
+                "current_chapter": "v1c001",
+                "max_chapters": 8,
+                "cancel_requested": False,
+            },
+        )
+        session.commit()
+
+    with TestClient(create_app(settings=settings, engine=engine)) as client:
+        missing = client.post("/projects/99/run-volume/stop")
+        assert missing.status_code == 404
+        idle_stop = client.post(f"/projects/{pid}/run-volume/stop")
+        assert idle_stop.status_code == 409
+        release = _occupy(pid)
+        try:
+            stopped = client.post(f"/projects/{pid}/run-volume/stop")
+            assert stopped.status_code == 200, stopped.text
+            body = stopped.json()
+            assert body["cancel_requested"] is True
+            assert body["current_chapter"] == "v1c001"
+            polled = client.get(f"/projects/{pid}/run-volume")
+            assert polled.json()["cancel_requested"] is True
+        finally:
+            release()
+
+
+def test_human_review_status_exposes_gate_chapter(tmp_path) -> None:
+    engine = build_engine(tmp_path / "gate.db")
+    create_all(engine)
+    settings = Settings(_env_file=None, db_path=tmp_path / "gate.db")
+    with Session(engine) as session:
+        project = PlanningRepo(session).create_project("人门", genre="奇幻")
+        session.commit()
+        pid = project.id
+        assert pid is not None
+        ops = OpsRepo(session)
+        run = ops.create_workflow_run(pid, KIND)
+        assert run.id is not None
+        ops.update_workflow(
+            run.id,
+            status="paused",
+            current_node="v1c002",
+            budget_spent={
+                "budget_usd": 1.0,
+                "spent_usd": 0.0,
+                "chapters_done": 1,
+                "chapter_keys": ["v1c001"],
+                "stop_reason": "HUMAN_REVIEW",
+                "current_chapter": "v1c002",
+                "max_chapters": 8,
+                "cancel_requested": False,
+            },
+        )
+        session.commit()
+
+    with TestClient(create_app(settings=settings, engine=engine)) as client:
+        body = client.get(f"/projects/{pid}/run-volume").json()
+        assert body["status"] == "paused"
+        assert body["stop_reason"] == "HUMAN_REVIEW"
+        assert body["current_chapter"] == "v1c002"
+        assert body["chapters_done"] == 1

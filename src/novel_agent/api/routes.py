@@ -53,6 +53,7 @@ from novel_agent.production.runtime import build_production_deps
 from novel_agent.production.volume_run import (
     KIND,
     idle_volume_status,
+    request_volume_stop,
     run_volume,
     status_from_run,
     volume_is_active,
@@ -602,6 +603,27 @@ def get_run_volume(
     run = OpsRepo(session).latest_workflow(project_id, KIND)
     if run is None:
         return idle_volume_status(project_id)
+    return status_from_run(project_id, run)
+
+
+@router.post("/projects/{project_id}/run-volume/stop")
+def stop_run_volume(
+    project_id: int, session: Session = Depends(get_session)
+) -> dict[str, object]:
+    require_project(PlanningRepo(session), project_id)
+    if not request_volume_stop(project_id):
+        raise HTTPException(status_code=409, detail="没有进行中的卷长跑")
+    ops = OpsRepo(session)
+    run = ops.latest_workflow(project_id, KIND)
+    if run is None or run.id is None:
+        idle = idle_volume_status(project_id)
+        idle["cancel_requested"] = True
+        idle["status"] = "running"
+        return idle
+    spent = dict(run.budget_spent or {})
+    spent["cancel_requested"] = True
+    ops.update_workflow(run.id, budget_spent=spent)
+    session.commit()
     return status_from_run(project_id, run)
 
 

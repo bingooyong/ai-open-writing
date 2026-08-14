@@ -32,6 +32,7 @@ KIND = "volume"
 _DONE = frozenset({ChapterStatus.CANON_LOCKED, ChapterStatus.EXPORTED})
 _active_lock = threading.Lock()
 _active_projects: set[int] = set()
+_stop_requested: set[int] = set()
 
 
 class VolumeStopReason(StrEnum):
@@ -41,6 +42,7 @@ class VolumeStopReason(StrEnum):
     STALE = "STALE"
     MAX_CHAPTERS = "MAX_CHAPTERS"
     COMPLETE = "COMPLETE"
+    CANCELLED = "CANCELLED"
 
 
 class VolumeRunError(Exception):
@@ -77,12 +79,27 @@ class VolumeRunResult:
             "stop_reason": self.stop_reason,
             "current_chapter": self.current_chapter,
             "max_chapters": self.max_chapters,
+            "cancel_requested": False,
         }
 
 
 def volume_is_active(project_id: int) -> bool:
     with _active_lock:
         return project_id in _active_projects
+
+
+def request_volume_stop(project_id: int) -> bool:
+    """协作停止:下一章检查点生效,不杀进程。进行中则记下请求。"""
+    with _active_lock:
+        if project_id not in _active_projects:
+            return False
+        _stop_requested.add(project_id)
+        return True
+
+
+def volume_stop_requested(project_id: int) -> bool:
+    with _active_lock:
+        return project_id in _stop_requested
 
 
 def idle_volume_status(project_id: int) -> dict[str, object]:
@@ -97,6 +114,7 @@ def idle_volume_status(project_id: int) -> dict[str, object]:
         "stop_reason": "",
         "current_chapter": "",
         "max_chapters": None,
+        "cancel_requested": False,
     }
 
 
@@ -115,6 +133,8 @@ def status_from_run(project_id: int, run: WorkflowRunRecord) -> dict[str, object
         "stop_reason": str(spent.get("stop_reason") or ""),
         "current_chapter": str(spent.get("current_chapter") or run.current_node or ""),
         "max_chapters": int(max_raw) if max_raw is not None else None,
+        "cancel_requested": bool(spent.get("cancel_requested"))
+        or volume_stop_requested(project_id),
     }
 
 
@@ -165,10 +185,12 @@ def _occupy(project_id: int) -> Callable[[], None]:
         if project_id in _active_projects:
             raise VolumeBusyError(f"项目 {project_id} 已有进行中的卷长跑")
         _active_projects.add(project_id)
+        _stop_requested.discard(project_id)
 
     def release() -> None:
         with _active_lock:
             _active_projects.discard(project_id)
+            _stop_requested.discard(project_id)
 
     return release
 
@@ -262,6 +284,7 @@ async def _run_occupied(
         "chapters_done": len(written),
         "stop_reason": "",
         "current_chapter": "",
+        "cancel_requested": False,
     }
     ops.update_workflow(run.id, status="running", current_node="", budget_spent=payload)
     session.commit()
@@ -283,6 +306,8 @@ async def _run_occupied(
         payload["chapters_done"] = len(written)
         payload["stop_reason"] = reason
         payload["current_chapter"] = current
+        requested = bool(payload.get("cancel_requested")) or volume_stop_requested(project_id)
+        payload["cancel_requested"] = requested
         ops.update_workflow(
             workflow_id,
             status=status,
@@ -294,6 +319,9 @@ async def _run_occupied(
     try:
         while True:
             persist()
+            if volume_stop_requested(project_id) or payload.get("cancel_requested"):
+                stop = VolumeStopReason.CANCELLED
+                break
             if max_chapters is not None and len(written) >= max_chapters:
                 stop = VolumeStopReason.MAX_CHAPTERS
                 break
@@ -400,17 +428,19 @@ async def _run_occupied(
         persist(status="failed")
         raise
 
-    final_status = (
-        "paused"
-        if stop
-        in {
-            VolumeStopReason.HUMAN_REVIEW,
-            VolumeStopReason.NEEDS_REPLAN,
-            VolumeStopReason.STALE,
-            VolumeStopReason.BUDGET,
-        }
-        else "succeeded"
-    )
+    if stop is VolumeStopReason.CANCELLED:
+        final_status = "cancelled"
+    elif stop in {
+        VolumeStopReason.HUMAN_REVIEW,
+        VolumeStopReason.NEEDS_REPLAN,
+        VolumeStopReason.STALE,
+        VolumeStopReason.BUDGET,
+    }:
+        final_status = "paused"
+    elif stop in {VolumeStopReason.MAX_CHAPTERS, VolumeStopReason.COMPLETE}:
+        final_status = "succeeded"
+    else:
+        assert_never(stop)
     persist(status=final_status, reason=stop.value)
     return _finish(
         project_id,
