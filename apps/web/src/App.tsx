@@ -29,6 +29,8 @@ import {
   type ExportFormat,
 } from "./export/channelExport";
 import { ReviewDesk } from "./review/ReviewDesk";
+import { ThemeSwitch } from "./theme/ThemeSwitch";
+import { useTheme } from "./theme/useTheme";
 
 type StageTab = "conversation" | "outline" | "review" | "graph";
 
@@ -67,6 +69,7 @@ export function App() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>("md");
   const [includeDrafts, setIncludeDrafts] = useState(false);
   const volumeRunning = volumeRun?.status === "running";
+  const { mode: themeMode, resolved: theme, setMode: setThemeMode } = useTheme();
 
   function changeExportChannel(next: ExportChannel) {
     setExportChannel(next);
@@ -200,9 +203,12 @@ export function App() {
           <h1>墨案</h1>
           <span className="muted">{selectedProject?.title ?? "未打开作品"}</span>
         </div>
-        <div className="mast-stats">
-          {deskCensus.people} 人物 · {deskCensus.relations} 关系 · {chapters.length} 章节
-          {busy || volumeRunning ? " · 处理中" : ""}
+        <div className="mast-right">
+          <div className="mast-stats">
+            {deskCensus.people} 人物 · {deskCensus.relations} 关系 · {chapters.length} 章节
+            {busy || volumeRunning ? " · 处理中" : ""}
+          </div>
+          <ThemeSwitch mode={themeMode} onChange={setThemeMode} />
         </div>
       </header>
       <div className="desk">
@@ -480,6 +486,7 @@ export function App() {
               dto={graph}
               range={range}
               selectedId={nodeId}
+              theme={theme}
               onSelect={setNodeId}
             />
           </section>

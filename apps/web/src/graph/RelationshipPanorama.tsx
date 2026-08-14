@@ -1,15 +1,17 @@
 import { useEffect, useRef } from "react";
 import { Graph, NodeEvent } from "@antv/g6";
-import { toG6Data, type ChapterRange, type GraphDto } from "./mapGraphDto";
+import type { ResolvedTheme } from "../theme/theme";
+import { graphChrome, toG6Data, type ChapterRange, type GraphDto } from "./mapGraphDto";
 
 type Props = {
   dto: GraphDto | null;
   range?: ChapterRange;
   selectedId: string | null;
+  theme: ResolvedTheme;
   onSelect: (id: string | null) => void;
 };
 
-export function RelationshipPanorama({ dto, range, selectedId, onSelect }: Props) {
+export function RelationshipPanorama({ dto, range, selectedId, theme, onSelect }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const graphRef = useRef<Graph | null>(null);
   const selectedRef = useRef<string | null>(null);
@@ -19,7 +21,8 @@ export function RelationshipPanorama({ dto, range, selectedId, onSelect }: Props
     if (!container || !dto) {
       return;
     }
-    const mapped = toG6Data(dto, range);
+    const mapped = toG6Data(dto, range, theme);
+    const chrome = graphChrome(theme);
     const graph = new Graph({
       container,
       autoFit: "view",
@@ -31,14 +34,14 @@ export function RelationshipPanorama({ dto, range, selectedId, onSelect }: Props
         style: {
           cursor: "pointer",
           labelPlacement: "bottom",
-          labelFill: "#a1a1aa",
+          labelFill: chrome.labelFill,
           labelFontSize: 11,
           labelFontFamily: '"IBM Plex Sans", "Noto Sans SC", sans-serif',
         },
         state: {
           selected: {
-            fill: "#3b82f6",
-            stroke: "#3b82f6",
+            fill: chrome.selectedFill,
+            stroke: chrome.selectedFill,
             lineWidth: 1,
             size: 20,
           },
@@ -51,10 +54,10 @@ export function RelationshipPanorama({ dto, range, selectedId, onSelect }: Props
           labelAutoRotate: false,
           labelPlacement: "center",
           labelFontSize: 10,
-          labelFill: "#a1a1aa",
+          labelFill: chrome.labelFill,
           labelFontFamily: '"IBM Plex Sans", "Noto Sans SC", sans-serif',
           labelBackground: true,
-          labelBackgroundFill: "#09090b",
+          labelBackgroundFill: chrome.labelBackgroundFill,
           labelPadding: [1, 4],
         },
       },
@@ -74,7 +77,7 @@ export function RelationshipPanorama({ dto, range, selectedId, onSelect }: Props
       graph.destroy();
       graphRef.current = null;
     };
-  }, [dto, range, onSelect]);
+  }, [dto, range, theme, onSelect]);
 
   useEffect(() => {
     const graph = graphRef.current;
@@ -96,7 +99,7 @@ export function RelationshipPanorama({ dto, range, selectedId, onSelect }: Props
     selectedRef.current = selectedId;
   }, [selectedId]);
 
-  const mapped = dto ? toG6Data(dto, range) : { nodes: [], edges: [] };
+  const mapped = dto ? toG6Data(dto, range, theme) : { nodes: [], edges: [] };
   const selectedLabel =
     dto?.nodes.find((node) => node.id === selectedId)?.label ?? selectedId;
 

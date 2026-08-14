@@ -1,3 +1,5 @@
+import type { ResolvedTheme } from "../theme/theme";
+
 export const MISSING_EVIDENCE = "暂无可追溯证据";
 
 export type GraphNodeKind = "character" | "faction" | "alias";
@@ -94,19 +96,52 @@ function asKind(kind: string): GraphNodeKind {
   return "character";
 }
 
-function kindPaint(kind: GraphNodeKind): { fill: string; stroke: string; size: number } {
+export type GraphChrome = {
+  labelFill: string;
+  labelBackgroundFill: string;
+  selectedFill: string;
+};
+
+export function graphChrome(theme: ResolvedTheme): GraphChrome {
+  switch (theme) {
+    case "light":
+      return { labelFill: "#52525b", labelBackgroundFill: "#ffffff", selectedFill: "#2563eb" };
+    case "dark":
+      return { labelFill: "#a1a1aa", labelBackgroundFill: "#09090b", selectedFill: "#3b82f6" };
+    default: {
+      const exhaustive: never = theme;
+      return exhaustive;
+    }
+  }
+}
+
+function kindPaint(
+  kind: GraphNodeKind,
+  theme: ResolvedTheme,
+): { fill: string; stroke: string; size: number } {
   switch (kind) {
     case "character":
-      return { fill: "#d4d4d8", stroke: "#d4d4d8", size: 18 };
+      return theme === "light"
+        ? { fill: "#3f3f46", stroke: "#3f3f46", size: 18 }
+        : { fill: "#d4d4d8", stroke: "#d4d4d8", size: 18 };
     case "faction":
       return { fill: "#71717a", stroke: "#71717a", size: 16 };
     case "alias":
-      return { fill: "#52525b", stroke: "#71717a", size: 14 };
+      return theme === "light"
+        ? { fill: "#a1a1aa", stroke: "#a1a1aa", size: 14 }
+        : { fill: "#52525b", stroke: "#71717a", size: 14 };
     default: {
       const exhaustive: never = kind;
       return exhaustive;
     }
   }
+}
+
+function edgeStroke(provisional: boolean, theme: ResolvedTheme): string {
+  if (provisional) {
+    return "#a1a1aa";
+  }
+  return theme === "light" ? "#d4d4d8" : "#3f3f46";
 }
 
 export function chapterInRange(chapterKey: string, range?: ChapterRange): boolean {
@@ -175,10 +210,11 @@ export function characterInsight(
 export function toG6Data(
   dto: GraphDto,
   range?: ChapterRange,
+  theme: ResolvedTheme = "dark",
 ): { nodes: G6Node[]; edges: G6Edge[] } {
   const nodes = dto.nodes.map((node) => {
     const kind = asKind(node.kind);
-    const paint = kindPaint(kind);
+    const paint = kindPaint(kind, theme);
     const dashed = kind === "alias";
     return {
       id: node.id,
@@ -211,7 +247,7 @@ export function toG6Data(
           labelText: shortEdgeLabel(fullLabel),
           labelAutoRotate: false as const,
           lineDash: edge.provisional ? [8, 4] : undefined,
-          stroke: edge.provisional ? "#71717a" : "#3f3f46",
+          stroke: edgeStroke(edge.provisional, theme),
         },
       };
     });

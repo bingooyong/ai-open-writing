@@ -80,6 +80,13 @@ describe("toG6Data", () => {
     expect(edges).toHaveLength(2);
     expect(edges.some((edge) => edge.data.source_chapter === "v1c003")).toBe(true);
   });
+
+  it("uses zinc strokes that follow the resolved theme", () => {
+    const dark = toG6Data(dto).edges.find((edge) => !edge.data.provisional);
+    const light = toG6Data(dto, undefined, "light").edges.find((edge) => !edge.data.provisional);
+    expect(dark?.style.stroke).toBe("#3f3f46");
+    expect(light?.style.stroke).toBe("#d4d4d8");
+  });
 });
 
 describe("inspectorFor", () => {
