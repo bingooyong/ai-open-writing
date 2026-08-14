@@ -193,7 +193,29 @@ async def test_judge_receives_explicit_absent_reviewer_list() -> None:
 
     await run_judge(deps, [_draft()], [], _ctx(), absent=["prose"])
 
-    assert "# 缺席评审\n['prose']" in gateway.calls[0][2].user
+    user = gateway.calls[0][2].user
+    assert "# 缺席评审\n1 席" in user
+    assert "prose" not in user
+
+
+async def test_judge_absent_advocate_does_not_leak_identity() -> None:
+    verdict = json.dumps(
+        {
+            "verdict": "PASS",
+            "selected_candidate": "candidate_1",
+            "reasoning_summary": "无硬门禁失败",
+        },
+        ensure_ascii=False,
+    )
+    gateway = StubGateway({"judge": verdict})
+    deps = AgentDeps(gateway=gateway)  # type: ignore[arg-type]
+
+    await run_judge(deps, [_draft()], [], _ctx(), absent=["reader_advocate"])
+
+    user = gateway.calls[0][2].user
+    assert "# 缺席评审\n1 席" in user
+    for token in ("reader_advocate", "red_team", "writer_a", "writer_b"):
+        assert token not in user
 
 
 async def test_canon_curator_routes_through_prompt_declared_slot(tmp_path: Path) -> None:

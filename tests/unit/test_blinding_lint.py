@@ -8,6 +8,7 @@ from novel_agent.lint import lint_draft
 from novel_agent.runtime.blinding import (
     DEFAULT_FORBIDDEN,
     BlindingLeak,
+    anonymize_absent,
     anonymize_issues,
     assert_no_leak,
     blind_candidates,
@@ -41,6 +42,18 @@ def test_blinding_roundtrip_and_anonymize() -> None:
     with pytest.raises(BlindingLeak):
         assert_no_leak("这份稿子来自 Writer_A", DEFAULT_FORBIDDEN)
     assert_no_leak("干净的裁判输入", DEFAULT_FORBIDDEN)  # 不抛
+
+
+def test_anonymize_absent_keeps_count_without_role_names() -> None:
+    assert anonymize_absent(None) == "无"
+    assert anonymize_absent([]) == "无"
+    assert anonymize_absent(["reader_advocate"]) == "1 席"
+    assert anonymize_absent(["prose", "reader_advocate"]) == "2 席"
+    rendered = anonymize_absent(["reader_advocate", "red_team", "writer_a", "writer_b"])
+    assert rendered == "4 席"
+    for token in ("reader_advocate", "red_team", "writer_a", "writer_b"):
+        assert token not in rendered
+    assert_no_leak(f"# 缺席评审\n{rendered}", DEFAULT_FORBIDDEN)
 
 
 def test_lint_clean_draft_passes() -> None:

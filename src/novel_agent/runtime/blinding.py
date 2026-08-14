@@ -2,6 +2,7 @@
 
 - 候选稿:writer 身份 → candidate_N;映射只进 NodeRun 快照,解盲由代码执行。
 - 评审报告:剥离 reviewer_role 等身份字段后才可进入 Judge 输入。
+- 缺席评审:只把席位数交给 Judge;真实角色名留在 NodeRun / 调用方。
 - assert_no_leak:对将要进入 Judge 的文本做泄漏断言。
 """
 
@@ -53,6 +54,13 @@ def anonymize_issues_with_mapping(
         out.append(d)
         mapping[anonymous_id] = issue.issue_id
     return out, mapping
+
+
+def anonymize_absent(absent: list[str] | None) -> str:
+    """Judge 只看到缺席席位数;角色名不得进入提示词。"""
+    if not absent:
+        return "无"
+    return f"{len(absent)} 席"
 
 
 def assert_no_leak(text: str, forbidden_tokens: list[str]) -> None:

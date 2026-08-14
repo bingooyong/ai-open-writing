@@ -44,6 +44,7 @@ from novel_agent.gateway.structured import TWO_PART_FORMAT_INSTRUCTIONS, Structu
 from novel_agent.runtime.adapter import CognitiveRuntime, GatewayRuntimeAdapter, RuntimeCall
 from novel_agent.runtime.blinding import (
     DEFAULT_FORBIDDEN,
+    anonymize_absent,
     anonymize_issues_with_mapping,
     assert_no_leak,
 )
@@ -440,7 +441,7 @@ async def run_review_round(
     """并发评审(G0 fallback:asyncio.gather)。
 
     失败策略(Spec §6 N5):Continuity/RedTeam 失败 → 整体节点失败(抛出);
-    其余单缺席不阻断,缺席清单随结果返回(进 Judge 输入)。
+    其余单缺席不阻断,缺席角色名留在结果/快照;Judge 只收匿名席位数。
     """
     roles = roles or [
         ReviewerRole.RED_TEAM,
@@ -474,7 +475,7 @@ async def run_judge(
     ctx: ChapterContextPackage,
     absent: list[str] | None = None,
 ) -> JudgeVerdict:
-    """裁判:输入为盲化候选 + 匿名化意见集 + 缺席清单;泄漏断言在调用前执行(D11)。"""
+    """裁判:输入为盲化候选 + 匿名化意见集 + 匿名缺席席位;泄漏断言在调用前执行(D11)。"""
     spec = deps.prompt("judge")
     all_issues: list[ReviewIssue] = [i for r in reports for i in r.issues]
     anon, issue_id_mapping = anonymize_issues_with_mapping(all_issues)
@@ -489,7 +490,7 @@ async def run_judge(
             ),
             f"# 评审意见集(匿名,downweighted=true 表示证据定位失败,不得作为阻断依据)\n"
             f"{json.dumps(anon, ensure_ascii=False)}",
-            f"# 缺席评审\n{absent or '无'}",
+            f"# 缺席评审\n{anonymize_absent(absent)}",
         ]
     )
     assert_no_leak(user, DEFAULT_FORBIDDEN)
