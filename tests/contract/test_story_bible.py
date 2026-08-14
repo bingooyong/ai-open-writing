@@ -397,6 +397,9 @@ def test_structure_conflict_payoff_prompts_have_frontmatter() -> None:
     assert conflict.output_schema == "ConflictList"
     assert payoff.output_schema == "PayoffBeatList"
     assert structure.slot == "creative"
+    structure_body = structure.render(schema="{}", chapter_keys="v1c001,v1c002,v1c003")
+    assert "v1c001,v1c002,v1c003" in structure_body
+    assert "禁止发明" in structure_body or "窗口外" in structure_body
 
 
 async def test_structure_conflict_payoff_planners_return_valid_schemas(engine) -> None:

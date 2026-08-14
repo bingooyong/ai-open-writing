@@ -6,7 +6,7 @@
 
 **第三次真实 MiniMax 现场：R5 outline planner 死于思维链截断 JSON。** 末世《余烬回声》Story Bible 走到 R5，`outline_planner` 两次 `_PlanOut` 校验失败：`Expecting value: line 2 column 11 (char 12)`。首呼 `16000/16000`（打满当时上限，截断），修复轮 2332 token 仍解析失败。更早一次 MiniMax ping 的 `content` 以 `<think>...` 开头。根因：MiniMax-M3 OpenAI 兼容默认 adaptive thinking，推理吃掉输出预算，JSON 被截断或被 think 块污染；旧 `_extract_json` 只剥 markdown 栅栏，think 内的 `{` 会把思维链和正文粘成非法 JSON。
 
-已做（本分支，未合并）：
+已做（#21 已合进 `main`）：
 - `_extract_json` / `parse_two_part` 先剥 `<think>` / `<thinking>` / `<reason>` / `<reasoning>`（含未闭合标签）再找 `{...}`。
 - 修复轮只回传剥离后的 JSON 片段；若 `finish_reason=length|max_tokens` 或 `output_tokens >= max_tokens`，明确告知截断，不再把 16k 思维链塞回下一轮。
 - 官方 MiniMax OpenAI-compat 字段（见 [text-openai-api](https://platform.minimax.io/docs/api-reference/text-openai-api)）：`json_mode` 时 `thinking: {type: disabled}`（M3 可关；M2.x 接受但关不掉）；一律 `reasoning_split=true`；同时传 `max_completion_tokens`。未发明非官方参数。
@@ -14,6 +14,20 @@
 - pytest 仍只走 MockProvider，不打付费 API。
 
 **黄金三章 lint 不再要求字面「主角」（已合进 `main`）。** 同一次 MiniMax-M3 跑里，模型用姓名（林暮）+ 封口/停电写第 1 章，`lint_golden_three` 只认 `主角/危机/问题/冲突/当场/眼前/承诺`，R2 整份结构被丢弃。现在传入内核抽出的活人名（名叫/名为/化妆师 后的词）即算「有活人」；纯世界观/历史沿革/地理志第 1 章仍失败。不要改回只认「主角」二字。
+
+**`--chapters N` Story Bible 窗口范围已收口。** 同一场 MiniMax-M3 开书《余烬回声》(`novel init --chapters 3`) 在 Concept Judge R4 死于范围错位，不是文笔差。
+
+现场形态：
+- 结构策划发明了 115 章全书（中点 ch48 / 绝境 ch79 / 高潮 ch108 / 终局 ch115）。
+- 冲突/爽点策划只填了滚动窗 `v1c001–v1c003`（对 `--chapters 3` 是对的）。
+- R4 Concept Judge 按全书要冲突条目，REVISE 一次后仍非 PASS → 停（已知坑）。
+
+选定政策（写入测试）：**窗口外 chapter_key 对 Judge 是草图，不是冲突合同。**
+- 结构图可以勾勒后半本，但命名 `chapter_key` 应落在滚动窗或下一卷开篇拍（`v2c001`）；更远的幕用 `volume_id` + summary。
+- R4 只要求冲突/爽点覆盖滚动窗 + 黄金三章。`ch48`/`ch115` 没有对应冲突行不得硬失败。
+- 入参会先 `scope_structure_for_judge`：远章键清空并标 `named_key_status=sketch`，不回传原键，避免裁判再当合同。
+- 纯设定黄金三章、空冲突列表仍失败。
+- 实现：`src/novel_agent/domain/window_scope.py`；提示词 `structure_planner` / `concept_judge` 已升到 v2。
 
 仍勿回退：冲突/爽点 lint 的 `rolling_keys` 若被一次性铺成全书 115 章，窗口与 Concept Judge 会对不上。滚动窗口应保持切片，不要把全书章键塞进单次 R3/R4/R5。
 
@@ -42,6 +56,8 @@
 
 | 路径 | 作用 |
 |---|---|
+| `src/novel_agent/domain/window_scope.py` | 滚动窗 vs 全书草图；Judge 入参裁剪远章键 |
+| `tests/unit/test_window_scope.py` | 余烬回声 ch48/ch108 结构 + 三章冲突不得当范围错位失败 |
 | `src/novel_agent/verification/stage0_smoke.py` | 三章真实模型冒烟（gated） |
 | `tests/regression/test_stage0_smoke.py` | 门闩 / 离线清单 / 预检锁当前工厂 |
 | `eval/retrieval/golden_queries.json` | 冻结检索金标问句 |
@@ -87,16 +103,17 @@ uv run novel smoke-stage0 --confirm-real-models --budget-usd 15
 
 ## 下一刀建议
 
-1. **合入本分支后**，用 MiniMax-M3 重跑《余烬回声》Story Bible R5（outline 现 32k + 关 thinking）。不要在 pytest 里打付费 API。
-2. 若仍要一次规划全书 100+ 章：先拆滚动窗口，不要让 R3/R4/R5 吃 115 个章键。
-3. 人工本地跑付费 Stage 0 冒烟并审清单。不要再改冒烟预检表，除非付费跑再暴露缺口。不要把黄金三章 lint 改回只认字面「主角」；不要改回端口 5173。
+1. **人工本地用 MiniMax 再跑** `novel init --chapters 3`（余烬回声或同类火花），确认 R4 不再因「没给 ch48 写冲突」停死；真质量 REVISE 仍只有一轮。
+2. **合入本分支后**，用 MiniMax-M3 重跑《余烬回声》Story Bible R5（outline 现 32k + 关 thinking）。不要在 pytest 里打付费 API。
+3. 若仍要一次规划全书 100+ 章：先拆滚动窗口，不要让 R3/R4/R5 吃 115 个章键。
+4. 人工本地跑付费 Stage 0 冒烟并审清单。不要再改冒烟预检表，除非付费跑再暴露缺口。不要把黄金三章 lint 改回只认字面「主角」；不要改回端口 5173。
 
 若要动检索本身（评测已冻结）：先用金标试词面权重，再考虑真实嵌入；真实嵌入保持 opt-in。
 
 ## 已知坑
 
 - Writer B 失败不阻断 Writer A。
-- Concept Judge REVISE 只修一轮；仍非 PASS 则停在该轮。
+- Concept Judge REVISE 只修一轮；仍非 PASS 则停在该轮。MiniMax 现场曾把「只规划了 3 章冲突 vs 115 章结构图」当成质量问题 REVISE，现已按滚动窗裁剪 Judge 入参；真质量 REVISE 仍只有一轮。
 - 默认 plan-more **不**因结构图高潮已锁定就开 v2；要开卷需 `--open-volume` 或把当前单元标成 `locked`。
 - `max_calls_per_chapter` 为 40（双写手 + advocate）。
 - mock 的 `cost_estimate` 默认为 0；隔夜 mock 请带 `--max-chapters`，USD 硬上限主要约束真实模型。

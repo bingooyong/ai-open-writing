@@ -13,13 +13,14 @@ from novel_agent.cli.main import app
 from novel_agent.config import Settings, reset_settings_cache
 from novel_agent.domain.db import build_engine, create_all, session_scope
 from novel_agent.domain.repos import BibleRepo, CanonRepo, PlanningRepo
-from novel_agent.domain.schemas import ConceptJudgeVerdict
+from novel_agent.domain.schemas import ConceptJudgeVerdict, Conflict, PayoffBeat, StoryKernel
 from novel_agent.gateway import MockProvider, ModelGateway
 from novel_agent.planning.chain import PlanningError, PlanningGates
 from novel_agent.planning.conversation import run_bible_conversation
-from novel_agent.planning.mock_fixtures import register_planning_defaults
-from novel_agent.runtime.agents import AgentDeps
+from novel_agent.planning.mock_fixtures import PLANNING_KERNELS, register_planning_defaults
+from novel_agent.runtime.agents import AgentDeps, run_concept_judge
 from novel_agent.runtime.prompts import load_prompt
+from tests.unit.test_window_scope import yu_jin_structure
 
 
 def _engine(tmp_path):
@@ -54,6 +55,9 @@ def test_concept_judge_prompt_and_schema() -> None:
     spec = load_prompt("concept_judge")
     assert spec.role == "concept_judge"
     assert spec.slot == "judge"
+    body = spec.render(verdict_schema="{}")
+    assert "滚动窗口" in body
+    assert "草图" in body
     ConceptJudgeVerdict.model_validate(
         {
             "verdict": "PASS",
@@ -220,6 +224,109 @@ async def test_skip_concept_judge_does_not_call_model(tmp_path) -> None:
         assert result.chapter_keys
         assert all(role != "concept_judge" for role, _ in mock.calls)
         assert "concept_judge" in result.skipped
+
+
+def _yu_jin_revise_if_unscoped(req) -> str:
+    """模拟现场 MiniMax:看到绑定的 ch48/ch108 就按全书要冲突。"""
+    user = req.user
+    binding = ('"chapter_key": "ch48"' in user) or ('"chapter_key": "ch108"' in user)
+    if binding and "# 冲突" in user:
+        return _verdict(
+            "REVISE",
+            after="R4",
+            repair_notes=(
+                "冲突系统只覆盖了第1卷前3章(v1c001-v1c003),"
+                "对一套跨度ch04→ch115、跨越三幕六个关键节点的全本规划而言不够。"
+                "中点(ch48)、绝境(ch79)、高潮(ch108)、终局(ch115)这四把火全部没有对应冲突条目。"
+            ),
+        )
+    after = "R4" if "# 冲突" in user else "R2"
+    return _verdict("PASS", after=after)
+
+
+async def test_r4_judge_payload_does_not_bind_far_chapter_keys(tmp_path) -> None:
+    engine = _engine(tmp_path)
+    captured: dict[str, str] = {}
+    with Session(engine) as session:
+        deps, mock = _deps(session)
+
+        def handler(req):
+            captured["user"] = req.user
+            return _verdict("PASS", after="R4")
+
+        mock.register("concept_judge", handler)
+        kernel = StoryKernel.model_validate(PLANNING_KERNELS[0])
+        conflicts = [
+            Conflict.model_validate(
+                dict(
+                    conflict_id="cf_echo",
+                    kind="identity",
+                    parties=["ch_lead"],
+                    stake="要不要回应广播",
+                    temperature="rising",
+                    must_affect="both",
+                    payoff_chapter_key="v1c003",
+                )
+            )
+        ]
+        payoffs = [
+            PayoffBeat.model_validate(
+                dict(
+                    beat_id="pb_1",
+                    scale="small",
+                    kind="reveal",
+                    pressure_before="广播点名他",
+                    hit="他听出那是自己的声音",
+                    chapter_key="v1c002",
+                    order_index=1,
+                )
+            )
+        ]
+        verdict = await run_concept_judge(
+            deps,
+            kernel=kernel,
+            structure=yu_jin_structure(),
+            after_round="R4",
+            conflicts=conflicts,
+            payoffs=payoffs,
+            rolling_keys=["v1c001", "v1c002", "v1c003"],
+        )
+    assert verdict.verdict.value == "PASS"
+    user = captured["user"]
+    assert "v1c001,v1c002,v1c003" in user or "v1c001" in user
+    assert '"chapter_key": "ch48"' not in user
+    assert '"chapter_key": "ch108"' not in user
+    assert '"chapter_key": "ch115"' not in user
+    assert "sketch" in user
+
+
+async def test_chapters_3_yu_jin_map_does_not_die_at_r4(tmp_path) -> None:
+    engine = _engine(tmp_path)
+    with Session(engine) as session:
+        planning = PlanningRepo(session)
+        project = planning.create_project("余烬回声")
+        session.commit()
+        deps, mock = _deps(session)
+        mock.register(
+            "structure_planner",
+            lambda _req: json.dumps(yu_jin_structure().model_dump(), ensure_ascii=False),
+        )
+        mock.register("concept_judge", _yu_jin_revise_if_unscoped)
+        deps.project_id = project.id
+        result = await run_bible_conversation(
+            planning,
+            BibleRepo(session),
+            CanonRepo(session),
+            deps,
+            spark="末世余烬里的回声",
+            gates=PlanningGates.auto(),
+            chapters_needed=3,
+        )
+        session.commit()
+        bible = BibleRepo(session)
+        assert bible.round_complete(project.id) == {"R0", "R1", "R2", "R3", "R4", "R5"}
+        assert bible.concept_judge_state(project.id)["after_r4"]["verdict"] == "PASS"
+        assert result.chapter_keys == ["v1c001", "v1c002", "v1c003"]
 
 
 def test_cli_skip_concept_judge(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:

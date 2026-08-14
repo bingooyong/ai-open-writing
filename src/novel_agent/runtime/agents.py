@@ -41,6 +41,7 @@ from novel_agent.domain.schemas import (
 )
 from novel_agent.gateway.base import ModelGateway, ModelRequest
 from novel_agent.gateway.structured import TWO_PART_FORMAT_INSTRUCTIONS, StructuredOutputError
+from novel_agent.domain.window_scope import scope_structure_for_judge
 from novel_agent.runtime.adapter import CognitiveRuntime, GatewayRuntimeAdapter, RuntimeCall
 from novel_agent.runtime.blinding import (
     DEFAULT_FORBIDDEN,
@@ -531,15 +532,28 @@ async def run_concept_judge(
     after_round: str,
     conflicts: list[Conflict] | None = None,
     payoffs: list[PayoffBeat] | None = None,
+    rolling_keys: list[str] | None = None,
 ) -> ConceptJudgeVerdict:
     """规划对抗裁判:对内核/结构(及可选冲突引擎)给出 PASS/REVISE/REJECT。"""
     spec = deps.prompt("concept_judge")
     verdict_schema = json.dumps(ConceptJudgeVerdict.model_json_schema(), ensure_ascii=False)
-    parts = [
-        f"# 裁决节点\n{after_round}",
-        f"# 故事内核\n{json.dumps(kernel.model_dump(), ensure_ascii=False)}",
-        f"# 结构图\n{json.dumps(structure.model_dump(), ensure_ascii=False)}",
-    ]
+    keys = list(rolling_keys or [])
+    scoped = scope_structure_for_judge(structure, keys) if keys else structure.model_dump()
+    parts = [f"# 裁决节点\n{after_round}"]
+    if keys:
+        parts.append(f"# 滚动窗口\n{','.join(keys)}")
+        parts.append(
+            "# 裁决范围\n"
+            "冲突与爽点只需覆盖滚动窗口与黄金三章。"
+            "结构图中 named_key_status=sketch 的拍是全书草图,不是冲突合同;"
+            "不要因为窗口外章节号缺少冲突条目而 REVISE。"
+        )
+    parts.extend(
+        [
+            f"# 故事内核\n{json.dumps(kernel.model_dump(), ensure_ascii=False)}",
+            f"# 结构图\n{json.dumps(scoped, ensure_ascii=False)}",
+        ]
+    )
     if conflicts is not None:
         parts.append(
             "# 冲突\n" + json.dumps([item.model_dump() for item in conflicts], ensure_ascii=False)
@@ -681,15 +695,26 @@ async def run_people_planner(
 
 
 async def run_structure_planner(
-    deps: AgentDeps, kernel_text: str, brief: str, *, repair_notes: str = ""
+    deps: AgentDeps,
+    kernel_text: str,
+    brief: str,
+    *,
+    repair_notes: str = "",
+    chapter_keys: list[str] | None = None,
 ) -> StructureMap:
     spec = deps.prompt("structure_planner")
     schema = json.dumps(StructureMap.model_json_schema(), ensure_ascii=False)
+    keys = list(chapter_keys or [])
+    keys_text = ",".join(keys) if keys else "(未指定)"
     user = f"# 创作简报\n{brief}\n\n# 已确认故事内核\n{kernel_text}"
+    if keys:
+        user += f"\n\n# 滚动窗口章节键\n{keys_text}"
     if repair_notes.strip():
         user = f"# 修订要求\n{repair_notes.strip()}\n\n{user}"
     req = ModelRequest(
-        system=spec.render(schema=schema), user=user, max_tokens=STRUCTURE_PLANNER_MAX_TOKENS
+        system=spec.render(schema=schema, chapter_keys=keys_text),
+        user=user,
+        max_tokens=STRUCTURE_PLANNER_MAX_TOKENS,
     )
     return await CognitiveAgent(
         deps, "structure_planner", CognitiveTask.PLANNING, StructureMap
