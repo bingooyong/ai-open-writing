@@ -10,11 +10,12 @@ import {
   type VolumeRunStatus,
 } from "./api";
 import { conceptJudgeNotes } from "./bible/mapConceptJudge";
+import { CharacterDossier } from "./graph/CharacterDossier";
 import { RelationshipPanorama } from "./graph/RelationshipPanorama";
 import {
-  MISSING_EVIDENCE,
+  characterInsight,
+  graphCensus,
   inspectorFor,
-  labeledEvidence,
   type ChapterRange,
   type GraphDto,
 } from "./graph/mapGraphDto";
@@ -28,6 +29,8 @@ import {
   type ExportFormat,
 } from "./export/channelExport";
 import { ReviewDesk } from "./review/ReviewDesk";
+import { ThemeSwitch } from "./theme/ThemeSwitch";
+import { useTheme } from "./theme/useTheme";
 
 type StageTab = "conversation" | "outline" | "review" | "graph";
 
@@ -66,6 +69,7 @@ export function App() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>("md");
   const [includeDrafts, setIncludeDrafts] = useState(false);
   const volumeRunning = volumeRun?.status === "running";
+  const { mode: themeMode, resolved: theme, setMode: setThemeMode } = useTheme();
 
   function changeExportChannel(next: ExportChannel) {
     setExportChannel(next);
@@ -174,6 +178,9 @@ export function App() {
   }
 
   const inspector = nodeId && graph ? inspectorFor(graph, nodeId, range) : null;
+  const insight = inspector?.node ? characterInsight(inspector.node, bible?.characters) : null;
+  const census = graphCensus(graph, range);
+  const deskCensus = graphCensus(graph);
   const selectedProject = projects.find((item) => item.id === selectedId) ?? null;
 
   async function selectChapter(chapterKey: string) {
@@ -192,13 +199,19 @@ export function App() {
   return (
     <div className="app">
       <header className="masthead">
-        <div>
-          <div className="eyebrow">Local writing desk</div>
+        <div className="brand">
           <h1>墨案</h1>
+          <span className="muted">{selectedProject?.title ?? "未打开作品"}</span>
         </div>
-        <div className="muted">{selectedProject?.title ?? "未打开作品"}</div>
+        <div className="mast-right">
+          <div className="mast-stats">
+            {deskCensus.people} 人物 · {deskCensus.relations} 关系 · {chapters.length} 章节
+            {busy || volumeRunning ? " · 处理中" : ""}
+          </div>
+          <ThemeSwitch mode={themeMode} onChange={setThemeMode} />
+        </div>
       </header>
-      <div className="desk">
+      <div className={`desk${stageTab === "graph" ? "" : " desk-wide"}`}>
         <aside className="rail">
           <h2>作品</h2>
           {projects.map((project) => (
@@ -409,7 +422,7 @@ export function App() {
           ) : null}
           {stageTab === "review" ? (
             <section className="panel review-panel">
-              <h2>批次审稿</h2>
+              <h2>审稿</h2>
               <ReviewDesk
                 items={reviewItems}
                 selectedKey={selectedChapterKey}
@@ -446,71 +459,54 @@ export function App() {
             </section>
           ) : null}
           {stageTab === "graph" ? (
-          <section className="panel">
-            <h2>关系全景</h2>
-            <div className="range">
-              <span>章节范围</span>
-              <input
-                value={rangeFrom}
-                placeholder="v1c001"
-                onChange={(event) => setRangeFrom(event.target.value)}
-              />
-              <span>—</span>
-              <input
-                value={rangeTo}
-                placeholder="v1c005"
-                onChange={(event) => setRangeTo(event.target.value)}
-              />
+          <section className="panel graph-panel">
+            <div className="graph-toolbar">
+              <div>
+                <h2>关系全景</h2>
+                <p className="census">
+                  {census.people} 人物 · {census.relations} 关系
+                </p>
+              </div>
+              <div className="range">
+                <span>章节范围</span>
+                <input
+                  value={rangeFrom}
+                  placeholder="v1c001"
+                  onChange={(event) => setRangeFrom(event.target.value)}
+                />
+                <span>—</span>
+                <input
+                  value={rangeTo}
+                  placeholder="v1c005"
+                  onChange={(event) => setRangeTo(event.target.value)}
+                />
+              </div>
             </div>
             <RelationshipPanorama
               dto={graph}
               range={range}
               selectedId={nodeId}
+              theme={theme}
               onSelect={setNodeId}
             />
           </section>
           ) : null}
         </main>
-        <aside className="inspector">
-          <h2>人物检视</h2>
-          {inspector && nodeId ? (
-            <>
-              <p>
-                <strong>{nodeId}</strong>
-                <br />
-                <span className="muted">度数 {inspector.degree}</span>
-              </p>
-              <ul className="tracks">
-                {inspector.evidence.map((item, index) => (
-                  <li key={`${item}-${index}`}>{item}</li>
-                ))}
-              </ul>
-              <h2>关系轨迹</h2>
-              <ul className="tracks">
-                {inspector.tracks.map((track) => (
-                  <li key={track.parties.join("-")}>
-                    {track.parties.join(" · ")}
-                    {track.beats.map((beat) => (
-                      <div key={beat.chapter_key} className="muted">
-                        {beat.chapter_key}: {beat.from_state} → {beat.to_state}
-                        <br />
-                        {labeledEvidence(beat.evidence)}
-                      </div>
-                    ))}
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : (
-            <p className="muted">点选图中人物。无证据时标注「{MISSING_EVIDENCE}」。</p>
-          )}
-          <h2>全部轨迹</h2>
-          <ul className="tracks">
-            {(graph?.tracks ?? []).map((track) => (
-              <li key={track.parties.join("-")}>{track.parties.join(" · ")}</li>
-            ))}
-          </ul>
-        </aside>
+        {stageTab === "graph" ? (
+          <aside className="inspector">
+            <CharacterDossier inspector={inspector} insight={insight} />
+            {!inspector ? (
+              <>
+                <h2>图中关系</h2>
+                <ul className="tracks">
+                  {(graph?.tracks ?? []).map((track) => (
+                    <li key={track.parties.join("-")}>{track.parties.join(" · ")}</li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+          </aside>
+        ) : null}
       </div>
       <footer className="chapter-rail">
         {retrievalFacts.length > 0 ? (
