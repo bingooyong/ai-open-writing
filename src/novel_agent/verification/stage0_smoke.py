@@ -18,6 +18,7 @@ from novel_agent.domain.repos import CanonRepo, PlanningRepo, ProductionRepo
 from novel_agent.gateway.base import ModelGateway, Provider, estimate_cost, slot_pricing
 from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.chain import PlanningGates, run_planning_chain
+from novel_agent.planning.settings import BASE_REVIEW_ROLES, desk_settings, review_roles_for
 from novel_agent.production.batch import resume_project, run_write_batch
 from novel_agent.production.loop import ChapterLoopResult
 from novel_agent.production.runtime import build_production_deps
@@ -25,12 +26,20 @@ from novel_agent.runtime.agents import AgentDeps
 from novel_agent.verification.m26_smoke import SmokeExecutionError, SmokeGateError
 
 _SLOT_NAMES = ("creative", "review", "judge", "extract")
-# Planning (kernel/character/outline) + 3 writers; 3×5 reviewers; 3 judges; extract buffer.
-_PREFLIGHT = (
-    ("creative", 6, 16_000),
-    ("review", 15, 8_000),
-    ("judge", 3, 6_000),
-    ("extract", 1, 6_000),
+# First-round happy path of today's factory, not worst-case revision.
+# Compact planning chain (kernel/character/outline) — not full bible R0–R5.
+# Chapter loop defaults: Writer A+B, 5 base reviewers + advocate, 1 judge, 1 overlay extract.
+_STAGE0_CHAPTERS = 3
+_PLANNING_CREATIVE = 3
+_WRITERS_PER_CHAPTER = 2
+_REVIEWERS_PER_CHAPTER = len(BASE_REVIEW_ROLES) + 1
+_JUDGES_PER_CHAPTER = 1
+_EXTRACTS_PER_CHAPTER = 1
+STAGE0_PREFLIGHT = (
+    ("creative", _PLANNING_CREATIVE + _STAGE0_CHAPTERS * _WRITERS_PER_CHAPTER, 16_000),
+    ("review", _STAGE0_CHAPTERS * _REVIEWERS_PER_CHAPTER, 8_000),
+    ("judge", _STAGE0_CHAPTERS * _JUDGES_PER_CHAPTER, 6_000),
+    ("extract", _STAGE0_CHAPTERS * _EXTRACTS_PER_CHAPTER, 6_000),
 )
 _PREFLIGHT_INPUT = 12_000
 _EXIT_KEYS = (
@@ -39,6 +48,7 @@ _EXIT_KEYS = (
     "3_resume",
     "4_revision_cap",
     "5_model_runs",
+    "6_later_retrieval_facts",
 )
 
 
@@ -70,7 +80,7 @@ def validate_stage0_settings(settings: Settings, budget_usd: float) -> float:
         raise SmokeGateError("judge.family must differ from creative.family")
 
     worst = 0.0
-    for slot_name, calls, output_tokens in _PREFLIGHT:
+    for slot_name, calls, output_tokens in STAGE0_PREFLIGHT:
         slot = getattr(settings, slot_name)
         worst += calls * estimate_cost(
             slot.model, _PREFLIGHT_INPUT, output_tokens, pricing=_price(slot)
@@ -135,6 +145,9 @@ async def run_stage0_smoke(
         repo = PlanningRepo(session)
         project = repo.create_project("M4.2 三章冒烟", genre="奇幻")
         assert project.id is not None
+        repo.update_project(
+            project.id, enable_writer_b=True, enable_reader_advocate=True
+        )
         session.commit()
         if providers is not None:
             deps = AgentDeps(
@@ -177,6 +190,7 @@ async def run_stage0_smoke(
         builder = ContextBuilder(repo, canon, retrieval=memory_retrieval_for_session(session))
         chapter_rows: list[dict[str, Any]] = []
         later_has_prior = False
+        later_has_retrieval = False
         for index, item in enumerate(batch.results):
             drafts = production.list_drafts(project.id, item.chapter_key)
             outline = repo.get_outline(project.id, item.chapter_key)
@@ -193,8 +207,11 @@ async def run_stage0_smoke(
                 if fact.provisional
                 or (fact.source_chapter and fact.source_chapter != item.chapter_key)
             ]
+            retrieval_count = len(package.retrieval_facts)
             if index > 0 and prior_facts:
                 later_has_prior = True
+            if index > 0 and retrieval_count:
+                later_has_retrieval = True
             chapter_rows.append(
                 {
                     "chapter_key": item.chapter_key,
@@ -203,12 +220,15 @@ async def run_stage0_smoke(
                     "drafts": len(drafts),
                     "stopped_at": item.stopped_at,
                     "prior_facts": len(prior_facts),
+                    "retrieval_facts": retrieval_count,
                 }
             )
 
         runs = list(session.exec(select(ModelRunRecord)).all())
         spent = round(sum(float(run.cost_estimate or 0) for run in runs), 6)
         complete_runs = sum(1 for run in runs if _model_run_complete(run))
+        flags = desk_settings(project)
+        roles = review_roles_for(session, project)
         payload: dict[str, Any] = {
             "kind": "stage0-three-chapter-smoke",
             "created_at": stamp,
@@ -218,6 +238,22 @@ async def run_stage0_smoke(
             "project_id": project.id,
             "planned_chapters": planned.chapter_keys,
             "resumed": len(resumed),
+            "factory": {
+                "planning": "run_planning_chain",
+                "enable_writer_b": flags["enable_writer_b"],
+                "enable_reader_advocate": flags["enable_reader_advocate"],
+                "review_roles": [role.value for role in roles],
+                "review_role_count": len(roles),
+                "max_calls_per_chapter": settings.max_calls_per_chapter,
+                "preflight_calls": {
+                    slot_name: calls for slot_name, calls, _tokens in STAGE0_PREFLIGHT
+                },
+                "preflight_basis": (
+                    "first-round happy path: compact planning chain "
+                    "(kernel/character/outline) + dual writer + "
+                    "base reviewers + reader-advocate + judge + overlay extract"
+                ),
+            },
             "exit_conditions": {
                 "1_three_chapter_drafts": {
                     "ok": len(batch.results) == 3
@@ -250,6 +286,15 @@ async def run_stage0_smoke(
                     "ok": bool(runs) and complete_runs == len(runs),
                     "count": len(runs),
                     "complete": complete_runs,
+                },
+                "6_later_retrieval_facts": {
+                    "ok": later_has_retrieval,
+                    "later_context_has_retrieval_facts": later_has_retrieval,
+                    "later_context_has_prior_facts": later_has_prior,
+                    "notes": (
+                        "chapters after the first must see MemoryRetrieval hits "
+                        "in context; overlay prior facts are reported separately"
+                    ),
                 },
             },
         }
