@@ -19,6 +19,7 @@ htmlcov/
 .env.local
 
 # 运行时数据(SQLite 真源不入库,靠备份与项目包导出)
+reports/
 data/
 *.db
 *.sqlite3

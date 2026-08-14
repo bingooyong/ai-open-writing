@@ -10,7 +10,7 @@
   渠道导出      export --channel qidian|fanqie|generic|epub
   卷工厂        plan-more
   长跑          run-volume
-  Stage 2      retrieve
+  Stage 2      retrieve / retrieve-eval
   M4           smoke-stage0
   Stage 1      serve
 """
@@ -18,6 +18,7 @@
 import asyncio
 import json
 import sys
+import tempfile
 from pathlib import Path
 from typing import Annotated
 
@@ -33,8 +34,14 @@ from novel_agent.domain.repos.bible import BibleRepo
 from novel_agent.domain.repos.canon import CanonRepo
 from novel_agent.domain.repos.planning import PlanningRepo
 from novel_agent.domain.schemas import StoryKernel
+from novel_agent.eval.retrieval import (
+    default_golden_path,
+    format_report,
+    run_eval_on_temp_db,
+)
 from novel_agent.graph.export import to_json, to_mermaid
 from novel_agent.graph.projector import project_graph
+from novel_agent.memory.embeddings import HashEmbedding, build_embedder
 from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.chain import (
     PlanningAborted,
@@ -1103,6 +1110,60 @@ def retrieve(
             f"source={fact.source} score={fact.score:.3f} {flag}"
         )
         typer.echo(fact.text)
+
+
+@app.command("retrieve-eval")
+def retrieve_eval(
+    golden: Annotated[
+        Path | None,
+        typer.Option("--golden", help="冻结金标 JSON;默认 eval/retrieval/golden_queries.json"),
+    ] = None,
+    out: Annotated[
+        Path | None, typer.Option("--out", help="人类可读报告路径;默认 reports/retrieval-eval.md")
+    ] = None,
+    compare_real: Annotated[
+        bool,
+        typer.Option(
+            "--compare-real",
+            help="另跑 openai_compat 嵌入对照;需已配置 embedding 槽位,默认 CI 不要开",
+        ),
+    ] = False,
+) -> None:
+    """离线评测 Stage 2 检索。默认 hash 嵌入,不访问网络。"""
+    settings = get_settings()
+    if compare_real and settings.embedding.provider != "openai_compat":
+        typer.echo(
+            "拒绝: --compare-real 需要 embedding.provider=openai_compat 且已配置 api_key/base_url",
+            err=True,
+        )
+        raise typer.Exit(2)
+    try:
+        golden_path = golden if golden is not None else default_golden_path()
+    except FileNotFoundError as exc:
+        typer.echo(f"拒绝: {exc}", err=True)
+        raise typer.Exit(2) from None
+    if not golden_path.is_file():
+        typer.echo(f"拒绝: 金标文件不存在 {golden_path}", err=True)
+        raise typer.Exit(2)
+
+    report_path = out or Path("reports/retrieval-eval.md")
+    with tempfile.TemporaryDirectory(prefix="novel-retrieve-eval-") as raw:
+        work = Path(raw)
+        hash_report = run_eval_on_temp_db(golden_path, work / "hash", embedder=HashEmbedding())
+        reports = [hash_report]
+        if compare_real:
+            reports.append(
+                run_eval_on_temp_db(
+                    golden_path,
+                    work / "real",
+                    embedder=build_embedder(settings.embedding),
+                )
+            )
+        text = format_report(*reports)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(text, encoding="utf-8")
+    typer.echo(text.rstrip())
+    typer.echo(f"report={report_path}")
 
 
 if __name__ == "__main__":
