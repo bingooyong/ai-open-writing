@@ -88,7 +88,7 @@ function gateDetail(reason: string, chapter: string): string {
     case "BUDGET":
       return "本次 USD 上限已到。提高预算后再开跑，或直接续跑（仍受原上限约束）。";
     case "CANCELLED":
-      return "已按请求在章与章之间停下，当前章不会被强杀。";
+      return "已按请求在章与章之间停止，当前章不会被强杀。";
     case "MAX_CHAPTERS":
       return "已达本次章数上限。可再开跑，或先续规划 / 开下一卷。";
     case "COMPLETE":

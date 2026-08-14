@@ -306,9 +306,8 @@ async def _run_occupied(
         payload["chapters_done"] = len(written)
         payload["stop_reason"] = reason
         payload["current_chapter"] = current
-        payload["cancel_requested"] = bool(payload.get("cancel_requested")) or volume_stop_requested(
-            project_id
-        )
+        requested = bool(payload.get("cancel_requested")) or volume_stop_requested(project_id)
+        payload["cancel_requested"] = requested
         ops.update_workflow(
             workflow_id,
             status=status,
