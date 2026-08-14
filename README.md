@@ -28,11 +28,13 @@ uv run novel write-batch --project-id 1 --chapters 3 --yes
 uv run novel plan-more --project-id 1 --yes          # 窗口不足时补下一截章纲
 uv run novel write-batch --project-id 1 --from-chapter v1c006 --yes
 uv run novel export --project-id 1 --format md --out /tmp/book.md
+uv run novel export --project-id 1 --channel qidian --format txt --out /tmp/qidian.txt
+uv run novel export --project-id 1 --format epub --out /tmp/book.epub
 ```
 
 `--yes` 在非 TTY 下跳过人工确认（自动选内核候选 1，PASS 章自动批准并提交正史）。不要把 `.env`、`data/novel.db` 提交进 Git。
 
-其它常用命令：`novel graph --project-id 1 --format mermaid`、`novel write-chapter --project-id 1 --chapter-key v1c001 --yes`、`novel resume --project-id 1 --yes`、`novel review-batch --project-id 1`、`novel edit-outline v1c001 --project-id 1 --out outline.yaml`、`novel plan-more --project-id 1 --yes`（`--open-volume` 开下一卷）、`novel retrieve --project-id 1 --query "西市火灾"`（Stage 2 检索调试）。
+其它常用命令：`novel graph --project-id 1 --format mermaid`、`novel write-chapter --project-id 1 --chapter-key v1c001 --yes`、`novel resume --project-id 1 --yes`、`novel review-batch --project-id 1`、`novel edit-outline v1c001 --project-id 1 --out outline.yaml`、`novel plan-more --project-id 1 --yes`（`--open-volume` 开下一卷）、`novel retrieve --project-id 1 --query "西市火灾"`（Stage 2 检索调试）、`novel export --project-id 1 --channel qidian --format txt`（渠道模板；默认只出已锁定章，`--include-drafts` 含草稿）。
 
 ## 本地写作台（FastAPI + Vite）
 
@@ -49,7 +51,9 @@ cd apps/web && npm run dev  # http://localhost:18765 ，Vite 代理 /projects �
 
 `GET /projects/{id}/retrieve?q=` 返回索引命中（章摘要 / 实体关系 / 场景卡 / 冲突爽点）。写作台章节轨展示「本上下文检索到」。索引是 LanceDB，真源仍是 SQLite。
 
-本 slice 不含：渠道导出模板、新 `source_record` / `timeline_event` 表、CI 内百万字实跑、云向量库或付费嵌入。
+`GET /projects/{id}/export?channel=qidian|fanqie|generic|epub&format=txt|md|epub` 返回可下载文件。写作台章节轨用渠道 + 格式下拉导出。默认只含 `CANON_LOCKED`；勾选「含草稿」预览未锁定稿。起点/番茄是排版模板，不是官方投稿 API。
+
+本 slice 不含：新 `source_record` / `timeline_event` 表、CI 内百万字实跑、云向量库或付费嵌入、真实起点/番茄登录或抓取。
 
 ## 测试
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy.engine import Engine
 from sqlmodel import Session
 
@@ -34,7 +34,7 @@ from novel_agent.planning.runtime import build_planning_deps
 from novel_agent.planning.settings import desk_settings
 from novel_agent.planning.volume import PlanMoreError, plan_more
 from novel_agent.production.batch import BatchError, resume_project, run_write_batch
-from novel_agent.production.export import export_project
+from novel_agent.production.export import ExportSpecError, build_export
 from novel_agent.production.loop import ChapterLoopError, ChapterLoopGates, run_chapter_loop
 from novel_agent.production.outline import (
     OutlineEditError,
@@ -635,14 +635,27 @@ def retrieve_facts(
 def export_chapters(
     project_id: int,
     fmt: str = Query(default="md", alias="format"),
+    channel: str = Query(default="generic"),
+    include_drafts: bool = Query(default=False),
     session: Session = Depends(get_session),
-) -> PlainTextResponse:
+) -> Response:
     planning = PlanningRepo(session)
     require_project(planning, project_id)
-    if fmt not in {"txt", "md"}:
-        raise HTTPException(status_code=400, detail="format 必须是 txt 或 md")
-    text = export_project(session, project_id, fmt)  # type: ignore[arg-type]
-    if not isinstance(text, str):
-        text = text.read_text(encoding="utf-8")
-    media = "text/markdown; charset=utf-8" if fmt == "md" else "text/plain; charset=utf-8"
-    return PlainTextResponse(text, media_type=media)
+    try:
+        artifact = build_export(
+            session,
+            project_id,
+            fmt,
+            channel=channel,
+            include_drafts=include_drafts,
+        )
+    except ExportSpecError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    headers = {"Content-Disposition": f'attachment; filename="{artifact.filename}"'}
+    if artifact.media_type.startswith("text/"):
+        return PlainTextResponse(
+            artifact.content.decode("utf-8"),
+            media_type=artifact.media_type,
+            headers=headers,
+        )
+    return Response(content=artifact.content, media_type=artifact.media_type, headers=headers)

@@ -1,4 +1,10 @@
 import type { ConceptJudgeState } from "./bible/mapConceptJudge";
+import {
+  exportDownloadName,
+  exportQuery,
+  type ExportChannel,
+  type ExportFormat,
+} from "./export/channelExport";
 import type { GraphDto } from "./graph/mapGraphDto";
 import type { OutlineTreeDto } from "./outline/mapOutlineTree";
 
@@ -268,10 +274,22 @@ export const api = {
       fetch(`/projects/${id}/retrieve?q=${encodeURIComponent(q)}&limit=${limit}`),
     ),
   exportMarkdown: async (id: number) => {
-    const response = await fetch(`/projects/${id}/export?format=md`);
+    const result = await api.exportFile(id, "generic", "md");
+    return result.blob.text();
+  },
+  exportFile: async (
+    id: number,
+    channel: ExportChannel,
+    format: ExportFormat,
+    includeDrafts = false,
+  ) => {
+    const response = await fetch(exportQuery(id, channel, format, includeDrafts));
     if (!response.ok) {
       throw new Error(`导出失败 HTTP ${response.status}`);
     }
-    return response.text();
+    return {
+      blob: await response.blob(),
+      filename: exportDownloadName(id, channel, format),
+    };
   },
 };

@@ -6,6 +6,7 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
+from test_channel_export import LOCKED_1, _add_chapter
 from typer.testing import CliRunner
 
 from novel_agent.api.app import create_app
@@ -13,6 +14,7 @@ from novel_agent.cli.main import app as cli_app
 from novel_agent.config import Settings, reset_settings_cache
 from novel_agent.domain.db import build_engine, create_all, session_scope
 from novel_agent.domain.repos import BibleRepo, CanonRepo, PlanningRepo, ProductionRepo
+from novel_agent.domain.schemas import ChapterStatus
 from novel_agent.graph.projector import project_graph
 
 
@@ -446,3 +448,58 @@ def test_retrieve_api_and_cli(
     reset_settings_cache()
     assert result.exit_code == 0, result.output
     assert "fact_id=" in result.output or "章纲" in result.output or "冲突" in result.output
+
+
+def test_export_channel_query_returns_file(client: TestClient) -> None:
+    created = client.post(
+        "/projects",
+        json={"title": "渠道包", "spark": "说书人发现故事会成真", "auto_bible": False},
+    )
+    pid = created.json()["id"]
+    engine = client.app.state.engine
+    with session_scope(engine) as session:
+        planning = PlanningRepo(session)
+        production = ProductionRepo(session)
+        planning.save_volume(pid, "v1", {}, title="入局")
+        _add_chapter(
+            planning,
+            production,
+            pid,
+            chapter_key="v1c001",
+            title="醒木",
+            body=LOCKED_1,
+            status=ChapterStatus.CANON_LOCKED,
+            order_index=1,
+        )
+        _add_chapter(
+            planning,
+            production,
+            pid,
+            chapter_key="v1c002",
+            title="草稿",
+            body="仅预览可见的草稿",
+            status=ChapterStatus.HUMAN_REVIEW,
+            order_index=2,
+        )
+
+    qidian = client.get(f"/projects/{pid}/export?channel=qidian&format=txt")
+    assert qidian.status_code == 200
+    assert "第1章 醒木" in qidian.text
+    assert LOCKED_1 in qidian.text
+    assert "仅预览可见的草稿" not in qidian.text
+    assert "text/plain" in qidian.headers["content-type"]
+
+    drafts = client.get(
+        f"/projects/{pid}/export?channel=qidian&format=txt&include_drafts=true"
+    )
+    assert drafts.status_code == 200
+    assert "仅预览可见的草稿" in drafts.text
+
+    epub = client.get(f"/projects/{pid}/export?channel=epub&format=epub")
+    assert epub.status_code == 200
+    assert epub.headers["content-type"].startswith("application/epub+zip")
+    assert epub.content[:2] == b"PK"
+    assert b"application/epub+zip" in epub.content
+
+    bad = client.get(f"/projects/{pid}/export?channel=wechat")
+    assert bad.status_code == 400

@@ -7,6 +7,7 @@
   M3.3b        edit-outline
   M3.4         review-batch / approve
   M3.5         write-batch / resume / export
+  渠道导出      export --channel qidian|fanqie|generic|epub
   卷工厂        plan-more
   长跑          run-volume
   Stage 2      retrieve
@@ -51,7 +52,7 @@ from novel_agent.planning.volume import (
     plan_more,
 )
 from novel_agent.production.batch import BatchError, resume_project, run_write_batch
-from novel_agent.production.export import export_project
+from novel_agent.production.export import ExportSpecError, export_project, resolve_channel_format
 from novel_agent.production.loop import ChapterLoopError, ChapterLoopGates, run_chapter_loop
 from novel_agent.production.outline import (
     OutlineEditError,
@@ -1015,13 +1016,21 @@ def resume(
 @app.command()
 def export(
     project_id: Annotated[int, typer.Option("--project-id", help="已有项目 id")],
-    fmt: Annotated[str, typer.Option("--format", help="txt 或 md")] = "md",
+    fmt: Annotated[str, typer.Option("--format", help="txt、md 或 epub")] = "md",
+    channel: Annotated[
+        str, typer.Option("--channel", help="generic / qidian / fanqie / epub")
+    ] = "generic",
     out: Annotated[Path | None, typer.Option("--out", help="输出文件路径")] = None,
+    include_drafts: Annotated[
+        bool, typer.Option("--include-drafts", help="含未锁定稿(写作台预览)")
+    ] = False,
 ) -> None:
-    """导出已有草稿/正史章节为 TXT 或 Markdown。"""
-    if fmt not in {"txt", "md"}:
-        typer.echo("拒绝: --format 必须是 txt 或 md", err=True)
-        raise typer.Exit(2)
+    """按渠道模板导出已锁定章节;默认 generic 的 txt/md 行为保持可用。"""
+    try:
+        resolved_channel, resolved_fmt = resolve_channel_format(channel, fmt)
+    except ExportSpecError as exc:
+        typer.echo(f"拒绝: {exc}", err=True)
+        raise typer.Exit(2) from None
     settings = get_settings()
     engine = build_engine(settings.db_path)
     create_all(engine)
@@ -1032,15 +1041,21 @@ def export(
         except NoResultFound:
             typer.echo(f"拒绝: 项目不存在 project_id={project_id}", err=True)
             raise typer.Exit(2) from None
-        if fmt == "txt":
-            result = export_project(session, project_id, "txt", out)
-        elif fmt == "md":
-            result = export_project(session, project_id, "md", out)
-        else:
-            typer.echo("拒绝: --format 必须是 txt 或 md", err=True)
-            raise typer.Exit(2)
+        target = out
+        if target is None and resolved_fmt == "epub":
+            target = Path(f"project-{project_id}-epub.epub")
+        result = export_project(
+            session,
+            project_id,
+            resolved_fmt,
+            target,
+            channel=resolved_channel,
+            include_drafts=include_drafts,
+        )
     if isinstance(result, Path):
         typer.echo(f"exported={result}")
+    elif isinstance(result, bytes):
+        typer.echo(f"exported=project-{project_id}-epub.epub")
     else:
         typer.echo(result)
 
