@@ -59,12 +59,26 @@ class OpsRepo:
         self.s.flush()
         return rec
 
-    def calls_for_chapter(self, chapter_key: str) -> int:
-        return len(
-            self.s.exec(
-                select(ModelRunRecord).where(ModelRunRecord.chapter_key == chapter_key)
-            ).all()
-        )
+    def calls_for_chapter(self, chapter_key: str, *, workflow_run_id: int | None = None) -> int:
+        """默认按章累计;传入 workflow_run_id 则只计该次 run 起的调用。"""
+        stmt = select(ModelRunRecord).where(ModelRunRecord.chapter_key == chapter_key)
+        if workflow_run_id is not None:
+            run = self.get_workflow_run(workflow_run_id)
+            stmt = stmt.where(ModelRunRecord.created_at >= run.created_at)
+        return len(self.s.exec(stmt).all())
+
+    def latest_workflow_for_chapter(
+        self, project_id: int, kind: str, chapter_key: str
+    ) -> WorkflowRunRecord | None:
+        return self.s.exec(
+            select(WorkflowRunRecord)
+            .where(
+                WorkflowRunRecord.project_id == project_id,
+                WorkflowRunRecord.kind == kind,
+                WorkflowRunRecord.chapter_key == chapter_key,
+            )
+            .order_by(WorkflowRunRecord.id.desc())  # type: ignore[union-attr]
+        ).first()
 
     def spent_usd(self, project_id: int) -> float:
         recs = self.s.exec(

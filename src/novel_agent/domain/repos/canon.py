@@ -4,17 +4,35 @@
 本仓储只提供底层读写原语。
 """
 
+import re
 from datetime import UTC, datetime
 
 from sqlmodel import Session, select
 
 from novel_agent.domain.models import (
     CanonDeltaRecord,
+    ChapterRecord,
     EntityStateRecord,
     PlotThreadRecord,
     RelationshipStateRecord,
 )
 from novel_agent.domain.schemas import CanonDelta
+
+_CHAPTER_KEY_ORDER = re.compile(r"v(\d+)c(\d+)", re.IGNORECASE)
+
+
+def story_order_for_chapter_key(chapter_key: str, order_index: int | None = None) -> int:
+    """故事顺序:优先解析 vNcMMM,否则退回章表 order_index。
+
+    不能把 order_index(1,2,3) 和解析值(10001)混比,否则 v1c000 这类未入章表
+    的前态会被当成「未来章」丢掉。
+    """
+    match = _CHAPTER_KEY_ORDER.search(chapter_key or "")
+    if match:
+        return int(match.group(1)) * 10_000 + int(match.group(2))
+    if order_index is not None and order_index > 0:
+        return order_index
+    return 0
 
 
 class CanonRepo:
@@ -93,14 +111,41 @@ class CanonRepo:
         )
 
     def latest_entity_states(
-        self, project_id: int, include_provisional: bool = False
+        self,
+        project_id: int,
+        include_provisional: bool = False,
+        as_of_chapter_key: str | None = None,
     ) -> dict[tuple[str, str], EntityStateRecord]:
-        """每个 (entity_id, state_type) 的最新记录;D15 决定是否叠加 provisional。"""
+        """每个 (entity_id, state_type) 的最新记录;按故事顺序而非行 id。
+
+        keep-going 可能先锁后章,行 id 更大但故事上更晚。n9 / 上下文只应看到
+        as_of 章(含)之前的已提交态。
+        """
         stmt = select(EntityStateRecord).where(EntityStateRecord.project_id == project_id)
         if not include_provisional:
             stmt = stmt.where(EntityStateRecord.provisional == False)  # noqa: E712
+        recs = list(self.s.exec(stmt).all())
+        chapters = self.s.exec(
+            select(ChapterRecord).where(ChapterRecord.project_id == project_id)
+        ).all()
+        order_map = {chapter.chapter_key: chapter.order_index for chapter in chapters}
+        cap: int | None = None
+        if as_of_chapter_key:
+            cap = story_order_for_chapter_key(
+                as_of_chapter_key, order_map.get(as_of_chapter_key)
+            )
+
+        ranked: list[tuple[int, int, EntityStateRecord]] = []
+        for rec in recs:
+            order = story_order_for_chapter_key(
+                rec.source_chapter, order_map.get(rec.source_chapter)
+            )
+            if cap is not None and order > cap:
+                continue
+            ranked.append((order, rec.id or 0, rec))
+        ranked.sort(key=lambda item: (item[0], item[1]))
         result: dict[tuple[str, str], EntityStateRecord] = {}
-        for rec in self.s.exec(stmt.order_by(EntityStateRecord.id)).all():  # type: ignore[arg-type]
+        for _order, _rid, rec in ranked:
             result[(rec.entity_id, rec.state_type)] = rec
         return result
 

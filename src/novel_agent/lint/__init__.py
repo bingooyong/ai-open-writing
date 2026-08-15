@@ -58,12 +58,35 @@ def check_engineering_leak(text: str) -> list[LintFinding]:
     return out
 
 
+_BOUNDARY_DENIAL_RE = re.compile(
+    r"(?:我|并)?(?:没(?:有)?|未)(?:说|解释|提过|写过|提到)$"
+)
+
+
+def _boundary_is_denied(text: str, start: int) -> bool:
+    """「我没说X / 我没解释X」只是否认,不算正文命中禁写项。"""
+    prefix = text[max(0, start - 12) : start]
+    return bool(_BOUNDARY_DENIAL_RE.search(prefix))
+
+
 def check_boundaries(text: str, boundaries: list[str]) -> list[LintFinding]:
-    return [
-        LintFinding("boundary", f"命中禁写项: {b}")
-        for b in boundaries
-        if b and b in text
-    ]
+    findings: list[LintFinding] = []
+    for boundary in boundaries:
+        if not boundary:
+            continue
+        start = 0
+        hit = False
+        while True:
+            idx = text.find(boundary, start)
+            if idx < 0:
+                break
+            if not _boundary_is_denied(text, idx):
+                hit = True
+                break
+            start = idx + len(boundary)
+        if hit:
+            findings.append(LintFinding("boundary", f"命中禁写项: {boundary}"))
+    return findings
 
 
 def check_repetition(text: str, ngram: int = 12, threshold: int = 3) -> list[LintFinding]:

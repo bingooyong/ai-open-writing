@@ -355,6 +355,36 @@ async def test_volume_skips_already_parked_human_review_chapter(
         session.close()
 
 
+async def test_volume_keep_going_continues_after_adversarial_leftover(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session, deps, planning, pid = await _bibled(tmp_path)
+
+    async def leftover_then_lock(session: Session, project_id: int, chapter_key: str):
+        if chapter_key == "v1c001":
+            PlanningRepo(session).set_status(
+                project_id, chapter_key, ChapterStatus.ADVERSARIAL_REVIEW
+            )
+            session.commit()
+            return _loop_result(project_id, chapter_key, ChapterStatus.ADVERSARIAL_REVIEW)
+        PlanningRepo(session).set_status(project_id, chapter_key, ChapterStatus.CANON_LOCKED)
+        session.commit()
+        return _loop_result(project_id, chapter_key, ChapterStatus.CANON_LOCKED)
+
+    written = _patch_loop(monkeypatch, leftover_then_lock)
+    try:
+        result = await run_volume(
+            session, deps, pid, budget_usd=1.0, yes=True, max_chapters=3, keep_going=True
+        )
+        session.commit()
+        assert written[0] == "v1c001"
+        assert "v1c002" in written
+        assert result.stop_reason != VolumeStopReason.HUMAN_REVIEW.value or "v1c002" in written
+        assert planning.get_chapter(pid, "v1c002").status is ChapterStatus.CANON_LOCKED
+    finally:
+        session.close()
+
+
 async def test_budget_stop_does_not_write_later_chapters(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

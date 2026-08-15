@@ -51,16 +51,27 @@ def _strip_reasoning_wrappers(text: str) -> str:
 
 
 def _extract_json(text: str) -> str:
-    """剥离思维链包装、markdown 代码栅栏与前后噪声,取最外层 JSON 对象。"""
+    """剥离思维链包装、markdown 代码栅栏与前后噪声,取第一个完整 JSON 对象。
+
+    用 raw_decode 丢掉首个对象之后的拼接 JSON / 尾部垃圾,避免
+    ``json.loads`` 报 Extra data。首个对象本身非法时回退到首 ``{`` 至末 ``}``。
+    """
     t = _strip_reasoning_wrappers(text)
     fence = re.search(r"```(?:json)?\s*(.*?)```", t, re.DOTALL)
     if fence:
         t = fence.group(1).strip()
     start = t.find("{")
-    end = t.rfind("}")
-    if start >= 0 and end > start:
-        return t[start : end + 1]
-    return t
+    if start < 0:
+        return t
+    snippet = t[start:]
+    try:
+        _, end = json.JSONDecoder().raw_decode(snippet)
+        return snippet[:end]
+    except json.JSONDecodeError:
+        end = t.rfind("}")
+        if end > start:
+            return t[start : end + 1]
+        return t
 
 
 def _output_truncated(resp: ModelResponse, req: ModelRequest) -> bool:
@@ -141,7 +152,23 @@ async def call_structured(
 
 _SCENE_RE = re.compile(r"<<<SCENE:(?P<sid>[^>]+)>>>\s*(?P<body>.*?)\s*<<<END>>>", re.DOTALL)
 _META_RE = re.compile(r"<<<META>>>\s*(?P<meta>.*)\s*$", re.DOTALL)
-_PLACEHOLDER_SCENE_IDS = frozenset({"场景id", "scene_id", "场景ID"})
+_PLACEHOLDER_SCENE_IDS = frozenset(
+    {
+        "场景id",
+        "scene_id",
+        "场景ID",
+        "xxx",
+        "XXX",
+        "xx",
+        "XX",
+        "TODO",
+        "TBD",
+        "placeholder",
+        "PLACEHOLDER",
+        "占位",
+        "占位符",
+    }
+)
 
 
 class TwoPartParseError(Exception):
@@ -157,7 +184,7 @@ def parse_two_part(text: str, expected_scene_ids: list[str]) -> tuple[dict[str, 
     """解析两段式输出 → ({scene_id: 正文}, meta dict)。
 
     校验:场景 id 集合与场景卡一致;正文非空;META 可解析。
-    占位词(场景id / scene_id / 场景ID)按出现顺序填入尚未被真实 id 占用的期望槽。
+    占位词(场景id / scene_id / 场景ID / xxx 等)按出现顺序填入尚未被真实 id 占用的期望槽。
     同一真实 id 重复出现时保留最后一块非空正文。
     """
     text = _strip_reasoning_wrappers(text)

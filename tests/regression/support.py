@@ -120,12 +120,21 @@ def _sample_verdict(sample: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _pad_sample_prose(text: str) -> str:
+    filler = "街面的更鼓远远响了一声，茶客把碗放下，谁也没再追问下一句。"
+    compact = "".join(text.split())
+    while len(compact) < 400:
+        text = text + filler
+        compact = "".join(text.split())
+    return text
+
+
 def register_sample_mocks(mock: MockProvider, sample: dict[str, Any]) -> None:
     """Writer returns the implanted draft; reviewers/Judge follow the sample expect."""
     register_chapter_loop_defaults(mock)
     scenes = sample["draft_scenes"]
-    scene_1 = scenes[0]["content"]
-    scene_2 = scenes[1]["content"] if len(scenes) > 1 else scenes[0]["content"]
+    scene_1 = _pad_sample_prose(scenes[0]["content"])
+    scene_2 = _pad_sample_prose(scenes[1]["content"] if len(scenes) > 1 else scenes[0]["content"])
     mock.register(
         "writer_a",
         lambda req: two_part_text(req, scene_1, scene_2, sample["chapter_summary"]),

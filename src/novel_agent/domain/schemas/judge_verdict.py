@@ -1,12 +1,18 @@
 """裁判裁决(PRD §9.4 YAML 全字段)。"""
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from novel_agent.domain.schemas.base import HardGate, RollbackLevel, VerdictType, VersionedSchema
 
 
 class IssueRuling(VersionedSchema):
-    """裁判对单条评审意见的逐项处理(PRD §9.4 规则3)。"""
+    """裁判对单条评审意见的逐项处理(PRD §9.4 规则3)。
+
+    extra=ignore: MiniMax 偶发把 ReviewIssue.downweighted 抄进 ruling,
+    不得因此整包升级人工。
+    """
+
+    model_config = ConfigDict(extra="ignore")
 
     issue_id: str = Field(min_length=1)
     accepted: bool

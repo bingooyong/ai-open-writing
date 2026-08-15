@@ -13,15 +13,15 @@ S = ChapterStatus
 ALLOWED: dict[ChapterStatus, frozenset[ChapterStatus]] = {
     S.PLANNED: frozenset({S.DRAFTING}),
     S.DRAFTING: frozenset({S.ADVERSARIAL_REVIEW}),
-    S.ADVERSARIAL_REVIEW: frozenset({S.JUDGING}),
+    S.ADVERSARIAL_REVIEW: frozenset({S.JUDGING, S.HUMAN_REVIEW}),
     # PASS→批次人工审阅(HUMAN_REVIEW);REVISE_LOCAL→NEEDS_REVISION;REPLAN_*→NEEDS_REPLAN
     S.JUDGING: frozenset({S.NEEDS_REVISION, S.NEEDS_REPLAN, S.HUMAN_REVIEW}),
-    # 修订稿回 lint→评审
-    S.NEEDS_REVISION: frozenset({S.ADVERSARIAL_REVIEW}),
+    # 修订稿回 lint→评审;Reviser 非法输出升级人工
+    S.NEEDS_REVISION: frozenset({S.ADVERSARIAL_REVIEW, S.HUMAN_REVIEW}),
     # edit-outline 导入后回 PLANNED(M3.3b)
     S.NEEDS_REPLAN: frozenset({S.PLANNED}),
-    # 人工:批准 / 退回修订 / 退回重规划
-    S.HUMAN_REVIEW: frozenset({S.APPROVED, S.NEEDS_REVISION, S.NEEDS_REPLAN}),
+    # 人工:批准 / 退回修订 / 退回重规划 / 失败后重开
+    S.HUMAN_REVIEW: frozenset({S.APPROVED, S.NEEDS_REVISION, S.NEEDS_REPLAN, S.PLANNED}),
     S.APPROVED: frozenset({S.CANON_LOCKED}),
     S.CANON_LOCKED: frozenset({S.EXPORTED}),
     S.EXPORTED: frozenset(),
@@ -67,3 +67,27 @@ def transition(
             raise IllegalTransition("写前守卫拒绝进入 DRAFTING: 缺少场景卡")
     repo.set_status(project_id, chapter_key, to)
     return to
+
+
+_RESETTABLE = frozenset(
+    {
+        S.DRAFTING,
+        S.ADVERSARIAL_REVIEW,
+        S.JUDGING,
+        S.NEEDS_REVISION,
+        S.NEEDS_REPLAN,
+        S.HUMAN_REVIEW,
+        S.APPROVED,
+    }
+)
+
+
+def reset_to_planned(repo: PlanningRepo, project_id: int, chapter_key: str) -> ChapterStatus:
+    """失败工作流后重开:回到 PLANNED,下一轮走写前守卫。"""
+    current = repo.get_chapter(project_id, chapter_key).status
+    if current is S.PLANNED:
+        return current
+    if current not in _RESETTABLE:
+        raise IllegalTransition(f"{current} 不可重开为 PLANNED")
+    repo.set_status(project_id, chapter_key, S.PLANNED)
+    return S.PLANNED

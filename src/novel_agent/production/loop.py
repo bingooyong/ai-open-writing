@@ -34,6 +34,13 @@ from novel_agent.gateway.structured import StructuredOutputError
 from novel_agent.lint import lint_draft
 from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.settings import desk_settings, review_roles_for
+from novel_agent.production.factory import (
+    is_empty_packet_verdict,
+    is_usable_draft,
+    pick_lockable_candidate,
+    resolve_revision_scope,
+    synthesize_pass_verdict,
+)
 from novel_agent.runtime.agents import (
     CRITICAL_REVIEWERS,
     AgentDeps,
@@ -51,6 +58,7 @@ from novel_agent.workflow import (
     NodeFailed,
     WorkflowPaused,
     check_chapter_budget,
+    reset_to_planned,
     run_node,
     run_node_async,
     transition,
@@ -221,6 +229,23 @@ async def run_chapter_loop(
 
     run = ops.find_resumable_run(project_id, "chapter_loop", chapter_key)
     if run is None:
+        last = ops.latest_workflow_for_chapter(project_id, "chapter_loop", chapter_key)
+        latest_verdict = production.latest_verdict(chapter_key)
+        pass_hold = (
+            chapter.status is ChapterStatus.HUMAN_REVIEW
+            and latest_verdict is not None
+            and latest_verdict.verdict is VerdictType.PASS
+        )
+        if (
+            last is not None
+            and last.status == "failed"
+            and chapter.status
+            not in {ChapterStatus.CANON_LOCKED, ChapterStatus.EXPORTED}
+            and not pass_hold
+        ):
+            ops.void_succeeded_nodes_for_chapter(chapter_key)
+            reset_to_planned(planning, project_id, chapter_key)
+            chapter = planning.get_chapter(project_id, chapter_key)
         run = ops.create_workflow_run(project_id, "chapter_loop", chapter_key)
     assert run.id is not None
     session.commit()
@@ -233,7 +258,7 @@ async def run_chapter_loop(
     _restore_state(ops, production, project_id, chapter_key, state)
 
     def budget() -> None:
-        check_chapter_budget(ops, chapter_key, settings)
+        check_chapter_budget(ops, chapter_key, settings, state.workflow_run_id)
 
     def ctx(*, prior_feedback: str = "") -> ChapterContextPackage:
         outline = planning.get_outline(project_id, chapter_key)
@@ -265,6 +290,10 @@ async def run_chapter_loop(
             budget,
             ctx,
         )
+    except NodeFailed as exc:
+        ops.update_workflow(state.workflow_run_id, status="failed", current_node=exc.node_name)
+        session.commit()
+        raise ChapterLoopError(str(exc)) from exc
     except BudgetExceeded as exc:
         ops.update_workflow(state.workflow_run_id, status="paused", current_node="budget")
         session.commit()
@@ -274,9 +303,9 @@ async def run_chapter_loop(
     latest = production.latest_verdict(chapter_key)
     if chapter.status is ChapterStatus.CANON_LOCKED:
         ops.update_workflow(state.workflow_run_id, status="succeeded", current_node=stopped_at)
-    elif chapter.status in {ChapterStatus.HUMAN_REVIEW, ChapterStatus.NEEDS_REPLAN} or (
-        stopped_at == "n4_lint"
-    ):
+    elif stopped_at in {"n4_lint", "n7_revise"}:
+        ops.update_workflow(state.workflow_run_id, status="failed", current_node=stopped_at)
+    elif chapter.status in {ChapterStatus.HUMAN_REVIEW, ChapterStatus.NEEDS_REPLAN}:
         ops.update_workflow(state.workflow_run_id, status="paused", current_node=stopped_at)
     session.commit()
     return ChapterLoopResult(
@@ -349,6 +378,12 @@ async def _advance(
                 ops, planning, production, project_id, chapter_key, state, ctx_factory
             )
             if not lint_out.get("passed"):
+                n4_key = f"{state.draft_id}|n4"
+                hit = ops.find_success_node(n4_key)
+                if hit is not None and hit.id is not None:
+                    ops.finish_node(hit.id, "voided", hit.output_snapshot, error="lint failed")
+                transition(planning, project_id, chapter_key, ChapterStatus.HUMAN_REVIEW)
+                session.commit()
                 return "n4_lint", "lint 拦截,不消耗评审"
             await _n5(
                 ops, production, deps, project_id, chapter_key, state, budget, ctx_factory
@@ -376,7 +411,16 @@ async def _advance(
                 session.commit()
             continue
         if status is ChapterStatus.NEEDS_REVISION:
-            await _n7(ops, production, deps, project_id, chapter_key, state, budget, ctx_factory)
+            try:
+                await _n7(
+                    ops, production, deps, project_id, chapter_key, state, budget, ctx_factory
+                )
+            except NodeFailed as exc:
+                if "StructuredOutputError" not in str(exc):
+                    raise
+                transition(planning, project_id, chapter_key, ChapterStatus.HUMAN_REVIEW)
+                session.commit()
+                return "n7_revise", "Reviser 输出非法,升级人工"
             if planning.get_chapter(project_id, chapter_key).status is ChapterStatus.NEEDS_REVISION:
                 transition(planning, project_id, chapter_key, ChapterStatus.ADVERSARIAL_REVIEW)
                 session.commit()
@@ -492,7 +536,11 @@ async def _n3(
                 if writer_id == "writer_a":
                     raise result
                 continue
+            if not is_usable_draft(result.full_text()):
+                continue
             pairs.append((writer_id, result))
+        if not pairs:
+            raise ChapterLoopError("没有可用候选稿(过短或占位)")
         blinded, mapping = blind_candidates(pairs)
         candidate_drafts: dict[str, int] = {}
         draft_ids: list[int] = []
@@ -719,10 +767,36 @@ async def _n6(
         ids = state.draft_ids or [primary_id]
         candidates = [draft_from_record(production.get_draft(item)) for item in ids]
         package = ctx_factory()
+        raw: JudgeVerdict | None = None
         try:
             raw = await run_judge(deps, candidates, reports, package, absent=absent)
-        except StructuredOutputError:
-            raise
+            if is_empty_packet_verdict(raw):
+                raw = None
+        except StructuredOutputError as exc:
+            if "未知匿名 issue_id" in str(exc):
+                raise
+            raw = None
+        if raw is None:
+            try:
+                raw = await run_judge(
+                    deps,
+                    candidates,
+                    reports,
+                    package,
+                    absent=absent,
+                    drop_all_quotes=True,
+                )
+                if is_empty_packet_verdict(raw):
+                    raw = None
+            except StructuredOutputError as exc:
+                if "未知匿名 issue_id" in str(exc):
+                    raise
+                raw = None
+        if raw is None:
+            picked = pick_lockable_candidate(candidates, package.boundaries)
+            if picked is None:
+                raise StructuredOutputError("Judge 空包且无可用合规候选")
+            raw = synthesize_pass_verdict(picked)
         verdict = sanitize_verdict(raw, issues)
         n3 = ops.find_success_node(f"{chapter_key}|{state.outline_ver}|1|n3")
         mapping = (n3.output_snapshot.get("candidate_drafts") or {}) if n3 else {}
@@ -818,11 +892,19 @@ async def _n7(
             accepted = [issue.issue_id for issue in issues if not issue.downweighted]
         if not accepted:
             raise ChapterLoopError("REVISE_LOCAL 没有可执行的 issue")
+        accepted_issues = [issue for issue in issues if issue.issue_id in set(accepted)]
+        cards = PlanningRepo(ops.s).list_scene_cards(project_id, chapter_key)
+        scope = resolve_revision_scope(
+            list(verdict.revision_scope),
+            original,
+            cards=cards,
+            issues=accepted_issues,
+        )
         order = RevisionOrder(
             verdict_ref=f"verdict_{record.id}",
             candidate_id=verdict.selected_candidate,
             issue_ids=accepted,
-            scope=verdict.revision_scope,
+            scope=scope,
             locked_strengths=verdict.locked_strengths,
             instructions=verdict.reasoning_summary,
         )

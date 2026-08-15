@@ -43,6 +43,12 @@ def test_illegal_transitions(cur: S, to: S) -> None:
         assert_transition(cur, to)
 
 
+def test_lint_fail_and_reset_transitions() -> None:
+    assert_transition(S.ADVERSARIAL_REVIEW, S.HUMAN_REVIEW)
+    assert_transition(S.NEEDS_REVISION, S.HUMAN_REVIEW)
+    assert_transition(S.HUMAN_REVIEW, S.PLANNED)
+
+
 def test_stale_rules() -> None:
     # 生产中可置 STALE(D15 级联)
     for cur in (S.DRAFTING, S.JUDGING, S.HUMAN_REVIEW, S.APPROVED):

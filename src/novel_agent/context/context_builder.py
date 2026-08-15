@@ -73,7 +73,11 @@ class ContextBuilder:
                 source_chapter=record.source_chapter,
             )
             for (entity_id, state_type), record in sorted(
-                self._canon.latest_entity_states(project_id, include_provisional).items()
+                self._canon.latest_entity_states(
+                    project_id,
+                    include_provisional,
+                    as_of_chapter_key=chapter_key,
+                ).items()
             )
         ]
         package = ChapterContextPackage(
