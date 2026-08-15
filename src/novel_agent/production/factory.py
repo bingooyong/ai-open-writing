@@ -85,9 +85,7 @@ def _is_mostly_scaffold(text: str) -> bool:
     if orig_n == 0:
         return True
     core_n = prose_char_count(_core_prose(text))
-    if (scene_marks or placeholders) and core_n < orig_n * 0.5:
-        return True
-    return False
+    return bool((scene_marks or placeholders) and core_n < orig_n * 0.5)
 
 
 def is_usable_draft(text: str, *, min_chars: int = MIN_DRAFT_PROSE_CHARS) -> bool:

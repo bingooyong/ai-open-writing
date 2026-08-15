@@ -25,9 +25,9 @@ def test_meta_refusal_asking_for_scene_cards_is_rejected() -> None:
     """Live v1c007 Writer B: 656 字拒稿要操作员补场景卡,不得进 Judge。"""
     refusal = (
         "抱歉，我当前仍未收到本场景的场景卡字段、上下文包与硬约束。"
-        "请将以下内容补齐后重新下发：scene_id、entry_state、goal、obstacle。"
+        "请将以下内容补齐后重新下发：scene_id、entry_state、goal、obstacle、硬约束清单。"
         "```\n<<<SCENE:v1c007_s1>>>\n（正文）\n<<<END>>>\n```\n"
-    ) * 3
+    ) * 6
     assert len("".join(refusal.split())) > 400
     assert not is_usable_draft(refusal)
 
