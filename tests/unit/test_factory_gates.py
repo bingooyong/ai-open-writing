@@ -12,13 +12,48 @@ from novel_agent.production.factory import (
 
 
 def _long_prose() -> str:
-    return "临安茶楼里灯火通明，苏晚生一拍醒木。" * 30
+    return "临安茶楼里灯火通明，苏晚生一拍醒木。" * 50
 
 
 def test_short_writer_b_and_placeholder_rejected() -> None:
     assert not is_usable_draft("（正文）")
     assert not is_usable_draft("短稿十个字而已。")
     assert is_usable_draft(_long_prose())
+
+
+def test_meta_refusal_asking_for_scene_cards_is_rejected() -> None:
+    """Live v1c007 Writer B: 656 字拒稿要操作员补场景卡,不得进 Judge。"""
+    refusal = (
+        "抱歉，我当前仍未收到本场景的场景卡字段、上下文包与硬约束。"
+        "请将以下内容补齐后重新下发：scene_id、entry_state、goal、obstacle。"
+        "```\n<<<SCENE:v1c007_s1>>>\n（正文）\n<<<END>>>\n```\n"
+    ) * 3
+    assert len("".join(refusal.split())) > 400
+    assert not is_usable_draft(refusal)
+
+
+def test_repeated_placeholder_and_scene_scaffold_rejected_even_if_long() -> None:
+    padded = ("<<<SCENE:v1c007_s1>>>\n（正文）\n<<<END>>>\n") * 40
+    assert len("".join(padded.split())) > 400
+    assert not is_usable_draft(padded)
+
+
+def test_short_complaint_letter_rejected_beside_real_candidate() -> None:
+    """656 字抱怨信即使不含占位词,也不能跟杀青戏并列进 Judge。"""
+    complaint = "这一场我写不下去，材料不够，请再给一点提示。" * 22
+    assert 400 < len("".join(complaint.split())) < 800
+    assert not is_usable_draft(complaint)
+    killing = "杀青那天灯刚亮，她把最后一条通告夹进夹板，场务已经在拆轨道。" * 40
+    assert is_usable_draft(killing)
+
+
+def test_in_story_scene_card_mention_is_not_a_refusal() -> None:
+    """《穿回去当导演》正文可以写场景卡,不得误杀。"""
+    prose = (
+        "她翻开场景卡，把今晚的杀青戏又过了一遍，场记在旁边点头。"
+        "通告单上的硬约束只有一条：这条巷子里不能出现现代器械。"
+    ) * 25
+    assert is_usable_draft(prose)
 
 
 def test_empty_packet_verdict_detected_without_hard_gate() -> None:
