@@ -38,6 +38,7 @@ from novel_agent.production.factory import (
     is_empty_packet_verdict,
     is_usable_draft,
     pick_lockable_candidate,
+    pick_sole_lockable_candidate,
     resolve_revision_scope,
     synthesize_pass_verdict,
 )
@@ -798,6 +799,13 @@ async def _n6(
                 raise StructuredOutputError("Judge 空包且无可用合规候选")
             raw = synthesize_pass_verdict(picked)
         verdict = sanitize_verdict(raw, issues)
+        if verdict.verdict is not VerdictType.PASS:
+            sole = pick_sole_lockable_candidate(candidates, package.boundaries)
+            if sole is not None:
+                verdict = synthesize_pass_verdict(
+                    sole,
+                    reason="Judge 拒绝 PASS,但仅一稿合规且无硬门禁泄漏:选用该候选,继续锁定。",
+                )
         n3 = ops.find_success_node(f"{chapter_key}|{state.outline_ver}|1|n3")
         mapping = (n3.output_snapshot.get("candidate_drafts") or {}) if n3 else {}
         picked = mapping.get(verdict.selected_candidate)

@@ -7,6 +7,7 @@ from novel_agent.production.factory import (
     is_empty_packet_verdict,
     is_usable_draft,
     pick_lockable_candidate,
+    pick_sole_lockable_candidate,
     resolve_revision_scope,
 )
 
@@ -77,6 +78,28 @@ def test_empty_packet_verdict_detected_without_hard_gate() -> None:
     assert is_empty_packet_verdict(real) is False
 
 
+def _candidate(cid: str, content: str) -> DraftCandidate:
+    return DraftCandidate.model_validate(
+        dict(
+            candidate_id=cid,
+            chapter_key="v1c008",
+            scenes=[{"scene_id": "v1c008_s1", "content": content}],
+            chapter_summary="s",
+        )
+    )
+
+
+def _leaky_prose() -> str:
+    return (
+        _long_prose()
+        + "监视器还没看完，她已经跑到产房门口，穿越的耳鸣炸开，实习生把笔记递上来，真名差点说出口。"
+    )
+
+
+def _clean_onbrief() -> str:
+    return _long_prose() + "周洵还在同组，她不知道镜头在哪，私下只叫朔哥，预报名金鸡金马。"
+
+
 def test_pick_lockable_skips_junk_and_boundary_hits() -> None:
     junk = DraftCandidate.model_validate(
         dict(
@@ -105,6 +128,33 @@ def test_pick_lockable_skips_junk_and_boundary_hits() -> None:
     picked = pick_lockable_candidate([junk, dirty, clean], ["禁无代价全能"])
     assert picked is not None
     assert "禁无代价全能" not in picked.full_text()
+
+
+def test_hard_gate_leak_is_usable_prose_but_not_lockable() -> None:
+    """v1c008 A 类跑题泄漏仍是长正文,n3 放行;工厂锁门必须剔除。"""
+    leaked = _leaky_prose()
+    assert is_usable_draft(leaked)
+    assert pick_lockable_candidate([_candidate("candidate_1", leaked)], []) is None
+    assert pick_lockable_candidate([_candidate("candidate_1", _clean_onbrief())], []) is not None
+
+
+def test_sole_lockable_candidate_ignores_leaky_sibling() -> None:
+    leaked = _candidate("candidate_1", _leaky_prose())
+    clean = _candidate("candidate_2", _clean_onbrief())
+    picked = pick_sole_lockable_candidate([leaked, clean], [])
+    assert picked is not None
+    assert picked.candidate_id == "candidate_2"
+    assert "穿越" not in picked.full_text()
+
+
+def test_sole_lockable_none_when_both_clean_or_both_junk() -> None:
+    clean_a = _candidate("candidate_1", _clean_onbrief())
+    clean_b = _candidate("candidate_2", _long_prose() + "通告单夹进夹板，场务开始拆轨道。")
+    assert pick_sole_lockable_candidate([clean_a, clean_b], []) is None
+    leaked_a = _candidate("candidate_1", _leaky_prose())
+    leaked_b = _candidate("candidate_2", _long_prose() + "天台锁一响，穿越后耳鸣没停。")
+    assert pick_sole_lockable_candidate([leaked_a, leaked_b], []) is None
+    assert pick_sole_lockable_candidate([clean_b], []) is None
 
 
 def test_chinese_revision_scope_falls_back_to_issue_scenes() -> None:

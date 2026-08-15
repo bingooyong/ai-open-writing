@@ -1,4 +1,4 @@
-"""隔夜工厂门禁:短稿/拒稿信剔除、Judge 空包回退、修订范围落到真实 scene_id。
+"""隔夜工厂门禁:短稿/拒稿信剔除、唯一干净候选锁定、Judge 空包回退、修订范围落到真实 scene_id。
 
 不改 Writer / Judge 提示词,只在循环侧拦死现场会停锁的形态。
 """
@@ -57,6 +57,8 @@ _EMPTY_PACKET_MARKERS = (
 )
 _SCENE_ID_IN_TEXT = re.compile(r"(?:v\d+c\d+_s\d+|[A-Za-z]+_s\d+|s\d+)", re.IGNORECASE)
 _WS_RE = re.compile(r"\s+")
+# 硬门禁风格泄漏:真名/穿越/耳鸣/实习生。禁止单凭「笔记」二字。
+_HARD_GATE_LEAK_RE = re.compile(r"穿越|耳鸣|真名|实习生")
 
 
 def prose_char_count(text: str) -> int:
@@ -186,31 +188,62 @@ def resolve_revision_scope(
     return from_issues or [scene.scene_id for scene in draft.scenes]
 
 
+def has_hard_gate_leak(text: str) -> bool:
+    """正文里的真名/穿越/耳鸣/实习生类硬门禁泄漏。"""
+    return bool(_HARD_GATE_LEAK_RE.search(text or ""))
+
+
+def is_lockable_draft(text: str, boundaries: list[str]) -> bool:
+    """可继续锁定:可用正文,且不踩禁写项/工程污染/硬门禁泄漏。"""
+    if not is_usable_draft(text):
+        return False
+    if check_boundaries(text, boundaries):
+        return False
+    if check_engineering_leak(text):
+        return False
+    return not has_hard_gate_leak(text)
+
+
+def _lockable_candidates(
+    candidates: list[DraftCandidate],
+    boundaries: list[str],
+) -> list[DraftCandidate]:
+    return [draft for draft in candidates if is_lockable_draft(draft.full_text(), boundaries)]
+
+
 def pick_lockable_candidate(
     candidates: list[DraftCandidate],
     boundaries: list[str],
 ) -> DraftCandidate | None:
     """空包回退:选更长的合规正文,排除占位短稿与真硬门禁命中。"""
-    viable: list[DraftCandidate] = []
-    for draft in candidates:
-        text = draft.full_text()
-        if not is_usable_draft(text):
-            continue
-        if check_boundaries(text, boundaries):
-            continue
-        if check_engineering_leak(text):
-            continue
-        viable.append(draft)
+    viable = _lockable_candidates(candidates, boundaries)
     if not viable:
         return None
     return max(viable, key=lambda item: prose_char_count(item.full_text()))
 
 
-def synthesize_pass_verdict(candidate: DraftCandidate) -> JudgeVerdict:
+def pick_sole_lockable_candidate(
+    candidates: list[DraftCandidate],
+    boundaries: list[str],
+) -> DraftCandidate | None:
+    """真 REPLAN 回退:至少两稿里恰好一稿可锁才选用,避免被泄漏兄稿毒死整章。"""
+    if len(candidates) < 2:
+        return None
+    viable = _lockable_candidates(candidates, boundaries)
+    if len(viable) != 1:
+        return None
+    return viable[0]
+
+
+def synthesize_pass_verdict(
+    candidate: DraftCandidate,
+    *,
+    reason: str = "Judge 空包或 schema echo 后回退:选用更长的合规候选,继续锁定。",
+) -> JudgeVerdict:
     return JudgeVerdict(
         verdict=VerdictType.PASS,
         selected_candidate=candidate.candidate_id,
         hard_gate_failures=[],
         rulings=[],
-        reasoning_summary="Judge 空包或 schema echo 后回退:选用更长的合规候选,继续锁定。",
+        reasoning_summary=reason,
     )

@@ -203,6 +203,89 @@ async def test_replan_path_stops_at_needs_replan(tmp_path) -> None:
         session.close()
 
 
+async def test_replan_poisoned_by_leaky_sibling_locks_sole_clean_draft(tmp_path) -> None:
+    """v1c008: Judge 因 A 跑题+泄漏 REPLAN,B 干净则继续锁定,不停车 NEEDS_REPLAN。"""
+    mock = MockProvider()
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    mock.register(
+        "writer_a",
+        lambda req: two_part_text(
+            req,
+            SCENE_1 + "产房门口她忽然穿越，耳鸣炸开，实习生把笔记递上来，真名差点出口。",
+            SCENE_2,
+            "跑题",
+        ),
+    )
+    mock.register(
+        "judge",
+        lambda _req: verdict_json(
+            "REPLAN_CHAPTER",
+            accepted_issue="continuity_1",
+            rollback_target="chapter_outline",
+        ),
+    )
+    try:
+        result = await run_chapter_loop(
+            session,
+            deps,
+            project_id,
+            "v1c001",
+            gates=ChapterLoopGates.auto(),
+        )
+        session.commit()
+        assert result.status is ChapterStatus.CANON_LOCKED
+        assert result.verdict is VerdictType.PASS
+        n3 = OpsRepo(session).find_success_node("v1c001|1|1|n3")
+        assert n3 is not None
+        assert len(n3.output_snapshot.get("draft_ids") or []) == 2
+        locked = ProductionRepo(session).get_draft(result.draft_id)
+        assert "穿越" not in locked.content_text
+        assert "耳鸣" not in locked.content_text
+        names = _node_names(session, result.workflow_run_id)
+        assert "n9_canon_commit" in names
+        assert PlanningRepo(session).get_chapter(project_id, "v1c001").status is (
+            ChapterStatus.CANON_LOCKED
+        )
+    finally:
+        session.close()
+
+
+async def test_replan_stands_when_both_candidates_are_leaky(tmp_path) -> None:
+    mock = MockProvider()
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    leak = "天台锁一响，她穿越后耳鸣没停，实习生还在问真名。"
+    mock.register(
+        "writer_a",
+        lambda req: two_part_text(req, SCENE_1 + leak, SCENE_2, "泄漏A"),
+    )
+    mock.register(
+        "writer_b",
+        lambda req: two_part_text(req, SCENE_1 + leak, SCENE_2, "泄漏B"),
+    )
+    mock.register(
+        "judge",
+        lambda _req: verdict_json(
+            "REPLAN_CHAPTER",
+            accepted_issue="continuity_1",
+            rollback_target="chapter_outline",
+        ),
+    )
+    try:
+        result = await run_chapter_loop(
+            session,
+            deps,
+            project_id,
+            "v1c001",
+            gates=ChapterLoopGates.auto(),
+        )
+        session.commit()
+        assert result.status is ChapterStatus.NEEDS_REPLAN
+        assert result.verdict is VerdictType.REPLAN_CHAPTER
+        assert "n9_canon_commit" not in _node_names(session, result.workflow_run_id)
+    finally:
+        session.close()
+
+
 async def test_empty_judge_packet_retries_then_locks_longer_candidate(tmp_path) -> None:
     mock = MockProvider()
     session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
