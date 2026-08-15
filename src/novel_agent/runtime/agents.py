@@ -472,6 +472,26 @@ async def run_review_round(
 # ---------- Judge ----------
 
 
+def _compact_judge_issues(issues: list[dict], draft_text: str) -> list[dict]:
+    """丢掉已出现在正文中的长 evidence.quote,保留 id/claim/gates/scene_ids。"""
+    compacted: list[dict] = []
+    for issue in issues:
+        item = dict(issue)
+        evidence_out: list[object] = []
+        for ev in item.get("evidence") or []:
+            if not isinstance(ev, dict):
+                evidence_out.append(ev)
+                continue
+            ev_copy = dict(ev)
+            quote = ev_copy.get("quote") or ""
+            if quote and quote in draft_text:
+                ev_copy["quote"] = "见正文"
+            evidence_out.append(ev_copy)
+        item["evidence"] = evidence_out
+        compacted.append(item)
+    return compacted
+
+
 async def run_judge(
     deps: AgentDeps,
     candidates: list[DraftCandidate],
@@ -483,6 +503,8 @@ async def run_judge(
     spec = deps.prompt("judge")
     all_issues: list[ReviewIssue] = [i for r in reports for i in r.issues]
     anon, issue_id_mapping = anonymize_issues_with_mapping(all_issues)
+    draft_text = "\n\n".join(c.full_text() for c in candidates)
+    anon = _compact_judge_issues(anon, draft_text)
     verdict_schema = json.dumps(JudgeVerdict.model_json_schema(), ensure_ascii=False)
 
     user = "\n\n".join(

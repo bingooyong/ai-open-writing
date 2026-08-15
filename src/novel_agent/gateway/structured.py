@@ -51,16 +51,27 @@ def _strip_reasoning_wrappers(text: str) -> str:
 
 
 def _extract_json(text: str) -> str:
-    """剥离思维链包装、markdown 代码栅栏与前后噪声,取最外层 JSON 对象。"""
+    """剥离思维链包装、markdown 代码栅栏与前后噪声,取第一个完整 JSON 对象。
+
+    用 raw_decode 丢掉首个对象之后的拼接 JSON / 尾部垃圾,避免
+    ``json.loads`` 报 Extra data。首个对象本身非法时回退到首 ``{`` 至末 ``}``。
+    """
     t = _strip_reasoning_wrappers(text)
     fence = re.search(r"```(?:json)?\s*(.*?)```", t, re.DOTALL)
     if fence:
         t = fence.group(1).strip()
     start = t.find("{")
-    end = t.rfind("}")
-    if start >= 0 and end > start:
-        return t[start : end + 1]
-    return t
+    if start < 0:
+        return t
+    snippet = t[start:]
+    try:
+        _, end = json.JSONDecoder().raw_decode(snippet)
+        return snippet[:end]
+    except json.JSONDecodeError:
+        end = t.rfind("}")
+        if end > start:
+            return t[start : end + 1]
+        return t
 
 
 def _output_truncated(resp: ModelResponse, req: ModelRequest) -> bool:

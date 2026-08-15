@@ -14,6 +14,15 @@ from novel_agent.config import SlotConfig
 from novel_agent.gateway.base import ModelRequest, ModelResponse
 
 REAL_REQUEST_TIMEOUT_S = 600.0
+_HTTP_ERROR_BODY_LIMIT = 500
+
+
+def _http_error_body(response: httpx.Response) -> str:
+    """截断错误响应体,供 ≥400 诊断;不含请求头/密钥。"""
+    text = (getattr(response, "text", None) or "").strip()
+    if len(text) > _HTTP_ERROR_BODY_LIMIT:
+        return text[:_HTTP_ERROR_BODY_LIMIT] + "…"
+    return text
 
 
 def _is_minimax(slot: SlotConfig) -> bool:
@@ -94,6 +103,10 @@ class OpenAICompatProvider:
                 headers={"Authorization": f"Bearer {slot.api_key.get_secret_value()}"},
                 json=body,
             )
+            if getattr(r, "status_code", 0) >= 400:
+                raise RuntimeError(
+                    f"openai_compat HTTP {r.status_code}: {_http_error_body(r)}"
+                )
             r.raise_for_status()
             data = r.json()
         usage = data.get("usage", {})
