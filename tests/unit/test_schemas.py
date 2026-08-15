@@ -195,6 +195,25 @@ def test_replan_requires_rollback_target() -> None:
         JudgeVerdict.model_validate(_verdict(verdict="REPLAN_SCENE"))
 
 
+def test_issue_ruling_ignores_unknown_fields() -> None:
+    """Live MiniMax: rulings[i].downweighted 不得整包判非法。"""
+    verdict = JudgeVerdict.model_validate(
+        _verdict(
+            rulings=[
+                {
+                    "issue_id": "issue_1",
+                    "accepted": True,
+                    "reason": "证据成立",
+                    "downweighted": True,
+                }
+            ]
+        )
+    )
+    assert verdict.rulings[0].issue_id == "issue_1"
+    assert verdict.rulings[0].accepted is True
+    assert "downweighted" not in verdict.rulings[0].model_dump()
+
+
 # ---------- CanonDelta 与上下文包 ----------
 
 

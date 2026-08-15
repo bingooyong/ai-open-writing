@@ -158,3 +158,18 @@ def test_ops_repo_idempotency_and_budget(engine) -> None:
             input_tokens=10, output_tokens=20, latency_ms=5, cost_estimate=0.0,
         )
         assert repo.calls_for_chapter("v1c001") == 1
+        assert repo.calls_for_chapter("v1c001", workflow_run_id=run.id) == 1
+
+        repo.update_workflow(run.id, status="failed")
+        assert repo.find_resumable_run(pid, "chapter_loop", "v1c001") is None
+        run2 = repo.create_workflow_run(pid, "chapter_loop", chapter_key="v1c001")
+        repo.record_model_run(
+            project_id=pid, chapter_key="v1c001", agent_role="judge",
+            provider="mock", model="m", prompt_version="j1",
+            input_tokens=4, output_tokens=4, latency_ms=3, cost_estimate=0.0,
+        )
+        assert repo.calls_for_chapter("v1c001") == 2
+        assert repo.calls_for_chapter("v1c001", workflow_run_id=run2.id) == 1
+        assert repo.latest_workflow_for_chapter(pid, "chapter_loop", "v1c001").id == run2.id
+        repo.update_workflow(run2.id, status="failed")
+        assert repo.find_resumable_run(pid, "chapter_loop", "v1c001") is None

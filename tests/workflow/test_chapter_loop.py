@@ -19,7 +19,11 @@ from novel_agent.planning.mock_fixtures import register_planning_defaults
 from novel_agent.production.loop import ChapterLoopGates, run_chapter_loop
 from novel_agent.production.mock_fixtures import (
     LOCATABLE_QUOTE,
+    SCENE_1,
+    SCENE_1_REVISED,
+    SCENE_2,
     register_chapter_loop_defaults,
+    two_part_text,
     verdict_json,
 )
 from novel_agent.runtime.agents import AgentDeps
@@ -195,6 +199,162 @@ async def test_replan_path_stops_at_needs_replan(tmp_path) -> None:
             ChapterStatus.NEEDS_REPLAN
         )
         assert CanonRepo(session).committed_count(project_id) == 0
+    finally:
+        session.close()
+
+
+async def test_empty_judge_packet_retries_then_locks_longer_candidate(tmp_path) -> None:
+    mock = MockProvider()
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    mock.register(
+        "judge",
+        lambda _req: json.dumps(
+            {
+                "verdict": "HUMAN_REVIEW",
+                "selected_candidate": "candidate_1",
+                "reasoning_summary": "用户未提供评审材料，强制 HUMAN_REVIEW",
+            },
+            ensure_ascii=False,
+        ),
+    )
+    try:
+        result = await run_chapter_loop(
+            session, deps, project_id, "v1c001", gates=ChapterLoopGates.auto()
+        )
+        session.commit()
+        assert result.status is ChapterStatus.CANON_LOCKED
+        assert result.verdict is VerdictType.PASS
+        assert sum(1 for role, _req in mock.calls if role == "judge") == 2
+        run = OpsRepo(session).get_workflow_run(result.workflow_run_id)
+        assert run.status == "succeeded"
+    finally:
+        session.close()
+
+
+async def test_short_writer_b_is_dropped_before_judge(tmp_path) -> None:
+    mock = MockProvider()
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    mock.register(
+        "writer_b",
+        lambda req: two_part_text(req, "（正文）", "（正文）", "空稿"),
+    )
+    try:
+        result = await run_chapter_loop(
+            session, deps, project_id, "v1c001", gates=ChapterLoopGates.auto()
+        )
+        session.commit()
+        assert result.status is ChapterStatus.CANON_LOCKED
+        n3 = OpsRepo(session).find_success_node("v1c001|1|1|n3")
+        assert n3 is not None
+        assert len(n3.output_snapshot.get("draft_ids") or []) == 1
+    finally:
+        session.close()
+
+
+async def test_chinese_revision_scope_does_not_block_lint(tmp_path) -> None:
+    mock = MockProvider()
+    judge_calls = {"n": 0}
+
+    def judge_handler(_req):
+        judge_calls["n"] += 1
+        if judge_calls["n"] == 1:
+            return verdict_json(
+                "REVISE_LOCAL",
+                accepted_issue="continuity_1",
+                revision_scope=["只修开场对白，收紧因果"],
+                hard_gates=["canon_conflict"],
+            )
+        return verdict_json("PASS")
+
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    mock.register("judge", judge_handler)
+    try:
+        result = await run_chapter_loop(
+            session, deps, project_id, "v1c001", gates=ChapterLoopGates.auto()
+        )
+        session.commit()
+        assert result.status is ChapterStatus.CANON_LOCKED
+        assert judge_calls["n"] == 2
+        assert sum(1 for role, _req in mock.calls if role == "reviser") == 1
+    finally:
+        session.close()
+
+
+async def test_n7_xxx_placeholder_does_not_leave_running(tmp_path) -> None:
+    mock = MockProvider()
+    judge_calls = {"n": 0}
+
+    def judge_handler(_req):
+        judge_calls["n"] += 1
+        if judge_calls["n"] == 1:
+            return verdict_json(
+                "REVISE_LOCAL",
+                accepted_issue="continuity_1",
+                revision_scope=["v1c001_s1"],
+                hard_gates=["canon_conflict"],
+            )
+        return verdict_json("PASS")
+
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    mock.register("judge", judge_handler)
+    mock.register(
+        "reviser",
+        lambda req: two_part_text(req, SCENE_1_REVISED, SCENE_2, "评书成真").replace(
+            "v1c001_s1", "xxx", 1
+        ).replace("v1c001_s2", "xxx", 1),
+    )
+    try:
+        result = await run_chapter_loop(
+            session, deps, project_id, "v1c001", gates=ChapterLoopGates.auto()
+        )
+        session.commit()
+        assert result.status is ChapterStatus.CANON_LOCKED
+        run = OpsRepo(session).get_workflow_run(result.workflow_run_id)
+        assert run.status != "running"
+    finally:
+        session.close()
+
+
+async def test_failed_workflow_is_not_resumed(tmp_path) -> None:
+    mock = MockProvider()
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    mock.register(
+        "writer_a",
+        lambda req: two_part_text(
+            req,
+            SCENE_1 + '{"issue_id": "prompt_leak"}',
+            SCENE_2,
+            "泄漏",
+        ),
+    )
+    mock.register(
+        "writer_b",
+        lambda req: two_part_text(
+            req,
+            SCENE_1 + '{"issue_id": "prompt_leak"}',
+            SCENE_2,
+            "泄漏",
+        ),
+    )
+    try:
+        first = await run_chapter_loop(
+            session, deps, project_id, "v1c001", gates=ChapterLoopGates.auto()
+        )
+        session.commit()
+        assert first.status is ChapterStatus.HUMAN_REVIEW
+        assert first.stopped_at == "n4_lint"
+        run = OpsRepo(session).get_workflow_run(first.workflow_run_id)
+        assert run.status == "failed"
+        assert OpsRepo(session).find_resumable_run(project_id, "chapter_loop", "v1c001") is None
+
+        mock.register("writer_a", lambda req: two_part_text(req, SCENE_1, SCENE_2, "干净"))
+        mock.register("writer_b", lambda req: two_part_text(req, SCENE_1, SCENE_2, "干净"))
+        second = await run_chapter_loop(
+            session, deps, project_id, "v1c001", gates=ChapterLoopGates.auto()
+        )
+        session.commit()
+        assert second.workflow_run_id != first.workflow_run_id
+        assert second.status is ChapterStatus.CANON_LOCKED
     finally:
         session.close()
 

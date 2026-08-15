@@ -76,6 +76,19 @@ def test_lint_boundary_hit() -> None:
     assert any(f.code == "boundary" for f in report.blocking)
 
 
+def test_lint_boundary_denial_does_not_trip() -> None:
+    """写手常写「我没说X / 我没解释X」,不得当禁写命中。"""
+    denied = _draft(content="我没说枪支弹药。我没解释枪支弹药。" + "正文。" * 100)
+    report = lint_draft(denied, _cards(), ["枪支弹药"])
+    assert all(f.code != "boundary" for f in report.findings)
+
+
+def test_lint_boundary_denial_still_trips_real_use() -> None:
+    mixed = _draft(content="我没解释昨夜的事,他掏出了枪支弹药。" + "正文。" * 80)
+    report = lint_draft(mixed, _cards(), ["枪支弹药"])
+    assert any(f.code == "boundary" for f in report.blocking)
+
+
 def test_lint_scene_mismatch() -> None:
     wrong = DraftCandidate.model_validate(
         dict(
@@ -130,3 +143,49 @@ def test_revision_authority() -> None:
     report = lint_draft(bad, cards, [], original=original, order=order)
     codes = [f.code for f in report.blocking]
     assert "unauthorized" in codes
+
+
+def test_revision_scope_chinese_maps_to_scene_ids() -> None:
+    from novel_agent.production.factory import resolve_revision_scope
+
+    original = DraftCandidate.model_validate(
+        dict(
+            candidate_id="candidate_1",
+            chapter_key="v1c001",
+            scenes=[
+                {"scene_id": "v1c001_s1", "content": "场景一原文。"},
+                {"scene_id": "v1c001_s2", "content": "场景二原文。"},
+            ],
+            chapter_summary="s",
+        )
+    )
+    issue = ReviewIssue.model_validate(
+        {
+            **_issue(),
+            "issue_id": "i1",
+            "evidence": [{"scene_id": "v1c001_s1", "quote": "场景一原文。"}],
+        }
+    )
+    scope = resolve_revision_scope(
+        ["只修开场对白,收紧因果"],
+        original,
+        issues=[issue],
+    )
+    assert scope == ["v1c001_s1"]
+
+    order = RevisionOrder.model_validate(
+        dict(
+            verdict_ref="v1",
+            candidate_id="candidate_1",
+            issue_ids=["i1"],
+            scope=scope,
+            instructions="只修开场",
+        )
+    )
+    cards = [
+        SceneCard.model_validate({**SCENE, "scene_id": "v1c001_s1"}),
+        SceneCard.model_validate({**SCENE, "scene_id": "v1c001_s2"}),
+    ]
+    revised = original.model_copy(deep=True)
+    revised.scenes[0].content = "场景一修订后。"
+    assert lint_draft(revised, cards, [], original=original, order=order).passed

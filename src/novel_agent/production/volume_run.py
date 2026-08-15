@@ -166,6 +166,7 @@ def _next_unfinished(
     if keep_going:
         skip.add(ChapterStatus.NEEDS_REPLAN)
         skip.add(ChapterStatus.HUMAN_REVIEW)
+        skip.add(ChapterStatus.ADVERSARIAL_REVIEW)
     for chapter in chapters:
         if chapter.status not in skip:
             return chapter
@@ -429,6 +430,7 @@ async def _run_occupied(
             if keep_going and result.status in {
                 ChapterStatus.NEEDS_REPLAN,
                 ChapterStatus.HUMAN_REVIEW,
+                ChapterStatus.ADVERSARIAL_REVIEW,
             }:
                 current = ""
                 continue

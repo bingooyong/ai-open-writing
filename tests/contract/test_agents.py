@@ -243,6 +243,34 @@ async def test_judge_uses_bounded_context_slice(deps) -> None:
     assert "JUDGE_CONTEXT_SHOULD_NOT_INCLUDE_THIS" not in judge_request.user
 
 
+async def test_judge_user_omits_in_draft_evidence_quotes(deps) -> None:
+    draft = await run_writer(deps, _ctx(), writer_id="writer_a")
+    long_quote = draft.scenes[0].content
+    report = await run_reviewer(deps, ReviewerRole.PLOT, draft, _ctx())
+    report = report.model_copy(
+        update={
+            "issues": [
+                report.issues[0].model_copy(
+                    update={
+                        "claim": "开场信息越权",
+                        "evidence": [
+                            report.issues[0].evidence[0].model_copy(update={"quote": long_quote})
+                        ],
+                    }
+                )
+            ]
+        }
+    )
+    await run_judge(deps, [draft], [report], _ctx(), absent=[])
+
+    user = [req for role, req in deps.mock.calls if role == "judge"][-1].user
+    assert long_quote in user
+    assert user.count(long_quote) == 1
+    assert "开场信息越权" in user
+    assert "issue_1" in user
+    assert "reviewer_role" not in user
+
+
 async def test_red_team_issue_id_is_blinded_and_restored_for_rulings(deps) -> None:
     draft = await run_writer(deps, _ctx(), writer_id="writer_a")
     report = await run_reviewer(deps, ReviewerRole.RED_TEAM, draft, _ctx())

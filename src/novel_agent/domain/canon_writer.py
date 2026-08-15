@@ -53,7 +53,9 @@ class CanonWriter:
     def validate(self, delta: CanonDelta, include_provisional: bool = True) -> list[str]:
         """返回冲突清单;空 = 通过。批次内校验须叠加 provisional(D15)。"""
         current = self.canon.latest_entity_states(
-            self.project_id, include_provisional=include_provisional
+            self.project_id,
+            include_provisional=include_provisional,
+            as_of_chapter_key=delta.chapter_key,
         )
         conflicts: list[str] = []
 

@@ -66,6 +66,20 @@ def test_crash_resume_skips_succeeded_nodes(tmp_path) -> None:
     assert calls == {"n1": 1, "n2": 2, "n3": 1}
 
 
+def test_failed_workflow_is_not_resumable(tmp_path) -> None:
+    db = tmp_path / "t.db"
+    pid = _setup(db)
+    engine = build_engine(db)
+    with session_scope(engine) as s:
+        ops = OpsRepo(s)
+        run = ops.create_workflow_run(pid, "chapter_loop", "v1c001")
+        ops.update_workflow(run.id, status="failed", current_node="n7_revise")
+        assert ops.find_resumable_run(pid, "chapter_loop", "v1c001") is None
+        fresh = ops.create_workflow_run(pid, "chapter_loop", "v1c001")
+        assert fresh.id != run.id
+        assert ops.find_resumable_run(pid, "chapter_loop", "v1c001") is not None
+
+
 def test_revision_round_survives_restart(tmp_path) -> None:
     db = tmp_path / "t.db"
     pid = _setup(db)

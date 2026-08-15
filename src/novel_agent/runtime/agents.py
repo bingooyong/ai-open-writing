@@ -49,6 +49,7 @@ from novel_agent.runtime.blinding import (
     anonymize_issues_with_mapping,
     assert_no_leak,
 )
+from novel_agent.runtime.judge_packet import compact_judge_issues as _compact_judge_issues
 from novel_agent.runtime.prompts import PromptSpec, load_prompt
 
 # 不可缺席评审(Spec §6 N5)
@@ -478,11 +479,15 @@ async def run_judge(
     reports: list[ReviewReport],
     ctx: ChapterContextPackage,
     absent: list[str] | None = None,
+    *,
+    drop_all_quotes: bool = False,
 ) -> JudgeVerdict:
     """裁判:输入为盲化候选 + 匿名化意见集 + 匿名缺席席位;泄漏断言在调用前执行(D11)。"""
     spec = deps.prompt("judge")
     all_issues: list[ReviewIssue] = [i for r in reports for i in r.issues]
     anon, issue_id_mapping = anonymize_issues_with_mapping(all_issues)
+    draft_text = "\n\n".join(c.full_text() for c in candidates)
+    anon = _compact_judge_issues(anon, draft_text, drop_all_quotes=drop_all_quotes)
     verdict_schema = json.dumps(JudgeVerdict.model_json_schema(), ensure_ascii=False)
 
     user = "\n\n".join(

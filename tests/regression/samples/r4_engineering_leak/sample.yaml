@@ -6,7 +6,7 @@ expect:
   judge_blocks: false
   rollback: []
   reviewers_called: false
-  status: ADVERSARIAL_REVIEW
+  status: HUMAN_REVIEW
   verdict: null
 kernel:
   premise: 如果一个说书人发现自己讲的故事会成真

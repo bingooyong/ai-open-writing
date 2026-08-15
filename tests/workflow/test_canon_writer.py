@@ -91,6 +91,48 @@ def test_provisional_promote_and_idempotent_finalize(env) -> None:
         assert CanonRepo(s).current_canon_version(pid) == "canon_v1"
 
 
+def test_latest_entity_states_follow_story_order_not_row_id(env) -> None:
+    """keep-going 先锁后章时,前章 n9 不得拿后章行 id 当当前态。"""
+    engine, pid = env
+    with session_scope(engine) as s:
+        planning = PlanningRepo(s)
+        from test_schemas import OUTLINE
+
+        from novel_agent.domain.schemas import ChapterOutline
+
+        planning.create_chapter(
+            pid, ChapterOutline.model_validate({**OUTLINE, "chapter_key": "v1c001"}), 1
+        )
+        planning.create_chapter(
+            pid, ChapterOutline.model_validate({**OUTLINE, "chapter_key": "v1c002"}), 2
+        )
+        planning.create_chapter(
+            pid, ChapterOutline.model_validate({**OUTLINE, "chapter_key": "v1c003"}), 3
+        )
+        repo = CanonRepo(s)
+        repo.append_entity_state(pid, "ch_su", "status", "茶楼说书", "开局", "v1c001")
+        repo.append_entity_state(pid, "ch_su", "status", "已入书局", "后章先锁", "v1c003")
+
+    with session_scope(engine) as s:
+        repo = CanonRepo(s)
+        by_id = repo.latest_entity_states(pid)
+        assert by_id[("ch_su", "status")].value == "已入书局"
+        as_of_c2 = repo.latest_entity_states(pid, as_of_chapter_key="v1c002")
+        assert as_of_c2[("ch_su", "status")].value == "茶楼说书"
+
+    with session_scope(engine) as s:
+        OpsRepo(s).save_approval(pid, "chapter", "v1c002", "approved")
+        CanonWriter(s, pid).finalize(
+            _delta("v1c002", old_value="茶楼说书", new_value="被执事盯上"),
+            "idem-order",
+            "v1c002",
+        )
+
+    with session_scope(engine) as s:
+        as_of_c2 = CanonRepo(s).latest_entity_states(pid, as_of_chapter_key="v1c002")
+        assert as_of_c2[("ch_su", "status")].value == "被执事盯上"
+
+
 def test_git_checkpoint(tmp_path) -> None:
     """D12:批准后产生 git 检查点;git 失败不影响事务(此处验证成功路径)。"""
     repo_dir = tmp_path / "repo"

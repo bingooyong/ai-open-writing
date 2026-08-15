@@ -244,3 +244,49 @@ async def test_openai_compat_non_minimax_omits_thinking_extras(monkeypatch) -> N
     assert "thinking" not in captured["body"]
     assert "reasoning_split" not in captured["body"]
     assert "max_completion_tokens" not in captured["body"]
+
+
+async def test_openai_compat_http_error_includes_truncated_body(monkeypatch) -> None:
+    body = '{"message":"input new_sensitive (1026)"}' + ("垫" * 800)
+
+    class Response:
+        status_code = 422
+        text = body
+
+        def raise_for_status(self) -> None:
+            raise AssertionError("≥400 应先带上响应体再抛")
+
+        def json(self) -> dict:
+            raise AssertionError("≥400 不应再解析成功体")
+
+    class Client:
+        def __init__(self, *, timeout: float) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            pass
+
+        async def post(self, url: str, *, headers: dict, json: dict) -> Response:
+            assert "secret" not in json
+            return Response()
+
+    monkeypatch.setattr(real.httpx, "AsyncClient", Client)
+    with pytest.raises(Exception, match="input new_sensitive") as exc:
+        await real.OpenAICompatProvider().complete(
+            SlotConfig(
+                provider="openai_compat",
+                model="MiniMax-M3",
+                family="minimax-m3",
+                api_key="secret-should-not-leak",
+                base_url="https://api.example/v1",
+            ),
+            ModelRequest(user="judge packet"),
+            "judge",
+        )
+    message = str(exc.value)
+    assert "422" in message
+    assert "secret-should-not-leak" not in message
+    assert "垫" * 800 not in message
