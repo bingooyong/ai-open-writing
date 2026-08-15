@@ -165,6 +165,7 @@ def _next_unfinished(
     skip = set(_DONE)
     if keep_going:
         skip.add(ChapterStatus.NEEDS_REPLAN)
+        skip.add(ChapterStatus.HUMAN_REVIEW)
     for chapter in chapters:
         if chapter.status not in skip:
             return chapter
@@ -217,7 +218,7 @@ async def run_volume(
 ) -> VolumeRunResult:
     """无人值守卷长跑:plan-more 补窗口,写未锁定章,遇门禁/预算停下。
 
-    默认 keep-going:单章 NEEDS_REPLAN 挂起后继续后续已规划章,不因一章停卷。
+    默认 keep-going:单章 NEEDS_REPLAN / HUMAN_REVIEW 挂起后继续后续已规划章,不因一章停卷。
     """
     _require_budget(budget_usd)
     if max_chapters is not None and max_chapters < 1:
@@ -425,7 +426,10 @@ async def _run_occupied(
                     written.append(result.chapter_key)
                 current = ""
                 continue
-            if keep_going and result.status is ChapterStatus.NEEDS_REPLAN:
+            if keep_going and result.status in {
+                ChapterStatus.NEEDS_REPLAN,
+                ChapterStatus.HUMAN_REVIEW,
+            }:
                 current = ""
                 continue
             after = _blocker_reason(result.status)
