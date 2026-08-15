@@ -926,9 +926,9 @@ def run_volume_cmd(
         bool, typer.Option("--open-volume", help="窗口续规划时开下一卷")
     ] = False,
 ) -> None:
-    """无人值守卷长跑:窗口不足则 plan-more,再写未锁定章;遇预算/人工门禁停下。
+    """无人值守卷长跑:窗口不足则 plan-more,再写未锁定章;遇预算/STALE 停下。
 
-    默认不因单章 NEEDS_REPLAN 停卷;该章挂起,后续已规划章继续。
+    默认不因单章 NEEDS_REPLAN / HUMAN_REVIEW 停卷;该章挂起,后续已规划章继续。
     """
     _require_yes_or_tty(yes)
     if budget_usd is None or budget_usd <= 0:
