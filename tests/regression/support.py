@@ -123,7 +123,7 @@ def _sample_verdict(sample: dict[str, Any]) -> str:
 def _pad_sample_prose(text: str) -> str:
     filler = "街面的更鼓远远响了一声，茶客把碗放下，谁也没再追问下一句。"
     compact = "".join(text.split())
-    while len(compact) < 400:
+    while len(compact) < 800:
         text = text + filler
         compact = "".join(text.split())
     return text

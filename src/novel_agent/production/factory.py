@@ -1,4 +1,4 @@
-"""隔夜工厂门禁:短稿剔除、Judge 空包回退、修订范围落到真实 scene_id。
+"""隔夜工厂门禁:短稿/拒稿信剔除、Judge 空包回退、修订范围落到真实 scene_id。
 
 不改 Writer / Judge 提示词,只在循环侧拦死现场会停锁的形态。
 """
@@ -16,7 +16,7 @@ from novel_agent.domain.schemas import (
 )
 from novel_agent.lint import check_boundaries, check_engineering_leak
 
-MIN_DRAFT_PROSE_CHARS = 400
+MIN_DRAFT_PROSE_CHARS = 800
 _PLACEHOLDER_PROSE = frozenset(
     {
         "（正文）",
@@ -29,6 +29,21 @@ _PLACEHOLDER_PROSE = frozenset(
         "TODO",
         "TBD",
     }
+)
+_PLACEHOLDER_BODY_RE = re.compile(r"（正文）|\(正文\)|【正文】")
+_PROTOCOL_MARK_RE = re.compile(
+    r"```(?:markdown|text|md)?\s*|<<<SCENE:[^>\n]+>>>|<<<END>>>|<<<META>>>|```",
+    re.IGNORECASE,
+)
+# 操作员拒稿口吻。禁止单凭「场景卡」二字,以免误杀《穿回去当导演》正文。
+_META_REFUSAL_RE = re.compile(
+    r"(?:"
+    r"仍未收到本场景|未收到本场景|尚未收到本场景|我当前仍未收到"
+    r"|请将以下内容补齐|补齐后重新下发"
+    r"|重新下发[：:]"
+    r"|场景卡字段|上下文包字段"
+    r"|请(?:提供|补齐|补充).{0,24}(?:场景卡|上下文包|硬约束)"
+    r")"
 )
 _EMPTY_PACKET_MARKERS = (
     "用户未提供",
@@ -48,12 +63,44 @@ def prose_char_count(text: str) -> int:
     return len(_WS_RE.sub("", text or ""))
 
 
+def _core_prose(text: str) -> str:
+    """剥掉 SCENE/END 脚手架、围栏和「（正文）」后再计字。"""
+    stripped = _PROTOCOL_MARK_RE.sub(" ", text or "")
+    return _PLACEHOLDER_BODY_RE.sub(" ", stripped)
+
+
+def _looks_like_meta_refusal(text: str) -> bool:
+    """要操作员补场景卡/上下文包,而不是在写正文。"""
+    return bool(_META_REFUSAL_RE.search(text or ""))
+
+
+def _is_mostly_scaffold(text: str) -> bool:
+    placeholders = _PLACEHOLDER_BODY_RE.findall(text)
+    scene_marks = len(re.findall(r"<<<SCENE:", text, re.IGNORECASE))
+    if len(placeholders) >= 3:
+        return True
+    if scene_marks >= 2 and placeholders:
+        return True
+    orig_n = prose_char_count(text)
+    if orig_n == 0:
+        return True
+    core_n = prose_char_count(_core_prose(text))
+    return bool((scene_marks or placeholders) and core_n < orig_n * 0.5)
+
+
 def is_usable_draft(text: str, *, min_chars: int = MIN_DRAFT_PROSE_CHARS) -> bool:
-    """真实正文:不是占位词,去空白后达到最低字数。"""
+    """真实正文:不是拒稿信/脚手架,剥协议标记后达到最低字数。"""
     cleaned = (text or "").strip()
     if not cleaned or cleaned in _PLACEHOLDER_PROSE:
         return False
-    return prose_char_count(cleaned) >= min_chars
+    if _looks_like_meta_refusal(cleaned):
+        return False
+    if _is_mostly_scaffold(cleaned):
+        return False
+    core = _core_prose(cleaned).strip()
+    if not core or core in _PLACEHOLDER_PROSE:
+        return False
+    return prose_char_count(core) >= min_chars
 
 
 def is_empty_packet_reason(text: str) -> bool:
