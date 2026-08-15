@@ -19,7 +19,7 @@ from novel_agent.planning.chain import PlanningGates, run_planning_chain
 from novel_agent.planning.mock_fixtures import register_planning_defaults
 from novel_agent.production.batch import run_write_batch
 from novel_agent.production.export import export_project
-from novel_agent.production.loop import ChapterLoopGates, run_chapter_loop
+from novel_agent.production.loop import ChapterLoopGates, ChapterLoopResult, run_chapter_loop
 from novel_agent.production.mock_fixtures import register_chapter_loop_defaults
 from novel_agent.production.review import reject_chapter
 from novel_agent.runtime.agents import AgentDeps
@@ -55,6 +55,33 @@ async def _planned(tmp_path, mock: MockProvider | None = None):
     )
     session.commit()
     return session, deps, mock, project.id
+
+
+def _loop_result(project_id: int, chapter_key: str, status: ChapterStatus) -> ChapterLoopResult:
+    stopped = "n9_canon_commit" if status is ChapterStatus.CANON_LOCKED else "n6_judge"
+    return ChapterLoopResult(
+        project_id=project_id,
+        chapter_key=chapter_key,
+        status=status,
+        verdict=None,
+        revision_round=0,
+        workflow_run_id=0,
+        draft_id=None,
+        lineage_id="stub",
+        stopped_at=stopped,
+        reason="stub",
+    )
+
+
+def _patch_batch_loop(monkeypatch: pytest.MonkeyPatch, handler):
+    written: list[str] = []
+
+    async def stub(session: Session, deps, project_id: int, chapter_key: str, **kwargs):
+        written.append(chapter_key)
+        return await handler(session, project_id, chapter_key)
+
+    monkeypatch.setattr("novel_agent.production.batch.run_chapter_loop", stub)
+    return written
 
 
 def _count_n3(session: Session, chapter_key: str) -> int:
@@ -147,6 +174,71 @@ async def test_reject_chapter1_cascades_stale_on_later_chapters(tmp_path) -> Non
         assert leftover == CanonRepo(session).latest_entity_states(project_id)
     finally:
         session.close()
+
+
+async def _replan_first_then_lock(session: Session, project_id: int, chapter_key: str):
+    status = ChapterStatus.NEEDS_REPLAN if chapter_key == "v1c001" else ChapterStatus.CANON_LOCKED
+    PlanningRepo(session).set_status(project_id, chapter_key, status)
+    session.commit()
+    return _loop_result(project_id, chapter_key, status)
+
+
+async def test_write_batch_stops_on_replan_by_default(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session, deps, _mock, project_id = await _planned(tmp_path)
+    written = _patch_batch_loop(monkeypatch, _replan_first_then_lock)
+    try:
+        batch = await run_write_batch(session, deps, project_id, chapter_count=3, yes=True)
+        session.commit()
+        assert written == ["v1c001"]
+        assert [item.chapter_key for item in batch.results] == ["v1c001"]
+        assert batch.results[0].status is ChapterStatus.NEEDS_REPLAN
+        planning = PlanningRepo(session)
+        assert planning.get_chapter(project_id, "v1c001").status is ChapterStatus.NEEDS_REPLAN
+        assert planning.get_chapter(project_id, "v1c002").status is ChapterStatus.PLANNED
+        assert planning.get_chapter(project_id, "v1c003").status is ChapterStatus.PLANNED
+    finally:
+        session.close()
+
+
+async def test_write_batch_keep_going_writes_later_chapters_after_replan(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session, deps, _mock, project_id = await _planned(tmp_path)
+    written = _patch_batch_loop(monkeypatch, _replan_first_then_lock)
+    try:
+        batch = await run_write_batch(
+            session, deps, project_id, chapter_count=3, yes=True, keep_going=True
+        )
+        session.commit()
+        assert written == ["v1c001", "v1c002", "v1c003"]
+        assert [item.chapter_key for item in batch.results] == [
+            "v1c001",
+            "v1c002",
+            "v1c003",
+        ]
+        assert batch.results[0].status is ChapterStatus.NEEDS_REPLAN
+        assert batch.results[1].status is ChapterStatus.CANON_LOCKED
+        assert batch.results[2].status is ChapterStatus.CANON_LOCKED
+        planning = PlanningRepo(session)
+        assert planning.get_chapter(project_id, "v1c001").status is ChapterStatus.NEEDS_REPLAN
+        assert planning.get_chapter(project_id, "v1c002").status is ChapterStatus.CANON_LOCKED
+        assert planning.get_chapter(project_id, "v1c003").status is ChapterStatus.CANON_LOCKED
+    finally:
+        session.close()
+
+
+def test_cli_write_batch_keep_going_help() -> None:
+    runner = CliRunner()
+    result = runner.invoke(app, ["write-batch", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--keep-going" in result.output
+    assert "NEEDS_REPLAN" in result.output
+    assert "挂起" in result.output
+    alias = runner.invoke(app, ["write-batch", "--continue-on-replan"])
+    assert "No such option" not in alias.output
+    assert "Missing option" in alias.output or "project-id" in alias.output.lower()
 
 
 async def test_export_files_contain_chapter_text(tmp_path) -> None:

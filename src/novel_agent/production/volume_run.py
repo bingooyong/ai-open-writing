@@ -159,9 +159,14 @@ def _blocker_reason(status: ChapterStatus) -> VolumeStopReason | None:
     assert_never(status)
 
 
-def _next_unfinished(chapters: list[ChapterRecord]) -> ChapterRecord | None:
+def _next_unfinished(
+    chapters: list[ChapterRecord], *, keep_going: bool = False
+) -> ChapterRecord | None:
+    skip = set(_DONE)
+    if keep_going:
+        skip.add(ChapterStatus.NEEDS_REPLAN)
     for chapter in chapters:
-        if chapter.status not in _DONE:
+        if chapter.status not in skip:
             return chapter
     return None
 
@@ -208,8 +213,12 @@ async def run_volume(
     settings: Settings | None = None,
     git_root: Path | None = None,
     run_id: int | None = None,
+    keep_going: bool = True,
 ) -> VolumeRunResult:
-    """无人值守卷长跑:plan-more 补窗口,写未锁定章,遇门禁/预算停下。可从 SUCCESS 节点续跑。"""
+    """无人值守卷长跑:plan-more 补窗口,写未锁定章,遇门禁/预算停下。
+
+    默认 keep-going:单章 NEEDS_REPLAN 挂起后继续后续已规划章,不因一章停卷。
+    """
     _require_budget(budget_usd)
     if max_chapters is not None and max_chapters < 1:
         raise VolumeRunError("--max-chapters 必须 >= 1")
@@ -245,6 +254,7 @@ async def run_volume(
             settings=settings,
             git_root=git_root,
             run_id=run_id,
+            keep_going=keep_going,
         )
     finally:
         release()
@@ -265,6 +275,7 @@ async def _run_occupied(
     settings: Settings,
     git_root: Path | None,
     run_id: int | None,
+    keep_going: bool,
 ) -> VolumeRunResult:
     run = _resolve_run(ops, project_id, run_id)
     assert run.id is not None
@@ -330,7 +341,7 @@ async def _run_occupied(
                 break
 
             chapters = planning.list_chapters(project_id)
-            nxt = _next_unfinished(chapters)
+            nxt = _next_unfinished(chapters, keep_going=keep_going)
             if nxt is not None:
                 blocked = _blocker_reason(nxt.status)
                 if blocked is not None:
@@ -360,7 +371,7 @@ async def _run_occupied(
                     break
                 chapters = planning.list_chapters(project_id)
 
-            nxt = _next_unfinished(chapters)
+            nxt = _next_unfinished(chapters, keep_going=keep_going)
             if nxt is None:
                 stop = VolumeStopReason.COMPLETE
                 break
@@ -412,6 +423,9 @@ async def _run_occupied(
             if result.status is ChapterStatus.CANON_LOCKED:
                 if result.chapter_key not in written:
                     written.append(result.chapter_key)
+                current = ""
+                continue
+            if keep_going and result.status is ChapterStatus.NEEDS_REPLAN:
                 current = ""
                 continue
             after = _blocker_reason(result.status)

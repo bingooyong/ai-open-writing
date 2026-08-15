@@ -2,6 +2,13 @@
 
 先读 `HANDOFF.md` 与本文件。实现细节以代码与测试为准。
 
+## 长跑与单章 REPLAN
+
+长跑默认不因单章 REPLAN 停卷；该章挂起，后续章继续。
+
+- 交互 `write-batch` 默认遇 `NEEDS_REPLAN` 停批（安全）。`--keep-going` / `--continue-on-replan` 将该章挂起并继续后续已规划章。
+- `run-volume` / 写作台隔夜长跑默认 keep-going：已挂起章不再重写，也不挡后续章。
+
 ## 章标题
 
 章标题由系统按 `order_index` + `title` 生成「第N章 标题」（阿拉伯数字，如 `第1章 醒木`），不是「第一章」。
