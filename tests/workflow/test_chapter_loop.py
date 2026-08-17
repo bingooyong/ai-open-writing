@@ -481,6 +481,64 @@ async def test_two_round_hard_gate_failure_upgrades_to_human_review(tmp_path) ->
         session.close()
 
 
+async def test_n5_continuity_parse_fail_does_not_stick_adversarial_review(tmp_path) -> None:
+    """Overnight v1c015: Continuity ReviewReport 校验失败不得卡死 ADVERSARIAL_REVIEW。"""
+    mock = MockProvider()
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    mock.register("continuity", lambda _req: "{")
+    try:
+        result = await run_chapter_loop(
+            session,
+            deps,
+            project_id,
+            "v1c001",
+            gates=ChapterLoopGates.auto(),
+        )
+        session.commit()
+        chapter = PlanningRepo(session).get_chapter(project_id, "v1c001")
+        assert chapter.status is not ChapterStatus.ADVERSARIAL_REVIEW
+        assert result.status is not ChapterStatus.ADVERSARIAL_REVIEW
+        assert result.status in {
+            ChapterStatus.HUMAN_REVIEW,
+            ChapterStatus.JUDGING,
+            ChapterStatus.CANON_LOCKED,
+        }
+        names = _node_names(session, result.workflow_run_id)
+        assert "n5_parallel_review" in names
+        run = OpsRepo(session).get_workflow_run(result.workflow_run_id)
+        assert run.status != "failed"
+    finally:
+        session.close()
+
+
+async def test_n5_all_reviewers_parse_fail_upgrades_to_human_review(tmp_path) -> None:
+    mock = MockProvider()
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    for role in ("red_team", "plot", "character", "continuity", "prose", "reader_advocate"):
+        mock.register(role, lambda _req: "{")
+    try:
+        result = await run_chapter_loop(
+            session,
+            deps,
+            project_id,
+            "v1c001",
+            gates=ChapterLoopGates.auto(),
+        )
+        session.commit()
+        chapter = PlanningRepo(session).get_chapter(project_id, "v1c001")
+        assert chapter.status is ChapterStatus.HUMAN_REVIEW
+        assert result.status is ChapterStatus.HUMAN_REVIEW
+        assert result.stopped_at == "n5_parallel_review"
+        assert "ReviewReport" in result.reason
+        names = _node_names(session, result.workflow_run_id)
+        assert "n5_parallel_review" in names
+        run = OpsRepo(session).get_workflow_run(result.workflow_run_id)
+        assert run.status == "paused"
+        assert run.current_node == "n5_parallel_review"
+    finally:
+        session.close()
+
+
 @pytest.fixture()
 def cli_db(tmp_path, monkeypatch: pytest.MonkeyPatch):
     db_path = tmp_path / "cli.db"

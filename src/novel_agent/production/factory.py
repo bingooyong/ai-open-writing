@@ -304,3 +304,10 @@ def strip_allowed_name_boundaries(
         if not (ruling.accepted and ruling.issue_id in drop_ids)
     ]
     return verdict.model_copy(update={"hard_gate_failures": gates, "rulings": rulings})
+
+
+def critical_parse_failure_should_raise(
+    reports: list, absent: list[str], critical: set[str]
+) -> bool:
+    """零份评审且关键席位因 JSON/Schema 缺席时,n5 应升 HUMAN_REVIEW。"""
+    return (not reports) and bool(set(absent) & critical)

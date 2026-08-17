@@ -10,6 +10,7 @@ from novel_agent.domain.schemas import (
     SceneCard,
 )
 from novel_agent.production.factory import (
+    critical_parse_failure_should_raise,
     is_empty_packet_verdict,
     is_usable_draft,
     pick_lockable_candidate,
@@ -364,3 +365,9 @@ def test_chinese_revision_scope_falls_back_to_issue_scenes() -> None:
         "v1c001_s2"
     ]
     assert resolve_revision_scope(["v1c001_s1"], draft, cards=cards) == ["v1c001_s1"]
+
+
+def test_critical_parse_failure_should_raise() -> None:
+    assert critical_parse_failure_should_raise([], ["continuity"], {"continuity"}) is True
+    assert critical_parse_failure_should_raise([object()], ["continuity"], {"continuity"}) is False
+    assert critical_parse_failure_should_raise([], ["prose"], {"continuity"}) is False

@@ -35,6 +35,7 @@ from novel_agent.lint import lint_draft
 from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.settings import desk_settings, review_roles_for
 from novel_agent.production.factory import (
+    critical_parse_failure_should_raise,
     is_empty_packet_verdict,
     is_usable_draft,
     pick_lockable_candidate,
@@ -127,6 +128,10 @@ def draft_from_record(rec: DraftVersionRecord) -> DraftCandidate:
         chapter_summary=str(meta.get("chapter_summary") or "摘要"),
         deviation_notes=str(meta.get("deviation_notes") or ""),
     )
+
+
+def _is_structured_output_error(exc: BaseException) -> bool:
+    return "StructuredOutputError" in type(exc).__name__ or "StructuredOutputError" in str(exc)
 
 
 def sanitize_verdict(
@@ -392,9 +397,16 @@ async def _advance(
                 transition(planning, project_id, chapter_key, ChapterStatus.HUMAN_REVIEW)
                 session.commit()
                 return "n4_lint", "lint 拦截,不消耗评审"
-            await _n5(
-                ops, production, deps, project_id, chapter_key, state, budget, ctx_factory
-            )
+            try:
+                await _n5(
+                    ops, production, deps, project_id, chapter_key, state, budget, ctx_factory
+                )
+            except NodeFailed as exc:
+                if "StructuredOutputError" not in str(exc):
+                    raise
+                transition(planning, project_id, chapter_key, ChapterStatus.HUMAN_REVIEW)
+                session.commit()
+                return "n5_parallel_review", "ReviewReport 非法,升级人工"
             if (
                 planning.get_chapter(project_id, chapter_key).status
                 is ChapterStatus.ADVERSARIAL_REVIEW
@@ -707,9 +719,9 @@ async def _n5(
             result: ReviewReport | BaseException = result, role: ReviewerRole = role
         ) -> dict:
             if isinstance(result, BaseException):
-                if role in CRITICAL_REVIEWERS:
-                    raise result
-                return {"absent": True, "role": role.value}
+                if _is_structured_output_error(result) or role not in CRITICAL_REVIEWERS:
+                    return {"absent": True, "role": role.value}
+                raise result
             existing = {issue.issue_id for issue in production.list_issues(state.draft_id or 0)}
             fresh = [issue for issue in result.issues if issue.issue_id not in existing]
             if fresh:
@@ -729,7 +741,11 @@ async def _n5(
             absent.append(role.value)
         else:
             reports.append(ReviewReport.model_validate(out))
-        if isinstance(result, BaseException) and role in CRITICAL_REVIEWERS:
+        if (
+            isinstance(result, BaseException)
+            and role in CRITICAL_REVIEWERS
+            and not _is_structured_output_error(result)
+        ):
             critical_error = result
 
     for role in roles:
@@ -746,6 +762,10 @@ async def _n5(
 
     if critical_error is not None:
         raise NodeFailed("n5_parallel_review", f"{type(critical_error).__name__}: {critical_error}")
+    if critical_parse_failure_should_raise(
+        reports, absent, {role.value for role in CRITICAL_REVIEWERS}
+    ):
+        raise NodeFailed("n5_parallel_review", "StructuredOutputError: ReviewReport 校验失败")
     return {
         "reports": [item.model_dump() for item in reports],
         "absent": absent,
