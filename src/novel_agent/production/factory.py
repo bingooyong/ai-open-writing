@@ -205,7 +205,11 @@ def has_hard_gate_leak(text: str) -> bool:
     return bool(_HARD_GATE_LEAK_RE.search(text or ""))
 
 
-def is_lockable_draft(text: str, boundaries: list[str]) -> bool:
+def is_lockable_draft(
+    text: str,
+    boundaries: list[str],
+    required_names: list[str] | None = None,
+) -> bool:
     """可继续锁定:可用正文,且不踩禁写项/工程污染/硬门禁泄漏。"""
     if not is_usable_draft(text):
         return False
@@ -213,22 +217,31 @@ def is_lockable_draft(text: str, boundaries: list[str]) -> bool:
         return False
     if check_engineering_leak(text):
         return False
-    return not has_hard_gate_leak(text)
+    if has_hard_gate_leak(text):
+        return False
+    names = [n for n in (required_names or []) if n]
+    return not names or any(n in (text or "") for n in names)
 
 
 def _lockable_candidates(
     candidates: list[DraftCandidate],
     boundaries: list[str],
+    required_names: list[str] | None = None,
 ) -> list[DraftCandidate]:
-    return [draft for draft in candidates if is_lockable_draft(draft.full_text(), boundaries)]
+    return [
+        draft
+        for draft in candidates
+        if is_lockable_draft(draft.full_text(), boundaries, required_names)
+    ]
 
 
 def pick_lockable_candidate(
     candidates: list[DraftCandidate],
     boundaries: list[str],
+    required_names: list[str] | None = None,
 ) -> DraftCandidate | None:
     """空包回退:选更长的合规正文,排除占位短稿与真硬门禁命中。"""
-    viable = _lockable_candidates(candidates, boundaries)
+    viable = _lockable_candidates(candidates, boundaries, required_names)
     if not viable:
         return None
     return max(viable, key=lambda item: prose_char_count(item.full_text()))
@@ -237,11 +250,10 @@ def pick_lockable_candidate(
 def pick_sole_lockable_candidate(
     candidates: list[DraftCandidate],
     boundaries: list[str],
+    required_names: list[str] | None = None,
 ) -> DraftCandidate | None:
-    """真 REPLAN 回退:至少两稿里恰好一稿可锁才选用,避免被泄漏兄稿毒死整章。"""
-    if len(candidates) < 2:
-        return None
-    viable = _lockable_candidates(candidates, boundaries)
+    """真 REPLAN 回退:恰好一稿可锁才选用,含仅一稿且 on-brief 的情形。"""
+    viable = _lockable_candidates(candidates, boundaries, required_names)
     if len(viable) != 1:
         return None
     return viable[0]

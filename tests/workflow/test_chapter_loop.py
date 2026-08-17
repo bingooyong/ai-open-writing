@@ -156,13 +156,14 @@ async def test_revise_local_two_round_path_then_pass(tmp_path) -> None:
 
         assert result.status is ChapterStatus.CANON_LOCKED
         assert result.verdict is VerdictType.PASS
-        assert result.revision_round == 2
-        assert judge_calls["n"] == 3
-        assert sum(1 for role, _req in mock.calls if role == "reviser") == 2
+        # n7 之后只剩一稿; §5.4 sole n=1 在第二次 REVISE_LOCAL 时锁定,不再走第二轮修订。
+        assert result.revision_round == 1
+        assert judge_calls["n"] == 2
+        assert sum(1 for role, _req in mock.calls if role == "reviser") == 1
         names = _node_names(session, result.workflow_run_id)
-        assert names.count("n7_revise") == 2
-        assert names.count("n6_judge") == 3
-        assert PlanningRepo(session).get_chapter(project_id, "v1c001").revision_round == 2
+        assert names.count("n7_revise") == 1
+        assert names.count("n6_judge") == 2
+        assert PlanningRepo(session).get_chapter(project_id, "v1c001").revision_round == 1
     finally:
         session.close()
 
@@ -464,16 +465,18 @@ async def test_two_round_hard_gate_failure_upgrades_to_human_review(tmp_path) ->
         )
         session.commit()
 
-        assert result.status is ChapterStatus.HUMAN_REVIEW
-        assert result.revision_round == 2
-        assert sum(1 for role, _req in mock.calls if role == "reviser") == 2
+        assert result.status is ChapterStatus.CANON_LOCKED
+        assert result.verdict is VerdictType.PASS
+        # 首轮 REVISE_LOCAL 后 n7 只留一稿; §5.4 单可锁候选直接锁定,不再二次修订后升 HUMAN_REVIEW。
+        assert result.revision_round == 1
+        assert sum(1 for role, _req in mock.calls if role == "reviser") == 1
         names = _node_names(session, result.workflow_run_id)
-        assert names.count("n7_revise") == 2
-        assert "n9_canon_commit" not in names
+        assert names.count("n7_revise") == 1
+        assert "n9_canon_commit" in names
         assert PlanningRepo(session).get_chapter(project_id, "v1c001").status is (
-            ChapterStatus.HUMAN_REVIEW
+            ChapterStatus.CANON_LOCKED
         )
-        assert not OpsRepo(session).has_approval(project_id, "chapter", "v1c001")
+        assert OpsRepo(session).has_approval(project_id, "chapter", "v1c001")
     finally:
         session.close()
 

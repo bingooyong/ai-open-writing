@@ -213,7 +213,28 @@ def test_sole_lockable_none_when_both_clean_or_both_junk() -> None:
     leaked_a = _candidate("candidate_1", _leaky_prose())
     leaked_b = _candidate("candidate_2", _long_prose() + "天台锁一响，穿越后耳鸣没停。")
     assert pick_sole_lockable_candidate([leaked_a, leaked_b], []) is None
-    assert pick_sole_lockable_candidate([clean_b], []) is None
+
+
+_NAMES = ["林朔", "柳奕妃", "许静蕾", "樊冰屏", "周洵", "张紫衣"]
+
+
+def test_wrong_book_prose_not_lockable_when_names_required() -> None:
+    republican = (
+        "周意坐在窗前读书，陆怀坐在客位上，裴谈把名帖折成两折，撑伞走进雨里。" * 40
+    )
+    onbrief = _long_prose() + "林朔没喊 cut。柳奕妃把话筒轻轻放回去。"
+    assert "林朔" not in republican
+    leaked = _candidate("candidate_1", republican)
+    clean = _candidate("candidate_2", onbrief)
+    assert pick_lockable_candidate([leaked], [], required_names=_NAMES) is None
+    picked = pick_sole_lockable_candidate([leaked, clean], [], required_names=_NAMES)
+    assert picked is not None and picked.candidate_id == "candidate_2"
+
+
+def test_sole_lockable_single_onbrief_candidate() -> None:
+    clean = _candidate("candidate_1", _long_prose() + "林朔在监视器前坐下。")
+    picked = pick_sole_lockable_candidate([clean], [], required_names=["林朔"])
+    assert picked is not None and picked.candidate_id == "candidate_1"
 
 
 def test_chinese_revision_scope_falls_back_to_issue_scenes() -> None:

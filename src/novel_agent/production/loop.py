@@ -768,6 +768,7 @@ async def _n6(
         ids = state.draft_ids or [primary_id]
         candidates = [draft_from_record(production.get_draft(item)) for item in ids]
         package = ctx_factory()
+        names = [card.name for card in package.characters if card.name]
         raw: JudgeVerdict | None = None
         try:
             raw = await run_judge(deps, candidates, reports, package, absent=absent)
@@ -794,13 +795,13 @@ async def _n6(
                     raise
                 raw = None
         if raw is None:
-            picked = pick_lockable_candidate(candidates, package.boundaries)
+            picked = pick_lockable_candidate(candidates, package.boundaries, names)
             if picked is None:
                 raise StructuredOutputError("Judge 空包且无可用合规候选")
             raw = synthesize_pass_verdict(picked)
         verdict = sanitize_verdict(raw, issues)
         if verdict.verdict is not VerdictType.PASS:
-            sole = pick_sole_lockable_candidate(candidates, package.boundaries)
+            sole = pick_sole_lockable_candidate(candidates, package.boundaries, names)
             if sole is not None:
                 verdict = synthesize_pass_verdict(
                     sole,
