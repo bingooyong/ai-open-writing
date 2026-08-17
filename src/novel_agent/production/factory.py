@@ -68,8 +68,8 @@ _EMPTY_PACKET_MARKERS = (
 _EMPTY_PACKET_SOFT_GATES = frozenset({"source_risk", "info_violation"})
 _SCENE_ID_IN_TEXT = re.compile(r"(?:v\d+c\d+_s\d+|[A-Za-z]+_s\d+|s\d+)", re.IGNORECASE)
 _WS_RE = re.compile(r"\s+")
-# 硬门禁风格泄漏:真名/穿越/耳鸣/实习生。禁止单凭「笔记」二字。
-_HARD_GATE_LEAK_RE = re.compile(r"穿越|耳鸣|真名|实习生")
+# 硬门禁风格泄漏:真名/穿越/耳鸣/实习生/左眼花/左眼薄雾/反噬。禁止单凭「笔记」或裸「左眼」。
+_HARD_GATE_LEAK_RE = re.compile(r"穿越|耳鸣|真名|实习生|左眼花|左眼薄雾|反噬")
 
 
 def prose_char_count(text: str) -> int:

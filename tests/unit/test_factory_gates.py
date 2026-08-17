@@ -185,6 +185,18 @@ def test_hard_gate_leak_is_usable_prose_but_not_lockable() -> None:
     assert pick_lockable_candidate([_candidate("candidate_1", _clean_onbrief())], []) is not None
 
 
+def test_left_eye_haze_is_usable_but_not_lockable() -> None:
+    haze = _long_prose() + "左眼薄雾又压上来，监视器上的脸花成一团。"
+    flower = _long_prose() + "左眼花了三回，他还是没喊 cut。"
+    backlash = _long_prose() + "偷技法的反噬让他当晚不敢再借。"
+    notebook = _long_prose() + "他合上笔记本，把工作笔记收进抽屉。"
+    assert is_usable_draft(haze) and is_usable_draft(flower) and is_usable_draft(backlash)
+    assert pick_lockable_candidate([_candidate("candidate_1", haze)], []) is None
+    assert pick_lockable_candidate([_candidate("candidate_1", flower)], []) is None
+    assert pick_lockable_candidate([_candidate("candidate_1", backlash)], []) is None
+    assert pick_lockable_candidate([_candidate("candidate_1", notebook)], []) is not None
+
+
 def test_sole_lockable_candidate_ignores_leaky_sibling() -> None:
     leaked = _candidate("candidate_1", _leaky_prose())
     clean = _candidate("candidate_2", _clean_onbrief())
