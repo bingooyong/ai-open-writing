@@ -8,10 +8,17 @@ from novel_agent.domain.schemas import (
     JudgeVerdict,
     ReviewIssue,
     SceneCard,
+    VerdictType,
 )
 from novel_agent.production.factory import (
+    _HARD_GATE_LEAK_RE,
+    LockGates,
+    chapter_index_from_key,
     critical_parse_failure_should_raise,
+    enforce_lockable_verdict,
+    has_hard_gate_leak,
     is_empty_packet_verdict,
+    is_lockable_draft,
     is_usable_draft,
     pick_lockable_candidate,
     pick_sole_lockable_candidate,
@@ -371,3 +378,245 @@ def test_critical_parse_failure_should_raise() -> None:
     assert critical_parse_failure_should_raise([], ["continuity"], {"continuity"}) is True
     assert critical_parse_failure_should_raise([object()], ["continuity"], {"continuity"}) is False
     assert critical_parse_failure_should_raise([], ["prose"], {"continuity"}) is False
+
+
+V1C001_OPEN = "场记板上的墨迹没干透，我用拇指抹了一下：第三十二场。"
+V1C002_OPEN = "林朔把凉透的茶水搁在椅脚边，手心还攥着杯壁。"
+
+
+def test_chapter_index_from_key() -> None:
+    assert chapter_index_from_key("v1c001") == 1
+    assert chapter_index_from_key("v1c013") == 13
+    assert chapter_index_from_key("nope") is None
+
+
+def test_first_person_dominant_is_not_lockable_when_pov_is_name() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    prose = _long_prose() + V1C001_OPEN * 10
+    assert is_usable_draft(prose)
+    assert is_lockable_draft(prose, [], ["林朔"], gates) is False
+    assert pick_lockable_candidate([_candidate("candidate_1", prose)], [], ["林朔"], gates) is None
+
+
+def test_first_person_dominant_not_lockable_even_when_name_appears() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    prose = _long_prose() + "林朔还在场。" + V1C001_OPEN * 10
+    assert "林朔" in prose
+    assert is_usable_draft(prose)
+    assert is_lockable_draft(prose, [], ["林朔"], gates) is False
+
+
+def test_third_person_linshuo_still_lockable() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    prose = _long_prose() + "林朔盯着监视器。兆薇从化妆间出来。" * 5
+    v1c002 = _long_prose() + V1C002_OPEN * 10
+    assert is_lockable_draft(prose, [], ["林朔"], gates) is True
+    assert is_lockable_draft(v1c002, [], ["林朔"], gates) is True
+    picked = pick_lockable_candidate([_candidate("candidate_1", prose)], [], ["林朔"], gates)
+    assert picked is not None
+
+
+def test_pov_gate_skipped_when_gates_omitted() -> None:
+    prose = _long_prose() + V1C001_OPEN * 10
+    assert is_usable_draft(prose)
+    assert pick_lockable_candidate([_candidate("candidate_1", prose)], []) is not None
+
+
+def test_judge_pass_on_first_person_dominant_does_not_lock_without_sibling() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    leaked = _candidate("candidate_1", _long_prose() + V1C001_OPEN * 10)
+    verdict = JudgeVerdict.model_validate(
+        {
+            "verdict": "PASS",
+            "selected_candidate": "candidate_1",
+            "reasoning_summary": "PASS",
+        }
+    )
+    out = enforce_lockable_verdict(verdict, [leaked], [], ["林朔"], gates)
+    assert out.verdict is VerdictType.HUMAN_REVIEW
+
+
+def test_judge_pass_on_first_person_picks_third_person_sibling() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    leaked = _candidate("candidate_1", _long_prose() + V1C001_OPEN * 10)
+    clean = _candidate(
+        "candidate_2",
+        _long_prose() + "林朔盯着监视器。兆薇从化妆间出来。" * 5,
+    )
+    verdict = JudgeVerdict.model_validate(
+        {
+            "verdict": "PASS",
+            "selected_candidate": "candidate_1",
+            "reasoning_summary": "PASS",
+        }
+    )
+    out = enforce_lockable_verdict(verdict, [leaked, clean], [], ["林朔"], gates)
+    assert out.verdict is VerdictType.PASS
+    assert out.selected_candidate == "candidate_2"
+
+
+XU_JIE = "王师傅说，徐姐那边在找能看粗剪的人"
+INTERN = "北影厂实习场记的通告单背在兜里硌着胯骨。"
+
+
+def _linshuo_pad(extra: str) -> str:
+    return _long_prose() + "林朔盯着监视器。" + extra
+
+
+def test_xujie_adjacency_and_intern_clapper_are_not_lockable() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    assert has_hard_gate_leak(XU_JIE) is True
+
+    xujie = _linshuo_pad(XU_JIE)
+    assert is_usable_draft(xujie)
+    assert is_lockable_draft(xujie, [], ["林朔"], gates) is False
+
+    xujinglei = _linshuo_pad("许静蕾走进来")
+    assert is_lockable_draft(xujinglei, [], ["林朔"], gates) is True
+
+    zhang = _linshuo_pad("章子怡走进来")
+    assert is_lockable_draft(zhang, [], ["林朔"], gates) is False
+
+    zhoujie = _linshuo_pad("周姐把通告递过来。")
+    assert is_lockable_draft(zhoujie, [], ["林朔"], gates) is True
+
+    intern = _linshuo_pad(INTERN)
+    assert has_hard_gate_leak(INTERN) is True
+    assert is_lockable_draft(intern, [], ["林朔"], gates) is False
+
+    laoshi = _linshuo_pad("李老师在棚顶换泡")
+    assert is_lockable_draft(laoshi, [], ["林朔"], gates) is True
+
+    tokens = _HARD_GATE_LEAK_RE.pattern.split("|")
+    assert "笔记" not in _HARD_GATE_LEAK_RE.pattern
+    assert "左眼" not in tokens
+    assert "左眼花" in tokens
+    assert "左眼薄雾" in tokens
+
+    leaked = _candidate("candidate_1", xujie)
+    clean = _candidate("candidate_2", _linshuo_pad("兆薇从化妆间出来。"))
+    picked = pick_sole_lockable_candidate([leaked, clean], [], ["林朔"], gates)
+    assert picked is not None and picked.candidate_id == "candidate_2"
+
+
+MECH_C001 = "我没解释我为什么会知道这个焦段在这个距离上是对的。"
+MECH_C005A = "他不能解释自己为什么会按电视剧节拍贴。"
+MECH_C005B = "他不写笔记。"
+OK_NOTEBOOK = "他把场记本合上，通告单还在监视器边上。"
+
+
+def test_mechanism_naming_is_not_lockable_but_bare_notebook_is() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    for phrase in (MECH_C001, MECH_C005A, MECH_C005B):
+        prose = _linshuo_pad(phrase)
+        assert is_usable_draft(prose)
+        assert is_lockable_draft(prose, [], ["林朔"], gates) is False
+
+    notebook = _linshuo_pad(OK_NOTEBOOK)
+    assert is_lockable_draft(notebook, [], ["林朔"], gates) is True
+    assert has_hard_gate_leak(OK_NOTEBOOK) is False
+    assert has_hard_gate_leak("他不写笔记") is False
+    assert is_lockable_draft(_linshuo_pad("他不写笔记。"), [], ["林朔"], gates) is False
+    assert "笔记" not in _HARD_GATE_LEAK_RE.pattern
+
+    unsaid = _linshuo_pad("林朔说，我没说今晚改机位。")
+    assert is_lockable_draft(unsaid, [], ["林朔"], gates) is True
+
+    leaked = _candidate("candidate_1", _linshuo_pad(MECH_C005B))
+    clean = _candidate("candidate_2", _linshuo_pad("兆薇从化妆间出来。"))
+    picked = pick_sole_lockable_candidate([leaked, clean], [], ["林朔"], gates)
+    assert picked is not None and picked.candidate_id == "candidate_2"
+
+
+BODY = (
+    "右耳还带着下午在棚里被散光灯烤过的嗡声，不重。我听见自己的心跳——"
+    "不是紧张，是一种从来没有过的眩晕。"
+)
+SHAKE = (
+    "手还在抖。不是冷的那种抖，是肾上腺素退潮之后肌肉自己找平衡的那种。"
+)
+
+
+def test_body_cost_gated_only_in_early_chapters() -> None:
+    early = LockGates(pov="林朔", required_names=["林朔"], chapter_index=1)
+    late = LockGates(pov="林朔", required_names=["林朔"], chapter_index=4)
+    skipped = LockGates(pov="林朔", required_names=["林朔"], chapter_index=None)
+    body = _linshuo_pad(BODY)
+    shake = _linshuo_pad(SHAKE)
+    assert is_usable_draft(body)
+    assert is_lockable_draft(body, [], ["林朔"], early) is False
+    assert is_lockable_draft(body, [], ["林朔"], late) is True
+    assert is_lockable_draft(shake, [], ["林朔"], early) is True
+    assert is_lockable_draft(body, [], ["林朔"], skipped) is True
+
+    leaked = _candidate("candidate_1", body)
+    clean = _candidate("candidate_2", _linshuo_pad("兆薇从化妆间出来。"))
+    picked = pick_sole_lockable_candidate([leaked, clean], [], ["林朔"], early)
+    assert picked is not None and picked.candidate_id == "candidate_2"
+
+
+SCHEDULE = [
+    (1, "片场最底层的十分钟林朔在古装权谋剧组救场林朔"),
+    (2, "副助的第一次单机位兆薇在杀青戏前林朔"),
+    (3, "樊冰屏的预算表林朔赴约樊冰屏林朔"),
+    (4, "封闭空间开机夜林朔在监视器前林朔"),
+    (5, "粗剪室里的人许静蕾临时拽来林朔"),
+    (13, "黎冰屏的旧伤黎冰屏林朔"),
+]
+CARDS = ["林朔", "樊冰屏", "周洵", "许静蕾", "兆薇", "张紫衣", "柳奕妃", "黎冰屏"]
+LI_LINE = "动作分包黎冰屏靠在墙上。下一场女演员拖行是她的活"
+
+
+def test_unscheduled_character_too_early_is_not_lockable() -> None:
+    early = LockGates(
+        pov="林朔",
+        required_names=["林朔"],
+        chapter_index=4,
+        card_names=CARDS,
+        schedule=SCHEDULE,
+    )
+    li = _linshuo_pad(LI_LINE)
+    assert is_usable_draft(li)
+    assert is_lockable_draft(li, [], ["林朔"], early) is False
+
+    zhaowei = LockGates(
+        pov="林朔",
+        required_names=["林朔"],
+        chapter_index=1,
+        card_names=CARDS,
+        schedule=SCHEDULE,
+    )
+    assert is_lockable_draft(_linshuo_pad("兆薇从化妆间出来。"), [], ["林朔"], zhaowei) is True
+
+    fan = LockGates(
+        pov="林朔",
+        required_names=["林朔"],
+        chapter_index=2,
+        card_names=CARDS,
+        schedule=SCHEDULE,
+    )
+    assert is_lockable_draft(_linshuo_pad("樊冰屏把预算表放下。"), [], ["林朔"], fan) is True
+
+    forbidden = LockGates(
+        pov="林朔",
+        required_names=["林朔"],
+        chapter_index=4,
+        card_names=CARDS,
+        schedule=SCHEDULE,
+        reveal_forbidden=["许静蕾/周洵登场"],
+    )
+    assert is_lockable_draft(_linshuo_pad("许静蕾走进来"), [], ["林朔"], forbidden) is False
+
+    skipped = LockGates(
+        pov="林朔",
+        required_names=["林朔"],
+        chapter_index=4,
+        card_names=CARDS,
+        schedule=None,
+    )
+    assert is_lockable_draft(li, [], ["林朔"], skipped) is True
+
+    leaked = _candidate("candidate_1", li)
+    clean = _candidate("candidate_2", _linshuo_pad("兆薇从化妆间出来。"))
+    picked = pick_sole_lockable_candidate([leaked, clean], [], ["林朔"], early)
+    assert picked is not None and picked.candidate_id == "candidate_2"

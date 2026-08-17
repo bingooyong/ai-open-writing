@@ -623,6 +623,58 @@ def cli_db(tmp_path, monkeypatch: pytest.MonkeyPatch):
     reset_settings_cache()
 
 
+async def test_judge_pass_on_leaky_selected_draft_locks_clean_sibling(tmp_path) -> None:
+    """Judge PASS used to skip is_lockable_draft; v1c001 draft 44 locked with 实习生."""
+    mock = MockProvider()
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    leak = "实习生把场记板递过来。"
+    mock.register(
+        "writer_a",
+        lambda req: two_part_text(req, SCENE_1 + leak, SCENE_2, "泄漏A"),
+    )
+    mock.register(
+        "writer_b",
+        lambda req: two_part_text(req, SCENE_1, SCENE_2, "干净B"),
+    )
+    mock.register("judge", lambda _req: verdict_json("PASS"))
+    try:
+        result = await run_chapter_loop(
+            session, deps, project_id, "v1c001", gates=ChapterLoopGates.auto()
+        )
+        session.commit()
+        assert result.status is ChapterStatus.CANON_LOCKED
+        assert result.verdict is VerdictType.PASS
+        rec = ProductionRepo(session).get_draft(result.draft_id)
+        assert "实习生" not in rec.content_text
+    finally:
+        session.close()
+
+
+async def test_judge_pass_on_only_leaky_draft_stays_human_review(tmp_path) -> None:
+    mock = MockProvider()
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    leak = "实习生把场记板递过来。"
+    mock.register(
+        "writer_a",
+        lambda req: two_part_text(req, SCENE_1 + leak, SCENE_2, "泄漏A"),
+    )
+    mock.register(
+        "writer_b",
+        lambda req: two_part_text(req, SCENE_1 + leak, SCENE_2, "泄漏B"),
+    )
+    mock.register("judge", lambda _req: verdict_json("PASS"))
+    try:
+        result = await run_chapter_loop(
+            session, deps, project_id, "v1c001", gates=ChapterLoopGates.auto()
+        )
+        session.commit()
+        assert result.status is ChapterStatus.HUMAN_REVIEW
+        assert result.verdict is VerdictType.HUMAN_REVIEW
+        assert "n9_canon_commit" not in _node_names(session, result.workflow_run_id)
+    finally:
+        session.close()
+
+
 def test_cli_write_chapter_yes_completes_pass_path(cli_db) -> None:
     init = CliRunner().invoke(
         app,

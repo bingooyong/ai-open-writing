@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 from novel_agent.domain.schemas import (
     DraftCandidate,
@@ -71,6 +72,71 @@ _SCENE_ID_IN_TEXT = re.compile(r"(?:v\d+c\d+_s\d+|[A-Za-z]+_s\d+|s\d+)", re.IGNO
 _WS_RE = re.compile(r"\s+")
 # 硬门禁风格泄漏:真名/穿越/耳鸣/实习生/左眼花/左眼薄雾/反噬。禁止单凭「笔记」或裸「左眼」。
 _HARD_GATE_LEAK_RE = re.compile(r"穿越|耳鸣|真名|实习生|左眼花|左眼薄雾|反噬")
+_FORBIDDEN_REAL_NAME_RE = re.compile(r"章子怡|赵薇|周迅|徐静蕾|范冰冰|李冰冰|刘亦菲")
+# 变体姓+姐。周洵保留「周」,故不含周;不拦老师/师傅。
+_VARIANT_JIE_RE = re.compile(r"(章|赵|徐|范|李|刘)姐")
+# 点破机制的口吻。禁止把「笔记」折进 _HARD_GATE_LEAK_RE;不拦「我没说」。
+_MECHANISM_NAMING_RE = re.compile(
+    r"我没解释|没法解释|不能解释自己为什么|他不写笔记|我不写笔记|没有写笔记"
+)
+# 仅 ch1–3。不拦心跳/手凉/出汗/手还在抖/尾音;耳鸣仍走全局泄漏正则。
+_BODY_COST_RE = re.compile(r"嗡声|眩晕|额角|跳痛|偏头痛|失明|耳侧")
+_CHAPTER_INDEX_RE = re.compile(r"c(\d+)", re.IGNORECASE)
+_WO_RE = re.compile(r"我(?!们)")
+
+
+@dataclass(frozen=True)
+class LockGates:
+    required_names: list[str] | None = None
+    pov: str = ""
+    pov_person: str | None = None  # "first" | "third"
+    chapter_index: int | None = None
+    card_names: list[str] | None = None
+    schedule: list[tuple[int, str]] | None = None
+    reveal_forbidden: list[str] | None = None
+
+
+def chapter_index_from_key(key: str) -> int | None:
+    match = _CHAPTER_INDEX_RE.search(key or "")
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def _effective_required_names(
+    required_names: list[str] | None,
+    gates: LockGates | None,
+) -> list[str] | None:
+    if gates is not None and gates.required_names is not None:
+        return gates.required_names
+    return required_names
+
+
+def _resolved_pov_person(gates: LockGates) -> str | None:
+    if gates.pov_person in {"first", "third"}:
+        return gates.pov_person
+    pov = (gates.pov or "").strip()
+    if pov in {"我", "第一人称"}:
+        return "first"
+    if pov:
+        return "third"
+    return None
+
+
+def _pov_person_blocks(text: str, gates: LockGates) -> bool:
+    person = _resolved_pov_person(gates)
+    if person is None:
+        return False
+    blob = text or ""
+    wo = len(_WO_RE.findall(blob))
+    pov_n = blob.count(gates.pov) if gates.pov else 0
+    total = wo + pov_n
+    if total <= 0:
+        return False
+    share = wo / total
+    if person == "third":
+        return wo >= 8 and share >= 0.75
+    return pov_n >= 8 and share <= 0.25
 
 
 def prose_char_count(text: str) -> int:
@@ -202,14 +268,58 @@ def resolve_revision_scope(
 
 
 def has_hard_gate_leak(text: str) -> bool:
-    """正文里的真名/穿越/耳鸣/实习生类硬门禁泄漏。"""
-    return bool(_HARD_GATE_LEAK_RE.search(text or ""))
+    """正文里的真名/穿越/耳鸣/实习生/实习场记/变体X姐类硬门禁泄漏。"""
+    blob = text or ""
+    if _HARD_GATE_LEAK_RE.search(blob):
+        return True
+    if "实习场记" in blob:
+        return True
+    if _FORBIDDEN_REAL_NAME_RE.search(blob):
+        return True
+    return bool(_VARIANT_JIE_RE.search(blob))
+
+
+def has_mechanism_naming(text: str) -> bool:
+    """点破金手指机制的口吻,与硬门禁泄漏分开,禁止把「笔记」写进泄漏正则。"""
+    return bool(_MECHANISM_NAMING_RE.search(text or ""))
+
+
+def _body_cost_blocks(text: str, gates: LockGates | None) -> bool:
+    if gates is None or gates.chapter_index is None or gates.chapter_index > 3:
+        return False
+    return bool(_BODY_COST_RE.search(text or ""))
+
+
+def _first_schedule(name: str, schedule: list[tuple[int, str]]) -> int | None:
+    hits = [index for index, blob in schedule if name in blob]
+    return min(hits) if hits else None
+
+
+def _unscheduled_character_blocks(text: str, gates: LockGates | None) -> bool:
+    if gates is None or gates.schedule is None or gates.chapter_index is None:
+        return False
+    names = [name for name in (gates.card_names or []) if name]
+    if not names:
+        return False
+    blob = text or ""
+    forbidden = [item for item in (gates.reveal_forbidden or []) if item]
+    current = gates.chapter_index
+    for name in names:
+        if name not in blob:
+            continue
+        if any(name in item for item in forbidden):
+            return True
+        first = _first_schedule(name, gates.schedule)
+        if first is None or first > current + 1:
+            return True
+    return False
 
 
 def is_lockable_draft(
     text: str,
     boundaries: list[str],
     required_names: list[str] | None = None,
+    gates: LockGates | None = None,
 ) -> bool:
     """可继续锁定:可用正文,且不踩禁写项/工程污染/硬门禁泄漏。"""
     if not is_usable_draft(text):
@@ -220,19 +330,28 @@ def is_lockable_draft(
         return False
     if has_hard_gate_leak(text):
         return False
-    names = [n for n in (required_names or []) if n]
-    return not names or any(n in (text or "") for n in names)
+    if has_mechanism_naming(text):
+        return False
+    if _body_cost_blocks(text, gates):
+        return False
+    if _unscheduled_character_blocks(text, gates):
+        return False
+    names = [n for n in (_effective_required_names(required_names, gates) or []) if n]
+    if names and not any(n in (text or "") for n in names):
+        return False
+    return not (gates is not None and _pov_person_blocks(text, gates))
 
 
 def _lockable_candidates(
     candidates: list[DraftCandidate],
     boundaries: list[str],
     required_names: list[str] | None = None,
+    gates: LockGates | None = None,
 ) -> list[DraftCandidate]:
     return [
         draft
         for draft in candidates
-        if is_lockable_draft(draft.full_text(), boundaries, required_names)
+        if is_lockable_draft(draft.full_text(), boundaries, required_names, gates)
     ]
 
 
@@ -240,9 +359,10 @@ def pick_lockable_candidate(
     candidates: list[DraftCandidate],
     boundaries: list[str],
     required_names: list[str] | None = None,
+    gates: LockGates | None = None,
 ) -> DraftCandidate | None:
     """空包回退:选更长的合规正文,排除占位短稿与真硬门禁命中。"""
-    viable = _lockable_candidates(candidates, boundaries, required_names)
+    viable = _lockable_candidates(candidates, boundaries, required_names, gates)
     if not viable:
         return None
     return max(viable, key=lambda item: prose_char_count(item.full_text()))
@@ -252,12 +372,50 @@ def pick_sole_lockable_candidate(
     candidates: list[DraftCandidate],
     boundaries: list[str],
     required_names: list[str] | None = None,
+    gates: LockGates | None = None,
 ) -> DraftCandidate | None:
     """真 REPLAN 回退:恰好一稿可锁才选用,含仅一稿且 on-brief 的情形。"""
-    viable = _lockable_candidates(candidates, boundaries, required_names)
+    viable = _lockable_candidates(candidates, boundaries, required_names, gates)
     if len(viable) != 1:
         return None
     return viable[0]
+
+
+def enforce_lockable_verdict(
+    verdict: JudgeVerdict,
+    candidates: list[DraftCandidate],
+    boundaries: list[str],
+    required_names: list[str] | None = None,
+    gates: LockGates | None = None,
+) -> JudgeVerdict:
+    """Judge PASS 也要过工厂锁门:不可锁的所选稿不得自动锁定。"""
+    selected = next(
+        (item for item in candidates if item.candidate_id == verdict.selected_candidate),
+        None,
+    )
+    selected_lockable = selected is not None and is_lockable_draft(
+        selected.full_text(), boundaries, required_names, gates
+    )
+    if verdict.verdict is VerdictType.PASS and selected_lockable:
+        return verdict
+    sole = pick_sole_lockable_candidate(candidates, boundaries, required_names, gates)
+    if sole is not None:
+        reason = (
+            "Judge PASS 所选稿未过工厂锁门,但仅一稿合规:选用该候选,继续锁定。"
+            if verdict.verdict is VerdictType.PASS
+            else "Judge 拒绝 PASS,但仅一稿合规且无硬门禁泄漏:选用该候选,继续锁定。"
+        )
+        return synthesize_pass_verdict(sole, reason=reason)
+    if verdict.verdict is VerdictType.PASS:
+        return verdict.model_copy(
+            update={
+                "verdict": VerdictType.HUMAN_REVIEW,
+                "reasoning_summary": (
+                    f"{verdict.reasoning_summary}（所选稿未过工厂锁门,不自动锁定）"
+                ),
+            }
+        )
+    return verdict
 
 
 def synthesize_pass_verdict(
@@ -272,9 +430,6 @@ def synthesize_pass_verdict(
         rulings=[],
         reasoning_summary=reason,
     )
-
-
-_FORBIDDEN_REAL_NAME_RE = re.compile(r"章子怡|赵薇|周迅|徐静蕾|范冰冰|李冰冰|刘亦菲")
 
 
 def strip_allowed_name_boundaries(

@@ -35,11 +35,13 @@ from novel_agent.lint import lint_draft
 from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.settings import desk_settings, review_roles_for
 from novel_agent.production.factory import (
+    LockGates,
+    chapter_index_from_key,
     critical_parse_failure_should_raise,
+    enforce_lockable_verdict,
     is_empty_packet_verdict,
     is_usable_draft,
     pick_lockable_candidate,
-    pick_sole_lockable_candidate,
     resolve_revision_scope,
     strip_allowed_name_boundaries,
     synthesize_pass_verdict,
@@ -204,6 +206,20 @@ def _volume_summary(planning: PlanningRepo, project_id: int, volume_id: str) -> 
             title = volume.title or volume_id
             return f"{title}: {goal}".rstrip(": ")
     return volume_id
+
+
+def _lock_schedule(planning: PlanningRepo, project_id: int) -> list[tuple[int, str]]:
+    """章纲 title+core_event+pov 的首次出场表,不含章正文。"""
+    rows: list[tuple[int, str]] = []
+    for chapter in planning.list_chapters(project_id):
+        if not chapter.outline:
+            continue
+        index = chapter_index_from_key(chapter.chapter_key)
+        if index is None:
+            continue
+        outline = planning.get_outline(project_id, chapter.chapter_key)
+        rows.append((index, f"{outline.title}{outline.core_event}{outline.pov}"))
+    return rows
 
 
 async def run_chapter_loop(
@@ -806,6 +822,14 @@ async def _n6(
         candidates = [draft_from_record(production.get_draft(item)) for item in ids]
         package = ctx_factory()
         names = [card.name for card in package.characters if card.name]
+        gates = LockGates(
+            required_names=names,
+            pov=package.outline.pov,
+            chapter_index=chapter_index_from_key(chapter_key),
+            card_names=names,
+            schedule=_lock_schedule(PlanningRepo(ops.s), project_id),
+            reveal_forbidden=list(package.outline.reveal_forbidden),
+        )
         raw: JudgeVerdict | None = None
         try:
             raw = await run_judge(deps, candidates, reports, package, absent=absent)
@@ -832,18 +856,14 @@ async def _n6(
                     raise
                 raw = None
         if raw is None:
-            picked = pick_lockable_candidate(candidates, package.boundaries, names)
+            picked = pick_lockable_candidate(candidates, package.boundaries, names, gates)
             if picked is None:
                 raise StructuredOutputError("Judge 空包且无可用合规候选")
             raw = synthesize_pass_verdict(picked)
         verdict = sanitize_verdict(raw, issues, names)
-        if verdict.verdict is not VerdictType.PASS:
-            sole = pick_sole_lockable_candidate(candidates, package.boundaries, names)
-            if sole is not None:
-                verdict = synthesize_pass_verdict(
-                    sole,
-                    reason="Judge 拒绝 PASS,但仅一稿合规且无硬门禁泄漏:选用该候选,继续锁定。",
-                )
+        verdict = enforce_lockable_verdict(
+            verdict, candidates, package.boundaries, names, gates
+        )
         n3 = ops.find_success_node(f"{chapter_key}|{state.outline_ver}|1|n3")
         mapping = (n3.output_snapshot.get("candidate_drafts") or {}) if n3 else {}
         picked = mapping.get(verdict.selected_candidate)
