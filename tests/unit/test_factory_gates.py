@@ -8,10 +8,15 @@ from novel_agent.domain.schemas import (
     JudgeVerdict,
     ReviewIssue,
     SceneCard,
+    VerdictType,
 )
 from novel_agent.production.factory import (
+    LockGates,
+    chapter_index_from_key,
     critical_parse_failure_should_raise,
+    enforce_lockable_verdict,
     is_empty_packet_verdict,
+    is_lockable_draft,
     is_usable_draft,
     pick_lockable_candidate,
     pick_sole_lockable_candidate,
@@ -371,3 +376,78 @@ def test_critical_parse_failure_should_raise() -> None:
     assert critical_parse_failure_should_raise([], ["continuity"], {"continuity"}) is True
     assert critical_parse_failure_should_raise([object()], ["continuity"], {"continuity"}) is False
     assert critical_parse_failure_should_raise([], ["prose"], {"continuity"}) is False
+
+
+V1C001_OPEN = "场记板上的墨迹没干透，我用拇指抹了一下：第三十二场。"
+V1C002_OPEN = "林朔把凉透的茶水搁在椅脚边，手心还攥着杯壁。"
+
+
+def test_chapter_index_from_key() -> None:
+    assert chapter_index_from_key("v1c001") == 1
+    assert chapter_index_from_key("v1c013") == 13
+    assert chapter_index_from_key("nope") is None
+
+
+def test_first_person_dominant_is_not_lockable_when_pov_is_name() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    prose = _long_prose() + V1C001_OPEN * 10
+    assert is_usable_draft(prose)
+    assert is_lockable_draft(prose, [], ["林朔"], gates) is False
+    assert pick_lockable_candidate([_candidate("candidate_1", prose)], [], ["林朔"], gates) is None
+
+
+def test_first_person_dominant_not_lockable_even_when_name_appears() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    prose = _long_prose() + "林朔还在场。" + V1C001_OPEN * 10
+    assert "林朔" in prose
+    assert is_usable_draft(prose)
+    assert is_lockable_draft(prose, [], ["林朔"], gates) is False
+
+
+def test_third_person_linshuo_still_lockable() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    prose = _long_prose() + "林朔盯着监视器。兆薇从化妆间出来。" * 5
+    v1c002 = _long_prose() + V1C002_OPEN * 10
+    assert is_lockable_draft(prose, [], ["林朔"], gates) is True
+    assert is_lockable_draft(v1c002, [], ["林朔"], gates) is True
+    picked = pick_lockable_candidate([_candidate("candidate_1", prose)], [], ["林朔"], gates)
+    assert picked is not None
+
+
+def test_pov_gate_skipped_when_gates_omitted() -> None:
+    prose = _long_prose() + V1C001_OPEN * 10
+    assert is_usable_draft(prose)
+    assert pick_lockable_candidate([_candidate("candidate_1", prose)], []) is not None
+
+
+def test_judge_pass_on_first_person_dominant_does_not_lock_without_sibling() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    leaked = _candidate("candidate_1", _long_prose() + V1C001_OPEN * 10)
+    verdict = JudgeVerdict.model_validate(
+        {
+            "verdict": "PASS",
+            "selected_candidate": "candidate_1",
+            "reasoning_summary": "PASS",
+        }
+    )
+    out = enforce_lockable_verdict(verdict, [leaked], [], ["林朔"], gates)
+    assert out.verdict is VerdictType.HUMAN_REVIEW
+
+
+def test_judge_pass_on_first_person_picks_third_person_sibling() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    leaked = _candidate("candidate_1", _long_prose() + V1C001_OPEN * 10)
+    clean = _candidate(
+        "candidate_2",
+        _long_prose() + "林朔盯着监视器。兆薇从化妆间出来。" * 5,
+    )
+    verdict = JudgeVerdict.model_validate(
+        {
+            "verdict": "PASS",
+            "selected_candidate": "candidate_1",
+            "reasoning_summary": "PASS",
+        }
+    )
+    out = enforce_lockable_verdict(verdict, [leaked, clean], [], ["林朔"], gates)
+    assert out.verdict is VerdictType.PASS
+    assert out.selected_candidate == "candidate_2"
