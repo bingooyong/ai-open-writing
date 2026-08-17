@@ -27,6 +27,7 @@ from novel_agent.production.mock_fixtures import (
     verdict_json,
 )
 from novel_agent.runtime.agents import AgentDeps
+from novel_agent.workflow import transition
 
 
 def _engine(tmp_path):
@@ -535,6 +536,76 @@ async def test_n5_all_reviewers_parse_fail_upgrades_to_human_review(tmp_path) ->
         run = OpsRepo(session).get_workflow_run(result.workflow_run_id)
         assert run.status == "paused"
         assert run.current_node == "n5_parallel_review"
+    finally:
+        session.close()
+
+
+async def test_planned_chapter_does_not_resume_paused_n5(tmp_path) -> None:
+    mock = MockProvider()
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    for role in ("red_team", "plot", "character", "continuity", "prose", "reader_advocate"):
+        mock.register(role, lambda _req: "{")
+    try:
+        first = await run_chapter_loop(
+            session,
+            deps,
+            project_id,
+            "v1c001",
+            gates=ChapterLoopGates.auto(),
+        )
+        session.commit()
+        assert first.status is ChapterStatus.HUMAN_REVIEW
+        old = OpsRepo(session).get_workflow_run(first.workflow_run_id)
+        assert old.status == "paused"
+        assert old.current_node == "n5_parallel_review"
+
+        transition(PlanningRepo(session), project_id, "v1c001", ChapterStatus.PLANNED)
+        session.commit()
+        register_chapter_loop_defaults(mock)
+        second = await run_chapter_loop(
+            session,
+            deps,
+            project_id,
+            "v1c001",
+            gates=ChapterLoopGates.auto(),
+        )
+        session.commit()
+        stale = OpsRepo(session).get_workflow_run(first.workflow_run_id)
+        assert stale.status == "failed"
+        assert second.workflow_run_id != first.workflow_run_id
+        assert second.status is ChapterStatus.CANON_LOCKED
+        assert second.stopped_at != "n5_parallel_review"
+    finally:
+        session.close()
+
+
+async def test_human_review_paused_run_is_resumed(tmp_path) -> None:
+    mock = MockProvider()
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    for role in ("red_team", "plot", "character", "continuity", "prose", "reader_advocate"):
+        mock.register(role, lambda _req: "{")
+    try:
+        first = await run_chapter_loop(
+            session,
+            deps,
+            project_id,
+            "v1c001",
+            gates=ChapterLoopGates.auto(),
+        )
+        session.commit()
+        assert first.status is ChapterStatus.HUMAN_REVIEW
+        second = await run_chapter_loop(
+            session,
+            deps,
+            project_id,
+            "v1c001",
+            gates=ChapterLoopGates.auto(),
+        )
+        session.commit()
+        assert second.workflow_run_id == first.workflow_run_id
+        assert second.status is ChapterStatus.HUMAN_REVIEW
+        run = OpsRepo(session).get_workflow_run(first.workflow_run_id)
+        assert run.status == "paused"
     finally:
         session.close()
 

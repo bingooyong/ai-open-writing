@@ -240,6 +240,17 @@ async def run_chapter_loop(
         raise ChapterLoopError("章节已导出,单章循环不再推进")
 
     run = ops.find_resumable_run(project_id, "chapter_loop", chapter_key)
+    if (
+        run is not None
+        and run.status in {"paused", "running"}
+        and chapter.status in {ChapterStatus.PLANNED, ChapterStatus.NEEDS_REPLAN}
+    ):
+        assert run.id is not None
+        ops.update_workflow(run.id, status="failed", current_node=run.current_node)
+        ops.void_succeeded_nodes_for_chapter(chapter_key)
+        reset_to_planned(planning, project_id, chapter_key)
+        chapter = planning.get_chapter(project_id, chapter_key)
+        run = None
     if run is None:
         last = ops.latest_workflow_for_chapter(project_id, "chapter_loop", chapter_key)
         latest_verdict = production.latest_verdict(chapter_key)
