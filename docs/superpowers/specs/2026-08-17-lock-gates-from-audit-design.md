@@ -155,13 +155,15 @@ Called from `is_lockable_draft`, not via `has_hard_gate_leak`. A matching draft 
 
 Do **not** gate bare `笔记`. Do **not** gate `我没说`. Never add substring `笔记` to `_HARD_GATE_LEAK_RE`. Do not change n4 `_BOUNDARY_DENIAL_RE` in `lint/__init__.py` — this is factory lockability, not lint.
 
-### 5.6 Body-cost in ch1–3 only (Task 4, document only)
+### 5.6 Body-cost in ch1–3 only (Task 4)
 
-Not lockable if `chapter_index` is 1, 2, or 3 and the draft matches:
+Only when `gates.chapter_index` is an int `<= 3`. If `chapter_index` is `None` or `> 3`, skip this gate. Called from `is_lockable_draft`.
 
-`嗡声|眩晕|额角|跳痛|偏头痛|失明|耳侧`
+`_BODY_COST_RE`: `嗡声|眩晕|额角|跳痛|偏头痛|失明|耳侧`
 
-Skip `心跳` / `手凉` / `出汗` / `手还在抖`. Skip if `chapter_index` is `None` or `> 3`. Do not gate `尾音`.
+`耳鸣` stays in the global leak regex (all chapters). This gate covers adjacent forms `耳鸣` misses.
+
+Skip `心跳` / `手凉` / `出汗` / `手还在抖`. Do not gate `尾音`.
 
 ### 5.7 Unscheduled character (Task 5, document only)
 
@@ -208,7 +210,7 @@ Live locked-draft strings must appear as fixtures, not paraphrases.
 - Draft PR #24
 - Adding `pov_person` or `cast` to `ChapterOutline`
 - Gating `尾音`, bare `笔记`, bare `左眼`, `我没说`, `心跳` / `手凉` / `出汗` / `手还在抖`
-- Implementing Tasks 4–5 beyond documenting them
+- Implementing Task 5 beyond documenting it
 
 ## 6. Success criteria
 
@@ -221,12 +223,13 @@ A regression using locked-draft strings would:
 - Leave PR #32 tests green when `gates` is omitted
 - Refuse `徐姐` / `实习场记` / `章子怡` drafts; still lock `许静蕾` / `周姐` / `李老师`
 - Refuse `我没解释` / `不能解释自己为什么` / `他不写笔记`; still lock 场记本 / `我没说`; `"笔记"` stays out of `_HARD_GATE_LEAK_RE`
+- Refuse BODY `嗡声`/`眩晕` at `chapter_index=1`; still lock the same text at index 4 / `None`, and SHAKE `手还在抖` at index 1
 
 ## 7. Files
 
 | Path | Change |
 |---|---|
-| `src/novel_agent/production/factory.py` | `LockGates`, POV, PASS veto, X姐/实习场记 leak, mechanism-naming |
+| `src/novel_agent/production/factory.py` | `LockGates`, POV, PASS veto, X姐/实习场记, mechanism-naming, body-cost ch1–3 |
 | `src/novel_agent/production/loop.py` | build `LockGates`; pass into picks; veto non-lockable Judge PASS |
 | `tests/unit/test_factory_gates.py` | POV + PASS veto + 徐姐/实习场记 fixtures |
 | `tests/workflow/test_chapter_loop.py` | MockProvider: PASS on leaky/first-person selected draft does not auto-lock |

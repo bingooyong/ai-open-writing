@@ -526,3 +526,30 @@ def test_mechanism_naming_is_not_lockable_but_bare_notebook_is() -> None:
     clean = _candidate("candidate_2", _linshuo_pad("兆薇从化妆间出来。"))
     picked = pick_sole_lockable_candidate([leaked, clean], [], ["林朔"], gates)
     assert picked is not None and picked.candidate_id == "candidate_2"
+
+
+BODY = (
+    "右耳还带着下午在棚里被散光灯烤过的嗡声，不重。我听见自己的心跳——"
+    "不是紧张，是一种从来没有过的眩晕。"
+)
+SHAKE = (
+    "手还在抖。不是冷的那种抖，是肾上腺素退潮之后肌肉自己找平衡的那种。"
+)
+
+
+def test_body_cost_gated_only_in_early_chapters() -> None:
+    early = LockGates(pov="林朔", required_names=["林朔"], chapter_index=1)
+    late = LockGates(pov="林朔", required_names=["林朔"], chapter_index=4)
+    skipped = LockGates(pov="林朔", required_names=["林朔"], chapter_index=None)
+    body = _linshuo_pad(BODY)
+    shake = _linshuo_pad(SHAKE)
+    assert is_usable_draft(body)
+    assert is_lockable_draft(body, [], ["林朔"], early) is False
+    assert is_lockable_draft(body, [], ["林朔"], late) is True
+    assert is_lockable_draft(shake, [], ["林朔"], early) is True
+    assert is_lockable_draft(body, [], ["林朔"], skipped) is True
+
+    leaked = _candidate("candidate_1", body)
+    clean = _candidate("candidate_2", _linshuo_pad("兆薇从化妆间出来。"))
+    picked = pick_sole_lockable_candidate([leaked, clean], [], ["林朔"], early)
+    assert picked is not None and picked.candidate_id == "candidate_2"

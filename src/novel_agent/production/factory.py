@@ -79,6 +79,8 @@ _VARIANT_JIE_RE = re.compile(r"(章|赵|徐|范|李|刘)姐")
 _MECHANISM_NAMING_RE = re.compile(
     r"我没解释|没法解释|不能解释自己为什么|他不写笔记|我不写笔记|没有写笔记"
 )
+# 仅 ch1–3。不拦心跳/手凉/出汗/手还在抖/尾音;耳鸣仍走全局泄漏正则。
+_BODY_COST_RE = re.compile(r"嗡声|眩晕|额角|跳痛|偏头痛|失明|耳侧")
 _CHAPTER_INDEX_RE = re.compile(r"c(\d+)", re.IGNORECASE)
 _WO_RE = re.compile(r"我(?!们)")
 
@@ -282,6 +284,12 @@ def has_mechanism_naming(text: str) -> bool:
     return bool(_MECHANISM_NAMING_RE.search(text or ""))
 
 
+def _body_cost_blocks(text: str, gates: LockGates | None) -> bool:
+    if gates is None or gates.chapter_index is None or gates.chapter_index > 3:
+        return False
+    return bool(_BODY_COST_RE.search(text or ""))
+
+
 def is_lockable_draft(
     text: str,
     boundaries: list[str],
@@ -298,6 +306,8 @@ def is_lockable_draft(
     if has_hard_gate_leak(text):
         return False
     if has_mechanism_naming(text):
+        return False
+    if _body_cost_blocks(text, gates):
         return False
     names = [n for n in (_effective_required_names(required_names, gates) or []) if n]
     if names and not any(n in (text or "") for n in names):
