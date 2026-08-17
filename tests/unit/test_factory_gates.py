@@ -11,10 +11,12 @@ from novel_agent.domain.schemas import (
     VerdictType,
 )
 from novel_agent.production.factory import (
+    _HARD_GATE_LEAK_RE,
     LockGates,
     chapter_index_from_key,
     critical_parse_failure_should_raise,
     enforce_lockable_verdict,
+    has_hard_gate_leak,
     is_empty_packet_verdict,
     is_lockable_draft,
     is_usable_draft,
@@ -451,3 +453,47 @@ def test_judge_pass_on_first_person_picks_third_person_sibling() -> None:
     out = enforce_lockable_verdict(verdict, [leaked, clean], [], ["林朔"], gates)
     assert out.verdict is VerdictType.PASS
     assert out.selected_candidate == "candidate_2"
+
+
+XU_JIE = "王师傅说，徐姐那边在找能看粗剪的人"
+INTERN = "北影厂实习场记的通告单背在兜里硌着胯骨。"
+
+
+def _linshuo_pad(extra: str) -> str:
+    return _long_prose() + "林朔盯着监视器。" + extra
+
+
+def test_xujie_adjacency_and_intern_clapper_are_not_lockable() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    assert has_hard_gate_leak(XU_JIE) is True
+
+    xujie = _linshuo_pad(XU_JIE)
+    assert is_usable_draft(xujie)
+    assert is_lockable_draft(xujie, [], ["林朔"], gates) is False
+
+    xujinglei = _linshuo_pad("许静蕾走进来")
+    assert is_lockable_draft(xujinglei, [], ["林朔"], gates) is True
+
+    zhang = _linshuo_pad("章子怡走进来")
+    assert is_lockable_draft(zhang, [], ["林朔"], gates) is False
+
+    zhoujie = _linshuo_pad("周姐把通告递过来。")
+    assert is_lockable_draft(zhoujie, [], ["林朔"], gates) is True
+
+    intern = _linshuo_pad(INTERN)
+    assert has_hard_gate_leak(INTERN) is True
+    assert is_lockable_draft(intern, [], ["林朔"], gates) is False
+
+    laoshi = _linshuo_pad("李老师在棚顶换泡")
+    assert is_lockable_draft(laoshi, [], ["林朔"], gates) is True
+
+    tokens = _HARD_GATE_LEAK_RE.pattern.split("|")
+    assert "笔记" not in _HARD_GATE_LEAK_RE.pattern
+    assert "左眼" not in tokens
+    assert "左眼花" in tokens
+    assert "左眼薄雾" in tokens
+
+    leaked = _candidate("candidate_1", xujie)
+    clean = _candidate("candidate_2", _linshuo_pad("兆薇从化妆间出来。"))
+    picked = pick_sole_lockable_candidate([leaked, clean], [], ["林朔"], gates)
+    assert picked is not None and picked.candidate_id == "candidate_2"

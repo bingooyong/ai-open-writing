@@ -132,9 +132,18 @@ Non-PASS sole-lockable fallback stays: REPLAN/HUMAN_REVIEW/REVISE with exactly o
 
 Empty-packet path still uses `pick_lockable_candidate` when Judge is absent; that path already consults `is_lockable_draft`.
 
-### 5.4 徐姐-style real-name adjacency + 实习场记 (Task 2, document only)
+### 5.4 徐姐-style real-name adjacency + 实习场记 (Task 2)
 
-Not lockable if the draft contains `实习场记`, or a 徐姐-style real-name adjacency (徐姐 next to a forbidden real-name / 静蕾 form). Exact detector lands in Task 2. Do not add `笔记` or bare `左眼` to `_HARD_GATE_LEAK_RE`. `实习生` remains a leak from #32.
+`has_hard_gate_leak` is true when any of:
+
+1. Existing `_HARD_GATE_LEAK_RE`: `穿越|耳鸣|真名|实习生|左眼花|左眼薄雾|反噬`
+2. New token `实习场记` (not bare `实习`; `实习生` already in (1))
+3. `_FORBIDDEN_REAL_NAME_RE` on the **draft** (not only Judge blob): `章子怡|赵薇|周迅|徐静蕾|范冰冰|李冰冰|刘亦菲`
+4. Adjacency for surnames that **changed** in the variant: `(章|赵|徐|范|李|刘)姐`
+
+Live hit from locked v1c001: `徐姐`. `许静蕾` in draft stays lockable. `周姐` alone does not fail (周洵 keeps 周; do not add `周` to the X姐 list). `李老师` / `李师傅` do not fail (do not add `老师`/`师傅`).
+
+Do not add `笔记` or bare `左眼` to `_HARD_GATE_LEAK_RE`. Do not gate `尾音`.
 
 ### 5.5 Mechanism-naming (Task 3, document only)
 
@@ -197,7 +206,7 @@ Live locked-draft strings must appear as fixtures, not paraphrases.
 - Draft PR #24
 - Adding `pov_person` or `cast` to `ChapterOutline`
 - Gating `尾音`, bare `笔记`, bare `左眼`, `我没说`, `心跳` / `手凉` / `出汗` / `手还在抖`
-- Implementing Tasks 2–5 in the Task 1 PR beyond documenting them
+- Implementing Tasks 3–5 beyond documenting them
 
 ## 6. Success criteria
 
@@ -208,14 +217,15 @@ A regression using locked-draft strings would:
 - Refuse to auto-lock a Judge PASS whose selected draft is first-person-dominant or contains `实习生`
 - Synthesize PASS onto the sole lockable third-person sibling
 - Leave PR #32 tests green when `gates` is omitted
+- Refuse `徐姐` / `实习场记` / `章子怡` drafts; still lock `许静蕾` / `周姐` / `李老师`
 
 ## 7. Files
 
 | Path | Change |
 |---|---|
-| `src/novel_agent/production/factory.py` | `LockGates`, `chapter_index_from_key`, POV detector, `gates` on pick helpers, PASS veto helper |
+| `src/novel_agent/production/factory.py` | `LockGates`, POV, PASS veto, `has_hard_gate_leak` 实习场记/真名/X姐 |
 | `src/novel_agent/production/loop.py` | build `LockGates`; pass into picks; veto non-lockable Judge PASS |
-| `tests/unit/test_factory_gates.py` | POV + PASS veto fixtures |
+| `tests/unit/test_factory_gates.py` | POV + PASS veto + 徐姐/实习场记 fixtures |
 | `tests/workflow/test_chapter_loop.py` | MockProvider: PASS on leaky/first-person selected draft does not auto-lock |
 
 ## 8. Spec self-review

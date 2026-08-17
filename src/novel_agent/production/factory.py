@@ -72,6 +72,9 @@ _SCENE_ID_IN_TEXT = re.compile(r"(?:v\d+c\d+_s\d+|[A-Za-z]+_s\d+|s\d+)", re.IGNO
 _WS_RE = re.compile(r"\s+")
 # 硬门禁风格泄漏:真名/穿越/耳鸣/实习生/左眼花/左眼薄雾/反噬。禁止单凭「笔记」或裸「左眼」。
 _HARD_GATE_LEAK_RE = re.compile(r"穿越|耳鸣|真名|实习生|左眼花|左眼薄雾|反噬")
+_FORBIDDEN_REAL_NAME_RE = re.compile(r"章子怡|赵薇|周迅|徐静蕾|范冰冰|李冰冰|刘亦菲")
+# 变体姓+姐。周洵保留「周」,故不含周;不拦老师/师傅。
+_VARIANT_JIE_RE = re.compile(r"(章|赵|徐|范|李|刘)姐")
 _CHAPTER_INDEX_RE = re.compile(r"c(\d+)", re.IGNORECASE)
 _WO_RE = re.compile(r"我(?!们)")
 
@@ -259,8 +262,15 @@ def resolve_revision_scope(
 
 
 def has_hard_gate_leak(text: str) -> bool:
-    """正文里的真名/穿越/耳鸣/实习生类硬门禁泄漏。"""
-    return bool(_HARD_GATE_LEAK_RE.search(text or ""))
+    """正文里的真名/穿越/耳鸣/实习生/实习场记/变体X姐类硬门禁泄漏。"""
+    blob = text or ""
+    if _HARD_GATE_LEAK_RE.search(blob):
+        return True
+    if "实习场记" in blob:
+        return True
+    if _FORBIDDEN_REAL_NAME_RE.search(blob):
+        return True
+    return bool(_VARIANT_JIE_RE.search(blob))
 
 
 def is_lockable_draft(
@@ -372,9 +382,6 @@ def synthesize_pass_verdict(
         rulings=[],
         reasoning_summary=reason,
     )
-
-
-_FORBIDDEN_REAL_NAME_RE = re.compile(r"章子怡|赵薇|周迅|徐静蕾|范冰冰|李冰冰|刘亦菲")
 
 
 def strip_allowed_name_boundaries(
