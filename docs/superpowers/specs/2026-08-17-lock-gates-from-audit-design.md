@@ -165,13 +165,25 @@ Only when `gates.chapter_index` is an int `<= 3`. If `chapter_index` is `None` o
 
 Skip `心跳` / `手凉` / `出汗` / `手还在抖`. Do not gate `尾音`.
 
-### 5.7 Unscheduled character (Task 5, document only)
+### 5.7 Unscheduled character (Task 5)
 
-Build `first_schedule` from volume outline `title` + `core_event` + `pov`, lookahead=1. A name whose first scheduled chapter is later than `chapter_index + 1` is too early.
+Inputs: `card_names`; `schedule` as `list[tuple[int, str]]` where blob = `title + core_event + pov` (NOT chapter body); current `chapter_index`; current `reveal_forbidden`.
 
-`reveal_forbidden` substring wins (许静蕾/周洵登场). 黎冰屏 first at v1c013 appearing in v1c004 is too early. 兆薇 in c001 is allowed.
+A card name's `first_schedule` = min index whose blob contains that name. If never mentioned, treat as +inf (any appearance is too early).
 
-`ChapterOutline` does not gain `pov_person` or `cast`.
+Lookahead window = 1: allowed if `first_schedule <= current_index + 1`.
+
+Not lockable if a card name occurs in the draft AND `first_schedule > current_index + 1`.
+
+Also not lockable if a card name occurs in the draft AND that name is a substring of any current `reveal_forbidden` item (covers v1c004 `许静蕾/周洵登场`). **Forbidden wins over lookahead.**
+
+Do **not** use `package.characters` as the allowed set (`required_names` at-least-one stays for wrong-book detection).
+
+If `schedule` is omitted/`None` OR `chapter_index` is `None`: skip this gate entirely.
+
+Live: 黎冰屏 first at v1c013 in v1c004 is too early. 兆薇 first v1c002 in v1c001 is allowed. 樊冰屏 first v1c003 named at end of v1c002 is allowed. 许静蕾 first v1c005 would be lookahead-allowed in v1c004, but `reveal_forbidden=["许静蕾/周洵登场"]` wins.
+
+`ChapterOutline` does not gain `pov_person` or `cast`. `_n6` loads every project chapter outline via `PlanningRepo.list_chapters` / `get_outline` and fills `card_names`, `schedule`, `reveal_forbidden`.
 
 ### 5.8 loop.py wiring (Task 1)
 
@@ -185,7 +197,7 @@ LockGates(
 )
 ```
 
-and passes `gates` into `pick_lockable_candidate`, `pick_sole_lockable_candidate`, and the Judge PASS veto. Production gets POV immediately; later tasks add more fields to the same constructor.
+and passes `gates` into `pick_lockable_candidate`, `pick_sole_lockable_candidate`, and the Judge PASS veto. Task 5 fills `card_names`, `schedule`, and `reveal_forbidden` on the same constructor.
 
 ### 5.9 Testing
 
@@ -210,7 +222,6 @@ Live locked-draft strings must appear as fixtures, not paraphrases.
 - Draft PR #24
 - Adding `pov_person` or `cast` to `ChapterOutline`
 - Gating `尾音`, bare `笔记`, bare `左眼`, `我没说`, `心跳` / `手凉` / `出汗` / `手还在抖`
-- Implementing Task 5 beyond documenting it
 
 ## 6. Success criteria
 
@@ -224,15 +235,16 @@ A regression using locked-draft strings would:
 - Refuse `徐姐` / `实习场记` / `章子怡` drafts; still lock `许静蕾` / `周姐` / `李老师`
 - Refuse `我没解释` / `不能解释自己为什么` / `他不写笔记`; still lock 场记本 / `我没说`; `"笔记"` stays out of `_HARD_GATE_LEAK_RE`
 - Refuse BODY `嗡声`/`眩晕` at `chapter_index=1`; still lock the same text at index 4 / `None`, and SHAKE `手还在抖` at index 1
+- Refuse 黎冰屏 in v1c004 / `许静蕾` when `reveal_forbidden` contains 许静蕾登场; still lock 兆薇 in v1c001 and skip the gate when `schedule` is `None`
 
 ## 7. Files
 
 | Path | Change |
 |---|---|
-| `src/novel_agent/production/factory.py` | `LockGates`, POV, PASS veto, X姐/实习场记, mechanism-naming, body-cost ch1–3 |
-| `src/novel_agent/production/loop.py` | build `LockGates`; pass into picks; veto non-lockable Judge PASS |
-| `tests/unit/test_factory_gates.py` | POV + PASS veto + 徐姐/实习场记 fixtures |
-| `tests/workflow/test_chapter_loop.py` | MockProvider: PASS on leaky/first-person selected draft does not auto-lock |
+| `src/novel_agent/production/factory.py` | `LockGates` and all five detectors |
+| `src/novel_agent/production/loop.py` | full `LockGates` including schedule / card_names / reveal_forbidden; PASS veto |
+| `tests/unit/test_factory_gates.py` | Tasks 1–5 fixtures |
+| `tests/workflow/test_chapter_loop.py` | MockProvider: PASS on leaky selected draft does not auto-lock |
 
 ## 8. Spec self-review
 

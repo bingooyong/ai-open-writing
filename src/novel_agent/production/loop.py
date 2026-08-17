@@ -208,6 +208,20 @@ def _volume_summary(planning: PlanningRepo, project_id: int, volume_id: str) -> 
     return volume_id
 
 
+def _lock_schedule(planning: PlanningRepo, project_id: int) -> list[tuple[int, str]]:
+    """章纲 title+core_event+pov 的首次出场表,不含章正文。"""
+    rows: list[tuple[int, str]] = []
+    for chapter in planning.list_chapters(project_id):
+        if not chapter.outline:
+            continue
+        index = chapter_index_from_key(chapter.chapter_key)
+        if index is None:
+            continue
+        outline = planning.get_outline(project_id, chapter.chapter_key)
+        rows.append((index, f"{outline.title}{outline.core_event}{outline.pov}"))
+    return rows
+
+
 async def run_chapter_loop(
     session: Session,
     deps: AgentDeps,
@@ -812,6 +826,9 @@ async def _n6(
             required_names=names,
             pov=package.outline.pov,
             chapter_index=chapter_index_from_key(chapter_key),
+            card_names=names,
+            schedule=_lock_schedule(PlanningRepo(ops.s), project_id),
+            reveal_forbidden=list(package.outline.reveal_forbidden),
         )
         raw: JudgeVerdict | None = None
         try:

@@ -290,6 +290,31 @@ def _body_cost_blocks(text: str, gates: LockGates | None) -> bool:
     return bool(_BODY_COST_RE.search(text or ""))
 
 
+def _first_schedule(name: str, schedule: list[tuple[int, str]]) -> int | None:
+    hits = [index for index, blob in schedule if name in blob]
+    return min(hits) if hits else None
+
+
+def _unscheduled_character_blocks(text: str, gates: LockGates | None) -> bool:
+    if gates is None or gates.schedule is None or gates.chapter_index is None:
+        return False
+    names = [name for name in (gates.card_names or []) if name]
+    if not names:
+        return False
+    blob = text or ""
+    forbidden = [item for item in (gates.reveal_forbidden or []) if item]
+    current = gates.chapter_index
+    for name in names:
+        if name not in blob:
+            continue
+        if any(name in item for item in forbidden):
+            return True
+        first = _first_schedule(name, gates.schedule)
+        if first is None or first > current + 1:
+            return True
+    return False
+
+
 def is_lockable_draft(
     text: str,
     boundaries: list[str],
@@ -308,6 +333,8 @@ def is_lockable_draft(
     if has_mechanism_naming(text):
         return False
     if _body_cost_blocks(text, gates):
+        return False
+    if _unscheduled_character_blocks(text, gates):
         return False
     names = [n for n in (_effective_required_names(required_names, gates) or []) if n]
     if names and not any(n in (text or "") for n in names):

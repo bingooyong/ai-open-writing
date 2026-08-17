@@ -553,3 +553,70 @@ def test_body_cost_gated_only_in_early_chapters() -> None:
     clean = _candidate("candidate_2", _linshuo_pad("兆薇从化妆间出来。"))
     picked = pick_sole_lockable_candidate([leaked, clean], [], ["林朔"], early)
     assert picked is not None and picked.candidate_id == "candidate_2"
+
+
+SCHEDULE = [
+    (1, "片场最底层的十分钟林朔在古装权谋剧组救场林朔"),
+    (2, "副助的第一次单机位兆薇在杀青戏前林朔"),
+    (3, "樊冰屏的预算表林朔赴约樊冰屏林朔"),
+    (4, "封闭空间开机夜林朔在监视器前林朔"),
+    (5, "粗剪室里的人许静蕾临时拽来林朔"),
+    (13, "黎冰屏的旧伤黎冰屏林朔"),
+]
+CARDS = ["林朔", "樊冰屏", "周洵", "许静蕾", "兆薇", "张紫衣", "柳奕妃", "黎冰屏"]
+LI_LINE = "动作分包黎冰屏靠在墙上。下一场女演员拖行是她的活"
+
+
+def test_unscheduled_character_too_early_is_not_lockable() -> None:
+    early = LockGates(
+        pov="林朔",
+        required_names=["林朔"],
+        chapter_index=4,
+        card_names=CARDS,
+        schedule=SCHEDULE,
+    )
+    li = _linshuo_pad(LI_LINE)
+    assert is_usable_draft(li)
+    assert is_lockable_draft(li, [], ["林朔"], early) is False
+
+    zhaowei = LockGates(
+        pov="林朔",
+        required_names=["林朔"],
+        chapter_index=1,
+        card_names=CARDS,
+        schedule=SCHEDULE,
+    )
+    assert is_lockable_draft(_linshuo_pad("兆薇从化妆间出来。"), [], ["林朔"], zhaowei) is True
+
+    fan = LockGates(
+        pov="林朔",
+        required_names=["林朔"],
+        chapter_index=2,
+        card_names=CARDS,
+        schedule=SCHEDULE,
+    )
+    assert is_lockable_draft(_linshuo_pad("樊冰屏把预算表放下。"), [], ["林朔"], fan) is True
+
+    forbidden = LockGates(
+        pov="林朔",
+        required_names=["林朔"],
+        chapter_index=4,
+        card_names=CARDS,
+        schedule=SCHEDULE,
+        reveal_forbidden=["许静蕾/周洵登场"],
+    )
+    assert is_lockable_draft(_linshuo_pad("许静蕾走进来"), [], ["林朔"], forbidden) is False
+
+    skipped = LockGates(
+        pov="林朔",
+        required_names=["林朔"],
+        chapter_index=4,
+        card_names=CARDS,
+        schedule=None,
+    )
+    assert is_lockable_draft(li, [], ["林朔"], skipped) is True
+
+    leaked = _candidate("candidate_1", li)
+    clean = _candidate("candidate_2", _linshuo_pad("兆薇从化妆间出来。"))
+    picked = pick_sole_lockable_candidate([leaked, clean], [], ["林朔"], early)
+    assert picked is not None and picked.candidate_id == "candidate_2"
