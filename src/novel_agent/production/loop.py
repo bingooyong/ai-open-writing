@@ -40,6 +40,7 @@ from novel_agent.production.factory import (
     pick_lockable_candidate,
     pick_sole_lockable_candidate,
     resolve_revision_scope,
+    strip_allowed_name_boundaries,
     synthesize_pass_verdict,
 )
 from novel_agent.runtime.agents import (
@@ -128,7 +129,11 @@ def draft_from_record(rec: DraftVersionRecord) -> DraftCandidate:
     )
 
 
-def sanitize_verdict(verdict: JudgeVerdict, issues: list[ReviewIssue]) -> JudgeVerdict:
+def sanitize_verdict(
+    verdict: JudgeVerdict,
+    issues: list[ReviewIssue],
+    allowed_names: list[str] | None = None,
+) -> JudgeVerdict:
     """无证据 issue 不得作为阻断项(Spec §7):强制驳回并剔除仅由其支撑的硬门禁。"""
     downweighted = {issue.issue_id for issue in issues if issue.downweighted}
     rulings = []
@@ -151,25 +156,26 @@ def sanitize_verdict(verdict: JudgeVerdict, issues: list[ReviewIssue]) -> JudgeV
         if supporting and all(issue.downweighted for issue in supporting):
             continue
         cleaned_gates.append(gate)
-    updates: dict[str, object] = {"rulings": rulings, "hard_gate_failures": cleaned_gates}
-    remaining_accepted = [item for item in rulings if item.accepted]
+    working = verdict.model_copy(update={"rulings": rulings, "hard_gate_failures": cleaned_gates})
+    working = strip_allowed_name_boundaries(working, issues, allowed_names)
+    remaining_accepted = [item for item in working.rulings if item.accepted]
     if (
-        verdict.verdict
+        working.verdict
         in {VerdictType.REVISE_LOCAL, VerdictType.REPLAN_SCENE, VerdictType.REPLAN_CHAPTER}
-        and not cleaned_gates
+        and not working.hard_gate_failures
         and not remaining_accepted
     ):
-        updates.update(
-            {
+        return working.model_copy(
+            update={
                 "verdict": VerdictType.PASS,
                 "rollback_target": None,
                 "revision_scope": [],
                 "reasoning_summary": (
-                    f"{verdict.reasoning_summary}（无证据项已降权,不得作为阻断）"
+                    f"{working.reasoning_summary}（无证据项已降权,不得作为阻断）"
                 ),
             }
         )
-    return verdict.model_copy(update=updates)
+    return working
 
 
 def _review_set_hash(issues: list[ReviewIssue], absent: list[str]) -> str:
@@ -799,7 +805,7 @@ async def _n6(
             if picked is None:
                 raise StructuredOutputError("Judge 空包且无可用合规候选")
             raw = synthesize_pass_verdict(picked)
-        verdict = sanitize_verdict(raw, issues)
+        verdict = sanitize_verdict(raw, issues, names)
         if verdict.verdict is not VerdictType.PASS:
             sole = pick_sole_lockable_candidate(candidates, package.boundaries, names)
             if sole is not None:

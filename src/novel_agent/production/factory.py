@@ -9,6 +9,7 @@ import re
 
 from novel_agent.domain.schemas import (
     DraftCandidate,
+    HardGate,
     JudgeVerdict,
     ReviewIssue,
     SceneCard,
@@ -271,3 +272,35 @@ def synthesize_pass_verdict(
         rulings=[],
         reasoning_summary=reason,
     )
+
+
+_FORBIDDEN_REAL_NAME_RE = re.compile(r"章子怡|赵薇|周迅|徐静蕾|范冰冰|李冰冰|刘亦菲")
+
+
+def strip_allowed_name_boundaries(
+    verdict: JudgeVerdict,
+    issues: list[ReviewIssue],
+    allowed_names: list[str] | None = None,
+) -> JudgeVerdict:
+    """角色卡名被裁成 content_boundary 真名时剔除该门禁,不放过章子怡/徐静蕾。"""
+    allowed = [n for n in (allowed_names or []) if n]
+    if not allowed or HardGate.CONTENT_BOUNDARY not in verdict.hard_gate_failures:
+        return verdict
+    cb_issues = [issue for issue in issues if issue.hard_gate == HardGate.CONTENT_BOUNDARY]
+    blob = " ".join(
+        [verdict.reasoning_summary]
+        + [issue.claim for issue in cb_issues]
+        + [ruling.reason for ruling in verdict.rulings]
+    )
+    if _FORBIDDEN_REAL_NAME_RE.search(blob):
+        return verdict
+    if not any(name in blob for name in allowed):
+        return verdict
+    gates = [gate for gate in verdict.hard_gate_failures if gate != HardGate.CONTENT_BOUNDARY]
+    drop_ids = {issue.issue_id for issue in cb_issues}
+    rulings = [
+        ruling
+        for ruling in verdict.rulings
+        if not (ruling.accepted and ruling.issue_id in drop_ids)
+    ]
+    return verdict.model_copy(update={"hard_gate_failures": gates, "rulings": rulings})

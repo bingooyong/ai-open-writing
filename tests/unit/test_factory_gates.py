@@ -2,13 +2,20 @@
 
 from test_schemas import SCENE, _issue
 
-from novel_agent.domain.schemas import DraftCandidate, JudgeVerdict, ReviewIssue, SceneCard
+from novel_agent.domain.schemas import (
+    DraftCandidate,
+    HardGate,
+    JudgeVerdict,
+    ReviewIssue,
+    SceneCard,
+)
 from novel_agent.production.factory import (
     is_empty_packet_verdict,
     is_usable_draft,
     pick_lockable_candidate,
     pick_sole_lockable_candidate,
     resolve_revision_scope,
+    strip_allowed_name_boundaries,
 )
 
 
@@ -235,6 +242,100 @@ def test_sole_lockable_single_onbrief_candidate() -> None:
     clean = _candidate("candidate_1", _long_prose() + "林朔在监视器前坐下。")
     picked = pick_sole_lockable_candidate([clean], [], required_names=["林朔"])
     assert picked is not None and picked.candidate_id == "candidate_1"
+
+
+def test_allowed_variant_name_is_not_content_boundary() -> None:
+    issue = ReviewIssue.model_validate(
+        {
+            "issue_id": "i1",
+            "reviewer_role": "red_team",
+            "claim": "许静蕾真名",
+            "evidence": [{"scene_id": "v1c009_s1", "quote": "许静蕾把杯子转了半圈"}],
+            "violated_rule": "禁真名",
+            "hard_gate": "content_boundary",
+            "severity": "P0",
+            "failure_consequence": "违禁",
+            "recommended_rollback_level": "chapter_outline",
+            "confidence": 0.9,
+        }
+    )
+    verdict = JudgeVerdict.model_validate(
+        {
+            "verdict": "HUMAN_REVIEW",
+            "selected_candidate": "candidate_1",
+            "hard_gate_failures": ["content_boundary"],
+            "rulings": [{"issue_id": "i1", "accepted": True, "reason": "真名"}],
+            "reasoning_summary": "许静蕾是真名，升级人工",
+        }
+    )
+    cleaned = strip_allowed_name_boundaries(
+        verdict, [issue], allowed_names=["许静蕾", "林朔"]
+    )
+    assert HardGate.CONTENT_BOUNDARY not in cleaned.hard_gate_failures
+    assert not any(item.issue_id == "i1" and item.accepted for item in cleaned.rulings)
+
+    dirty = JudgeVerdict.model_validate(
+        {
+            "verdict": "HUMAN_REVIEW",
+            "selected_candidate": "candidate_1",
+            "hard_gate_failures": ["content_boundary"],
+            "reasoning_summary": "出现章子怡真名",
+        }
+    )
+    kept = strip_allowed_name_boundaries(dirty, [], allowed_names=["许静蕾"])
+    assert HardGate.CONTENT_BOUNDARY in kept.hard_gate_failures
+
+    xu = JudgeVerdict.model_validate(
+        {
+            "verdict": "HUMAN_REVIEW",
+            "selected_candidate": "candidate_1",
+            "hard_gate_failures": ["content_boundary"],
+            "reasoning_summary": "出现徐静蕾真名",
+        }
+    )
+    kept_xu = strip_allowed_name_boundaries(xu, [], allowed_names=["许静蕾"])
+    assert HardGate.CONTENT_BOUNDARY in kept_xu.hard_gate_failures
+
+    mixed = JudgeVerdict.model_validate(
+        {
+            "verdict": "HUMAN_REVIEW",
+            "selected_candidate": "candidate_1",
+            "hard_gate_failures": ["content_boundary"],
+            "reasoning_summary": "许静蕾与章子怡真名同时出现",
+        }
+    )
+    kept_mixed = strip_allowed_name_boundaries(
+        mixed, [], allowed_names=["许静蕾", "林朔"]
+    )
+    assert HardGate.CONTENT_BOUNDARY in kept_mixed.hard_gate_failures
+
+    other = JudgeVerdict.model_validate(
+        {
+            "verdict": "HUMAN_REVIEW",
+            "selected_candidate": "candidate_1",
+            "hard_gate_failures": ["content_boundary", "canon_conflict"],
+            "rulings": [
+                {"issue_id": "i1", "accepted": True, "reason": "真名"},
+                {"issue_id": "i2", "accepted": True, "reason": "正史冲突"},
+            ],
+            "reasoning_summary": "许静蕾是真名，升级人工",
+        }
+    )
+    canon_issue = ReviewIssue.model_validate(
+        {
+            **_issue(),
+            "issue_id": "i2",
+            "claim": "正史冲突",
+            "hard_gate": "canon_conflict",
+        }
+    )
+    cleaned_other = strip_allowed_name_boundaries(
+        other, [issue, canon_issue], allowed_names=["许静蕾"]
+    )
+    assert HardGate.CONTENT_BOUNDARY not in cleaned_other.hard_gate_failures
+    assert HardGate.CANON_CONFLICT in cleaned_other.hard_gate_failures
+    assert any(item.issue_id == "i2" and item.accepted for item in cleaned_other.rulings)
+    assert not any(item.issue_id == "i1" and item.accepted for item in cleaned_other.rulings)
 
 
 def test_chinese_revision_scope_falls_back_to_issue_scenes() -> None:
