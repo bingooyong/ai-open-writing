@@ -3,7 +3,7 @@
 from test_schemas import OUTLINE
 
 from novel_agent.domain.schemas import ChapterOutline
-from novel_agent.lint.bible import sanitize_outline
+from novel_agent.lint.bible import lint_outline_citations, sanitize_outline
 
 
 def _outline(**overrides: object) -> ChapterOutline:
@@ -44,3 +44,38 @@ def test_sanitize_outline_drops_left_eye_mist_item() -> None:
     cleaned = sanitize_outline(outline)
     assert "左眼薄雾" not in cleaned.reveal_forbidden
     assert "穿越身份" in cleaned.reveal_forbidden
+
+
+def test_lint_outline_citations_rejects_invented_ids() -> None:
+    findings = lint_outline_citations(
+        ["c2_借技法反噬"],
+        ["b1_救场立身份"],
+        "v1c001",
+        known_conflict_ids={"c001", "c002"},
+        known_beat_ids={"b001", "b002"},
+    )
+    assert findings
+    blob = " ".join(item.message for item in findings)
+    assert "b1_救场立身份" in blob
+    assert "c2_借技法反噬" in blob
+
+    ok = lint_outline_citations(
+        ["c001"],
+        ["b001"],
+        "v1c001",
+        known_conflict_ids={"c001"},
+        known_beat_ids={"b001"},
+    )
+    assert ok == []
+
+    empty = lint_outline_citations([], [], "v1c009")
+    assert empty and "未引用" in empty[0].message
+
+    skipped = lint_outline_citations(
+        [],
+        ["b1_救场立身份"],
+        "v1c001",
+        known_conflict_ids=set(),
+        known_beat_ids=set(),
+    )
+    assert skipped == []  # empty known sets skip membership; not empty-both

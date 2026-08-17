@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Sequence, Set
 
 from novel_agent.domain.schemas import (
     ChapterOutline,
@@ -180,7 +180,11 @@ def lint_relationship_evidence(proposals: Sequence[RelationshipProposal]) -> lis
 
 
 def lint_outline_citations(
-    cited_conflict_ids: Sequence[str], cited_beat_ids: Sequence[str], chapter_key: str
+    cited_conflict_ids: Sequence[str],
+    cited_beat_ids: Sequence[str],
+    chapter_key: str,
+    known_conflict_ids: Set[str] | None = None,
+    known_beat_ids: Set[str] | None = None,
 ) -> list[LintFinding]:
     if not cited_conflict_ids and not cited_beat_ids:
         return [
@@ -189,7 +193,26 @@ def lint_outline_citations(
                 f"章纲 {chapter_key} 未引用任何冲突或爽点",
             )
         ]
-    return []
+    findings: list[LintFinding] = []
+    if known_conflict_ids:
+        for cid in cited_conflict_ids:
+            if cid not in known_conflict_ids:
+                findings.append(
+                    LintFinding(
+                        "outline_citation",
+                        f"章纲 {chapter_key} 引用了圣经中不存在的冲突 {cid}",
+                    )
+                )
+    if known_beat_ids:
+        for bid in cited_beat_ids:
+            if bid not in known_beat_ids:
+                findings.append(
+                    LintFinding(
+                        "outline_citation",
+                        f"章纲 {chapter_key} 引用了圣经中不存在的爽点 {bid}",
+                    )
+                )
+    return findings
 
 
 def collect_remaining_forbidden(outlines: Sequence[ChapterOutline]) -> list[str]:
@@ -255,8 +278,18 @@ def lint_bible(
     findings.extend(lint_empty_conflicts(conflicts, rolling_keys))
     if rolling_keys is not None:
         findings.extend(lint_orphan_conflicts(conflicts, rolling_keys))
+    known_c = {c.conflict_id for c in conflicts}
+    known_b = {b.beat_id for b in payoff_beats}
     for chapter_key, conflict_ids, beat_ids in outline_citations:
-        findings.extend(lint_outline_citations(conflict_ids, beat_ids, chapter_key))
+        findings.extend(
+            lint_outline_citations(
+                conflict_ids,
+                beat_ids,
+                chapter_key,
+                known_conflict_ids=known_c,
+                known_beat_ids=known_b,
+            )
+        )
     if previous_outlines or new_outlines:
         findings.extend(lint_spoiler_visibility(previous_outlines, new_outlines))
     return LintReport(findings)
