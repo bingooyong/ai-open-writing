@@ -9,6 +9,7 @@ import re
 
 from novel_agent.domain.schemas import (
     DraftCandidate,
+    HardGate,
     JudgeVerdict,
     ReviewIssue,
     SceneCard,
@@ -54,11 +55,22 @@ _EMPTY_PACKET_MARKERS = (
     "没有评审材料",
     "强制 HUMAN_REVIEW",
     "未提供任何",
+    "输入内容为空",
+    "未检测到任何场景",
+    "未提供实际场景",
+    "未提供实际裁决",
+    "JSON Schema",
+    "Schema 定义",
+    "Schema定义",
+    "$defs",
+    "缺少必需字段",
+    "缺少必需的 verdict",
 )
+_EMPTY_PACKET_SOFT_GATES = frozenset({"source_risk", "info_violation"})
 _SCENE_ID_IN_TEXT = re.compile(r"(?:v\d+c\d+_s\d+|[A-Za-z]+_s\d+|s\d+)", re.IGNORECASE)
 _WS_RE = re.compile(r"\s+")
-# 硬门禁风格泄漏:真名/穿越/耳鸣/实习生。禁止单凭「笔记」二字。
-_HARD_GATE_LEAK_RE = re.compile(r"穿越|耳鸣|真名|实习生")
+# 硬门禁风格泄漏:真名/穿越/耳鸣/实习生/左眼花/左眼薄雾/反噬。禁止单凭「笔记」或裸「左眼」。
+_HARD_GATE_LEAK_RE = re.compile(r"穿越|耳鸣|真名|实习生|左眼花|左眼薄雾|反噬")
 
 
 def prose_char_count(text: str) -> int:
@@ -112,13 +124,14 @@ def is_empty_packet_reason(text: str) -> bool:
 
 
 def is_empty_packet_verdict(verdict: JudgeVerdict) -> bool:
-    if verdict.hard_gate_failures:
-        return False
-    if is_empty_packet_reason(verdict.reasoning_summary):
-        return True
-    if verdict.verdict is not VerdictType.HUMAN_REVIEW:
-        return False
-    return not verdict.rulings or all(not item.accepted for item in verdict.rulings)
+    if not is_empty_packet_reason(verdict.reasoning_summary):
+        if verdict.hard_gate_failures:
+            return False
+        if verdict.verdict is not VerdictType.HUMAN_REVIEW:
+            return False
+        return not verdict.rulings or all(not item.accepted for item in verdict.rulings)
+    real_gates = [g for g in verdict.hard_gate_failures if str(g) not in _EMPTY_PACKET_SOFT_GATES]
+    return not real_gates
 
 
 def catalog_scene_ids(
@@ -193,7 +206,11 @@ def has_hard_gate_leak(text: str) -> bool:
     return bool(_HARD_GATE_LEAK_RE.search(text or ""))
 
 
-def is_lockable_draft(text: str, boundaries: list[str]) -> bool:
+def is_lockable_draft(
+    text: str,
+    boundaries: list[str],
+    required_names: list[str] | None = None,
+) -> bool:
     """可继续锁定:可用正文,且不踩禁写项/工程污染/硬门禁泄漏。"""
     if not is_usable_draft(text):
         return False
@@ -201,22 +218,31 @@ def is_lockable_draft(text: str, boundaries: list[str]) -> bool:
         return False
     if check_engineering_leak(text):
         return False
-    return not has_hard_gate_leak(text)
+    if has_hard_gate_leak(text):
+        return False
+    names = [n for n in (required_names or []) if n]
+    return not names or any(n in (text or "") for n in names)
 
 
 def _lockable_candidates(
     candidates: list[DraftCandidate],
     boundaries: list[str],
+    required_names: list[str] | None = None,
 ) -> list[DraftCandidate]:
-    return [draft for draft in candidates if is_lockable_draft(draft.full_text(), boundaries)]
+    return [
+        draft
+        for draft in candidates
+        if is_lockable_draft(draft.full_text(), boundaries, required_names)
+    ]
 
 
 def pick_lockable_candidate(
     candidates: list[DraftCandidate],
     boundaries: list[str],
+    required_names: list[str] | None = None,
 ) -> DraftCandidate | None:
     """空包回退:选更长的合规正文,排除占位短稿与真硬门禁命中。"""
-    viable = _lockable_candidates(candidates, boundaries)
+    viable = _lockable_candidates(candidates, boundaries, required_names)
     if not viable:
         return None
     return max(viable, key=lambda item: prose_char_count(item.full_text()))
@@ -225,11 +251,10 @@ def pick_lockable_candidate(
 def pick_sole_lockable_candidate(
     candidates: list[DraftCandidate],
     boundaries: list[str],
+    required_names: list[str] | None = None,
 ) -> DraftCandidate | None:
-    """真 REPLAN 回退:至少两稿里恰好一稿可锁才选用,避免被泄漏兄稿毒死整章。"""
-    if len(candidates) < 2:
-        return None
-    viable = _lockable_candidates(candidates, boundaries)
+    """真 REPLAN 回退:恰好一稿可锁才选用,含仅一稿且 on-brief 的情形。"""
+    viable = _lockable_candidates(candidates, boundaries, required_names)
     if len(viable) != 1:
         return None
     return viable[0]
@@ -247,3 +272,42 @@ def synthesize_pass_verdict(
         rulings=[],
         reasoning_summary=reason,
     )
+
+
+_FORBIDDEN_REAL_NAME_RE = re.compile(r"章子怡|赵薇|周迅|徐静蕾|范冰冰|李冰冰|刘亦菲")
+
+
+def strip_allowed_name_boundaries(
+    verdict: JudgeVerdict,
+    issues: list[ReviewIssue],
+    allowed_names: list[str] | None = None,
+) -> JudgeVerdict:
+    """角色卡名被裁成 content_boundary 真名时剔除该门禁,不放过章子怡/徐静蕾。"""
+    allowed = [n for n in (allowed_names or []) if n]
+    if not allowed or HardGate.CONTENT_BOUNDARY not in verdict.hard_gate_failures:
+        return verdict
+    cb_issues = [issue for issue in issues if issue.hard_gate == HardGate.CONTENT_BOUNDARY]
+    blob = " ".join(
+        [verdict.reasoning_summary]
+        + [issue.claim for issue in cb_issues]
+        + [ruling.reason for ruling in verdict.rulings]
+    )
+    if _FORBIDDEN_REAL_NAME_RE.search(blob):
+        return verdict
+    if not any(name in blob for name in allowed):
+        return verdict
+    gates = [gate for gate in verdict.hard_gate_failures if gate != HardGate.CONTENT_BOUNDARY]
+    drop_ids = {issue.issue_id for issue in cb_issues}
+    rulings = [
+        ruling
+        for ruling in verdict.rulings
+        if not (ruling.accepted and ruling.issue_id in drop_ids)
+    ]
+    return verdict.model_copy(update={"hard_gate_failures": gates, "rulings": rulings})
+
+
+def critical_parse_failure_should_raise(
+    reports: list, absent: list[str], critical: set[str]
+) -> bool:
+    """零份评审且关键席位因 JSON/Schema 缺席时,n5 应升 HUMAN_REVIEW。"""
+    return (not reports) and bool(set(absent) & critical)

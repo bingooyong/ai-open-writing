@@ -35,11 +35,13 @@ from novel_agent.lint import lint_draft
 from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.settings import desk_settings, review_roles_for
 from novel_agent.production.factory import (
+    critical_parse_failure_should_raise,
     is_empty_packet_verdict,
     is_usable_draft,
     pick_lockable_candidate,
     pick_sole_lockable_candidate,
     resolve_revision_scope,
+    strip_allowed_name_boundaries,
     synthesize_pass_verdict,
 )
 from novel_agent.runtime.agents import (
@@ -128,7 +130,15 @@ def draft_from_record(rec: DraftVersionRecord) -> DraftCandidate:
     )
 
 
-def sanitize_verdict(verdict: JudgeVerdict, issues: list[ReviewIssue]) -> JudgeVerdict:
+def _is_structured_output_error(exc: BaseException) -> bool:
+    return "StructuredOutputError" in type(exc).__name__ or "StructuredOutputError" in str(exc)
+
+
+def sanitize_verdict(
+    verdict: JudgeVerdict,
+    issues: list[ReviewIssue],
+    allowed_names: list[str] | None = None,
+) -> JudgeVerdict:
     """无证据 issue 不得作为阻断项(Spec §7):强制驳回并剔除仅由其支撑的硬门禁。"""
     downweighted = {issue.issue_id for issue in issues if issue.downweighted}
     rulings = []
@@ -151,25 +161,26 @@ def sanitize_verdict(verdict: JudgeVerdict, issues: list[ReviewIssue]) -> JudgeV
         if supporting and all(issue.downweighted for issue in supporting):
             continue
         cleaned_gates.append(gate)
-    updates: dict[str, object] = {"rulings": rulings, "hard_gate_failures": cleaned_gates}
-    remaining_accepted = [item for item in rulings if item.accepted]
+    working = verdict.model_copy(update={"rulings": rulings, "hard_gate_failures": cleaned_gates})
+    working = strip_allowed_name_boundaries(working, issues, allowed_names)
+    remaining_accepted = [item for item in working.rulings if item.accepted]
     if (
-        verdict.verdict
+        working.verdict
         in {VerdictType.REVISE_LOCAL, VerdictType.REPLAN_SCENE, VerdictType.REPLAN_CHAPTER}
-        and not cleaned_gates
+        and not working.hard_gate_failures
         and not remaining_accepted
     ):
-        updates.update(
-            {
+        return working.model_copy(
+            update={
                 "verdict": VerdictType.PASS,
                 "rollback_target": None,
                 "revision_scope": [],
                 "reasoning_summary": (
-                    f"{verdict.reasoning_summary}（无证据项已降权,不得作为阻断）"
+                    f"{working.reasoning_summary}（无证据项已降权,不得作为阻断）"
                 ),
             }
         )
-    return verdict.model_copy(update=updates)
+    return working
 
 
 def _review_set_hash(issues: list[ReviewIssue], absent: list[str]) -> str:
@@ -229,6 +240,17 @@ async def run_chapter_loop(
         raise ChapterLoopError("章节已导出,单章循环不再推进")
 
     run = ops.find_resumable_run(project_id, "chapter_loop", chapter_key)
+    if (
+        run is not None
+        and run.status in {"paused", "running"}
+        and chapter.status in {ChapterStatus.PLANNED, ChapterStatus.NEEDS_REPLAN}
+    ):
+        assert run.id is not None
+        ops.update_workflow(run.id, status="failed", current_node=run.current_node)
+        ops.void_succeeded_nodes_for_chapter(chapter_key)
+        reset_to_planned(planning, project_id, chapter_key)
+        chapter = planning.get_chapter(project_id, chapter_key)
+        run = None
     if run is None:
         last = ops.latest_workflow_for_chapter(project_id, "chapter_loop", chapter_key)
         latest_verdict = production.latest_verdict(chapter_key)
@@ -386,9 +408,16 @@ async def _advance(
                 transition(planning, project_id, chapter_key, ChapterStatus.HUMAN_REVIEW)
                 session.commit()
                 return "n4_lint", "lint 拦截,不消耗评审"
-            await _n5(
-                ops, production, deps, project_id, chapter_key, state, budget, ctx_factory
-            )
+            try:
+                await _n5(
+                    ops, production, deps, project_id, chapter_key, state, budget, ctx_factory
+                )
+            except NodeFailed as exc:
+                if "StructuredOutputError" not in str(exc):
+                    raise
+                transition(planning, project_id, chapter_key, ChapterStatus.HUMAN_REVIEW)
+                session.commit()
+                return "n5_parallel_review", "ReviewReport 非法,升级人工"
             if (
                 planning.get_chapter(project_id, chapter_key).status
                 is ChapterStatus.ADVERSARIAL_REVIEW
@@ -701,9 +730,9 @@ async def _n5(
             result: ReviewReport | BaseException = result, role: ReviewerRole = role
         ) -> dict:
             if isinstance(result, BaseException):
-                if role in CRITICAL_REVIEWERS:
-                    raise result
-                return {"absent": True, "role": role.value}
+                if _is_structured_output_error(result) or role not in CRITICAL_REVIEWERS:
+                    return {"absent": True, "role": role.value}
+                raise result
             existing = {issue.issue_id for issue in production.list_issues(state.draft_id or 0)}
             fresh = [issue for issue in result.issues if issue.issue_id not in existing]
             if fresh:
@@ -723,7 +752,11 @@ async def _n5(
             absent.append(role.value)
         else:
             reports.append(ReviewReport.model_validate(out))
-        if isinstance(result, BaseException) and role in CRITICAL_REVIEWERS:
+        if (
+            isinstance(result, BaseException)
+            and role in CRITICAL_REVIEWERS
+            and not _is_structured_output_error(result)
+        ):
             critical_error = result
 
     for role in roles:
@@ -740,6 +773,10 @@ async def _n5(
 
     if critical_error is not None:
         raise NodeFailed("n5_parallel_review", f"{type(critical_error).__name__}: {critical_error}")
+    if critical_parse_failure_should_raise(
+        reports, absent, {role.value for role in CRITICAL_REVIEWERS}
+    ):
+        raise NodeFailed("n5_parallel_review", "StructuredOutputError: ReviewReport 校验失败")
     return {
         "reports": [item.model_dump() for item in reports],
         "absent": absent,
@@ -768,6 +805,7 @@ async def _n6(
         ids = state.draft_ids or [primary_id]
         candidates = [draft_from_record(production.get_draft(item)) for item in ids]
         package = ctx_factory()
+        names = [card.name for card in package.characters if card.name]
         raw: JudgeVerdict | None = None
         try:
             raw = await run_judge(deps, candidates, reports, package, absent=absent)
@@ -794,13 +832,13 @@ async def _n6(
                     raise
                 raw = None
         if raw is None:
-            picked = pick_lockable_candidate(candidates, package.boundaries)
+            picked = pick_lockable_candidate(candidates, package.boundaries, names)
             if picked is None:
                 raise StructuredOutputError("Judge 空包且无可用合规候选")
             raw = synthesize_pass_verdict(picked)
-        verdict = sanitize_verdict(raw, issues)
+        verdict = sanitize_verdict(raw, issues, names)
         if verdict.verdict is not VerdictType.PASS:
-            sole = pick_sole_lockable_candidate(candidates, package.boundaries)
+            sole = pick_sole_lockable_candidate(candidates, package.boundaries, names)
             if sole is not None:
                 verdict = synthesize_pass_verdict(
                     sole,
