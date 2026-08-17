@@ -4,6 +4,7 @@ from test_schemas import OUTLINE
 
 from novel_agent.domain.schemas import ChapterOutline
 from novel_agent.lint.bible import lint_outline_citations, sanitize_outline
+from novel_agent.planning.volume import apply_inherited_spoilers
 
 
 def _outline(**overrides: object) -> ChapterOutline:
@@ -79,3 +80,14 @@ def test_lint_outline_citations_rejects_invented_ids() -> None:
         known_beat_ids=set(),
     )
     assert skipped == []  # empty known sets skip membership; not empty-both
+
+
+def test_apply_inherited_spoilers_strips_leak_tokens() -> None:
+    result = apply_inherited_spoilers(
+        [_outline(reveal_forbidden=["穿越身份"])],
+        ["反噬设定", "主角主人真名"],
+    )
+    forbidden = result[0].reveal_forbidden
+    assert "主角主人真名" in forbidden
+    assert "穿越身份" in forbidden
+    assert "反噬设定" not in forbidden
