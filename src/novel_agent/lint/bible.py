@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from novel_agent.domain.schemas import (
@@ -22,6 +23,30 @@ _NAME_LEADINS = ("名叫", "名为", "叫做", "叫作", "化妆师")
 _NAME_BOUNDARIES = set("的是在为与和及把被将从向对给了着用要想能会去来到得也还就都且但")
 _CJK_START = 0x4E00
 _CJK_END = 0x9FFF
+_OUTLINE_LEAK_ITEM_RE = re.compile(r"反噬|耳鸣|左眼花|左眼薄雾|笔记金手指|默写分镜笔记")
+
+
+def _clean_token_list(items: Sequence[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if not item or _OUTLINE_LEAK_ITEM_RE.search(item):
+            continue
+        if item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+def sanitize_outline(outline: ChapterOutline) -> ChapterOutline:
+    return outline.model_copy(
+        update={
+            "reveal_forbidden": _clean_token_list(outline.reveal_forbidden),
+            "cited_conflict_ids": _clean_token_list(outline.cited_conflict_ids),
+            "cited_beat_ids": _clean_token_list(outline.cited_beat_ids),
+        }
+    )
 
 
 def _empty(text: str) -> bool:
