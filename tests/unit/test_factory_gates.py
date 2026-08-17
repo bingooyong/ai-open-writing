@@ -78,6 +78,53 @@ def test_empty_packet_verdict_detected_without_hard_gate() -> None:
     assert is_empty_packet_verdict(real) is False
 
 
+def test_empty_packet_with_source_risk_and_overnight_wording() -> None:
+    v012 = JudgeVerdict.model_validate(
+        {
+            "verdict": "HUMAN_REVIEW",
+            "selected_candidate": "candidate_1",
+            "hard_gate_failures": ["source_risk"],
+            "reasoning_summary": (
+                "输入内容为空，未检测到任何场景候选，按 source_risk 退回人工审核。"
+            ),
+        }
+    )
+    assert is_empty_packet_verdict(v012) is True
+
+    v013 = JudgeVerdict.model_validate(
+        {
+            "verdict": "HUMAN_REVIEW",
+            "selected_candidate": "candidate_1",
+            "hard_gate_failures": ["source_risk"],
+            "reasoning_summary": "未提供实际场景数据进行裁决，因此按 source_risk 退回人工审核。",
+        }
+    )
+    assert is_empty_packet_verdict(v013) is True
+
+    v020 = JudgeVerdict.model_validate(
+        {
+            "verdict": "HUMAN_REVIEW",
+            "selected_candidate": "unknown",
+            "hard_gate_failures": ["source_risk"],
+            "reasoning_summary": (
+                "上次输出误将JSON Schema定义本身作为输出内容，"
+                "缺少必需字段verdict、selected_candidate和reasoning_summary。"
+            ),
+        }
+    )
+    assert is_empty_packet_verdict(v020) is True
+
+    real = JudgeVerdict.model_validate(
+        {
+            "verdict": "HUMAN_REVIEW",
+            "selected_candidate": "candidate_1",
+            "hard_gate_failures": ["canon_conflict"],
+            "reasoning_summary": "正史冲突，升级人工",
+        }
+    )
+    assert is_empty_packet_verdict(real) is False
+
+
 def _candidate(cid: str, content: str) -> DraftCandidate:
     return DraftCandidate.model_validate(
         dict(

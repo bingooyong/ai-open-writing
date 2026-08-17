@@ -54,7 +54,18 @@ _EMPTY_PACKET_MARKERS = (
     "没有评审材料",
     "强制 HUMAN_REVIEW",
     "未提供任何",
+    "输入内容为空",
+    "未检测到任何场景",
+    "未提供实际场景",
+    "未提供实际裁决",
+    "JSON Schema",
+    "Schema 定义",
+    "Schema定义",
+    "$defs",
+    "缺少必需字段",
+    "缺少必需的 verdict",
 )
+_EMPTY_PACKET_SOFT_GATES = frozenset({"source_risk", "info_violation"})
 _SCENE_ID_IN_TEXT = re.compile(r"(?:v\d+c\d+_s\d+|[A-Za-z]+_s\d+|s\d+)", re.IGNORECASE)
 _WS_RE = re.compile(r"\s+")
 # 硬门禁风格泄漏:真名/穿越/耳鸣/实习生。禁止单凭「笔记」二字。
@@ -112,13 +123,14 @@ def is_empty_packet_reason(text: str) -> bool:
 
 
 def is_empty_packet_verdict(verdict: JudgeVerdict) -> bool:
-    if verdict.hard_gate_failures:
-        return False
-    if is_empty_packet_reason(verdict.reasoning_summary):
-        return True
-    if verdict.verdict is not VerdictType.HUMAN_REVIEW:
-        return False
-    return not verdict.rulings or all(not item.accepted for item in verdict.rulings)
+    if not is_empty_packet_reason(verdict.reasoning_summary):
+        if verdict.hard_gate_failures:
+            return False
+        if verdict.verdict is not VerdictType.HUMAN_REVIEW:
+            return False
+        return not verdict.rulings or all(not item.accepted for item in verdict.rulings)
+    real_gates = [g for g in verdict.hard_gate_failures if str(g) not in _EMPTY_PACKET_SOFT_GATES]
+    return not real_gates
 
 
 def catalog_scene_ids(
