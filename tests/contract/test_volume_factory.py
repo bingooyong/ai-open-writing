@@ -198,6 +198,14 @@ async def test_later_outlines_inherit_reveal_forbidden(tmp_path) -> None:
     try:
         first = planning.get_outline(pid, "v1c001")
         assert "书局主人真名" in first.reveal_forbidden
+        dirty = first.model_copy(
+            update={
+                "reveal_forbidden": list(
+                    dict.fromkeys([*first.reveal_forbidden, "反噬设定", "主角主人真名"])
+                )
+            }
+        )
+        planning.update_outline(pid, "v1c001", dirty)
         _lock_chapters(planning, pid)
         session.commit()
         result = await plan_more(
@@ -205,6 +213,8 @@ async def test_later_outlines_inherit_reveal_forbidden(tmp_path) -> None:
         )
         later = planning.get_outline(pid, result.chapter_keys[0])
         assert "书局主人真名" in later.reveal_forbidden
+        assert "主角主人真名" in later.reveal_forbidden
+        assert "反噬设定" not in later.reveal_forbidden
         assert "书局主人真名" not in later.reveal_allowed
         blob = f"{later.core_event}{later.title}{later.exit_hook}"
         assert "书局主人真名" not in blob

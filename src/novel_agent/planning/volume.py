@@ -21,7 +21,12 @@ from novel_agent.domain.schemas import (
     SceneCard,
     StoryKernel,
 )
-from novel_agent.lint.bible import lint_bible, live_names_from_kernel
+from novel_agent.lint.bible import (
+    _clean_token_list,
+    lint_bible,
+    live_names_from_kernel,
+    sanitize_outline,
+)
 from novel_agent.memory.factory import memory_retrieval_for_session
 from novel_agent.planning.chain import PlanningAborted, PlanningError, PlanningGates, _kernel_text
 from novel_agent.planning.conversation import _dump, _lint_error
@@ -159,9 +164,9 @@ def apply_inherited_spoilers(
     outlines: Sequence[ChapterOutline], remaining_forbidden: Sequence[str]
 ) -> list[ChapterOutline]:
     updated: list[ChapterOutline] = []
-    remaining = [item for item in remaining_forbidden if item]
+    remaining = _clean_token_list(remaining_forbidden)
     for outline in outlines:
-        forbidden = list(dict.fromkeys([*remaining, *outline.reveal_forbidden]))
+        forbidden = _clean_token_list([*remaining, *outline.reveal_forbidden])
         allowed = [item for item in outline.reveal_allowed if item not in remaining]
         updated.append(
             outline.model_copy(update={"reveal_forbidden": forbidden, "reveal_allowed": allowed})
@@ -299,7 +304,9 @@ async def plan_more(
             unit_id = current_unit_id
             reuse_unit = True
 
-    previous_outlines = _existing_outlines(planning, project_id)
+    previous_outlines = [
+        sanitize_outline(outline) for outline in _existing_outlines(planning, project_id)
+    ]
     remaining_forbidden, _allowed = collect_spoiler_state(previous_outlines)
     spoiler_notes = "\n".join(f"- {item}" for item in remaining_forbidden) or "(无)"
     current_unit = planning.get_unit(project_id, current_unit_id) if reuse_unit else None
@@ -322,6 +329,7 @@ async def plan_more(
     )
     aligned, scenes = _align_slice(outlines, by_chapter, keys, volume_id, unit_id)
     aligned = apply_inherited_spoilers(aligned, remaining_forbidden)
+    aligned = [sanitize_outline(outline) for outline in aligned]
     citations = [
         (outline.chapter_key, outline.cited_conflict_ids, outline.cited_beat_ids)
         for outline in [*previous_outlines, *aligned]

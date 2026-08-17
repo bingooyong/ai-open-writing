@@ -8,8 +8,9 @@ import yaml
 from pydantic import ValidationError
 from sqlmodel import Session
 
-from novel_agent.domain.repos import PlanningRepo, ProductionRepo
+from novel_agent.domain.repos import BibleRepo, PlanningRepo, ProductionRepo
 from novel_agent.domain.schemas import ChapterOutline, ChapterStatus, SceneCard
+from novel_agent.lint.bible import lint_outline_citations, sanitize_outline
 
 _EDITABLE = frozenset(
     {ChapterStatus.NEEDS_REPLAN, ChapterStatus.PLANNED, ChapterStatus.STALE}
@@ -83,6 +84,17 @@ def apply_outline_edit(
     for card in scenes:
         if card.chapter_key != chapter_key:
             raise OutlineEditError(f"场景卡 {card.scene_id} 的 chapter_key 与章节不一致")
+    outline = sanitize_outline(outline)
+    bible = BibleRepo(session)
+    findings = lint_outline_citations(
+        outline.cited_conflict_ids,
+        outline.cited_beat_ids,
+        chapter_key,
+        known_conflict_ids={c.conflict_id for c in bible.list_conflicts(project_id)},
+        known_beat_ids={b.beat_id for b in bible.list_payoff_beats(project_id)},
+    )
+    if findings:
+        raise OutlineEditError("; ".join(item.message for item in findings))
     planning.replace_scene_cards(project_id, chapter_key, scenes)
     new_ver = planning.update_outline(project_id, chapter_key, outline)
     production.void_lineage(project_id, chapter_key)

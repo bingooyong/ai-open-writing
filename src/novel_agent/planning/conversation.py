@@ -11,7 +11,7 @@ from novel_agent.domain.repos.canon import CanonRepo
 from novel_agent.domain.repos.planning import PlanningRepo
 from novel_agent.domain.schemas import CharacterCard, StoryBrief, StoryKernel
 from novel_agent.lint import LintReport
-from novel_agent.lint.bible import lint_bible, live_names_from_kernel
+from novel_agent.lint.bible import lint_bible, live_names_from_kernel, sanitize_outline
 from novel_agent.planning.adversary import ensure_concept_judge
 from novel_agent.planning.chain import (
     PlanningAborted,
@@ -317,6 +317,7 @@ async def _ensure_r5(
     if missing_scenes:
         raise PlanningError(f"以下章节缺少场景卡: {missing_scenes}")
 
+    outlines = [sanitize_outline(outline) for outline in outlines]
     keys = [outline.chapter_key for outline in outlines]
     citations = [
         (outline.chapter_key, outline.cited_conflict_ids, outline.cited_beat_ids)

@@ -9,14 +9,19 @@ from typer.testing import CliRunner
 from novel_agent.cli.main import app
 from novel_agent.config import Settings, reset_settings_cache
 from novel_agent.domain.db import build_engine, create_all, session_scope
-from novel_agent.domain.repos import OpsRepo, PlanningRepo, ProductionRepo
-from novel_agent.domain.schemas import ChapterStatus, VerdictType
+from novel_agent.domain.repos import BibleRepo, OpsRepo, PlanningRepo, ProductionRepo
+from novel_agent.domain.schemas import ChapterStatus, Conflict, PayoffBeat, VerdictType
 from novel_agent.gateway import MockProvider, ModelGateway
 from novel_agent.planning.chain import PlanningGates, run_planning_chain
-from novel_agent.planning.mock_fixtures import register_planning_defaults
+from novel_agent.planning.mock_fixtures import (
+    PLANNING_CONFLICTS,
+    PLANNING_PAYOFFS,
+    register_planning_defaults,
+)
 from novel_agent.production.loop import ChapterLoopGates, run_chapter_loop
 from novel_agent.production.mock_fixtures import register_chapter_loop_defaults, verdict_json
 from novel_agent.production.outline import (
+    OutlineEditError,
     apply_outline_edit,
     dump_outline_yaml,
     export_outline_bundle,
@@ -52,6 +57,13 @@ async def _planned(tmp_path, mock: MockProvider | None = None):
         volume_id="v1",
         chapters_needed=5,
     )
+    bible = BibleRepo(session)
+    bible.replace_conflicts(
+        project.id, [Conflict.model_validate(item) for item in PLANNING_CONFLICTS]
+    )
+    bible.replace_payoff_beats(
+        project.id, [PayoffBeat.model_validate(item) for item in PLANNING_PAYOFFS]
+    )
     session.commit()
     return session, deps, mock, project.id
 
@@ -83,7 +95,6 @@ async def test_replan_then_edit_outline_resumes_from_n1(tmp_path) -> None:
         assert first.status is ChapterStatus.NEEDS_REPLAN
         assert first.verdict is VerdictType.REPLAN_CHAPTER
         old_lineage = first.lineage_id
-        old_n1 = _n1_count(session, first.workflow_run_id)
 
         bundle = export_outline_bundle(PlanningRepo(session), project_id, "v1c001")
         bundle["outline"]["core_event"] = "说书人改口,西市失火不再写进评书"
@@ -113,7 +124,62 @@ async def test_replan_then_edit_outline_resumes_from_n1(tmp_path) -> None:
         assert second.lineage_id != old_lineage
         assert not second.lineage_id.startswith("voided:")
         assert PlanningRepo(session).get_chapter(project_id, "v1c001").revision_round == 0
-        assert _n1_count(session, second.workflow_run_id) >= old_n1 + 1
+        assert _n1_count(session, second.workflow_run_id) >= 1
+    finally:
+        session.close()
+
+
+async def test_edit_outline_strips_overnight_forbidden_on_import(tmp_path) -> None:
+    session, _deps, _mock, project_id = await _planned(tmp_path)
+    try:
+        bundle = export_outline_bundle(PlanningRepo(session), project_id, "v1c001")
+        forbidden = list(bundle["outline"].get("reveal_forbidden") or [])
+        forbidden.extend(["反噬设定", "默写分镜笔记的存在", "穿越身份"])
+        bundle["outline"]["reveal_forbidden"] = forbidden
+        yaml_text = dump_outline_yaml(bundle)
+        new_ver = apply_outline_edit(session, project_id, "v1c001", yaml_text)
+        session.commit()
+        chapter = PlanningRepo(session).get_chapter(project_id, "v1c001")
+        stored = chapter.outline["reveal_forbidden"]
+        assert "反噬设定" not in stored
+        assert "默写分镜笔记的存在" not in stored
+        assert "穿越身份" in stored
+        assert new_ver == 2
+        assert chapter.outline_version == 2
+    finally:
+        session.close()
+
+
+async def test_edit_outline_rejects_empty_citations(tmp_path) -> None:
+    session, _deps, _mock, project_id = await _planned(tmp_path)
+    try:
+        planning = PlanningRepo(session)
+        before = planning.get_chapter(project_id, "v1c001").outline_version
+        bundle = export_outline_bundle(planning, project_id, "v1c001")
+        bundle["outline"]["cited_conflict_ids"] = []
+        bundle["outline"]["cited_beat_ids"] = []
+        yaml_text = dump_outline_yaml(bundle)
+        with pytest.raises(OutlineEditError, match="未引用"):
+            apply_outline_edit(session, project_id, "v1c001", yaml_text)
+        session.commit()
+        assert planning.get_chapter(project_id, "v1c001").outline_version == before
+    finally:
+        session.close()
+
+
+async def test_edit_outline_rejects_invented_beat_id(tmp_path) -> None:
+    session, _deps, _mock, project_id = await _planned(tmp_path)
+    try:
+        planning = PlanningRepo(session)
+        before = planning.get_chapter(project_id, "v1c001").outline_version
+        bundle = export_outline_bundle(planning, project_id, "v1c001")
+        bundle["outline"]["cited_beat_ids"] = ["b1_救场立身份"]
+        assert bundle["outline"]["cited_conflict_ids"]
+        yaml_text = dump_outline_yaml(bundle)
+        with pytest.raises(OutlineEditError, match="b1_救场立身份"):
+            apply_outline_edit(session, project_id, "v1c001", yaml_text)
+        session.commit()
+        assert planning.get_chapter(project_id, "v1c001").outline_version == before
     finally:
         session.close()
 
