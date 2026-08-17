@@ -145,13 +145,15 @@ Live hit from locked v1c001: `徐姐`. `许静蕾` in draft stays lockable. `周
 
 Do not add `笔记` or bare `左眼` to `_HARD_GATE_LEAK_RE`. Do not gate `尾音`.
 
-### 5.5 Mechanism-naming (Task 3, document only)
+### 5.5 Mechanism-naming (Task 3)
 
-Not lockable if the draft matches:
+Separate regex, **never** folded into `_HARD_GATE_LEAK_RE` as `笔记`:
 
 `我没解释|没法解释|不能解释自己为什么|他不写笔记|我不写笔记|没有写笔记`
 
-Do **not** gate bare `笔记`. Do **not** gate `我没说`. Never add substring `笔记` to `_HARD_GATE_LEAK_RE`.
+Called from `is_lockable_draft`, not via `has_hard_gate_leak`. A matching draft is not lockable; sole-lockable still drops that sibling.
+
+Do **not** gate bare `笔记`. Do **not** gate `我没说`. Never add substring `笔记` to `_HARD_GATE_LEAK_RE`. Do not change n4 `_BOUNDARY_DENIAL_RE` in `lint/__init__.py` — this is factory lockability, not lint.
 
 ### 5.6 Body-cost in ch1–3 only (Task 4, document only)
 
@@ -206,7 +208,7 @@ Live locked-draft strings must appear as fixtures, not paraphrases.
 - Draft PR #24
 - Adding `pov_person` or `cast` to `ChapterOutline`
 - Gating `尾音`, bare `笔记`, bare `左眼`, `我没说`, `心跳` / `手凉` / `出汗` / `手还在抖`
-- Implementing Tasks 3–5 beyond documenting them
+- Implementing Tasks 4–5 beyond documenting them
 
 ## 6. Success criteria
 
@@ -218,12 +220,13 @@ A regression using locked-draft strings would:
 - Synthesize PASS onto the sole lockable third-person sibling
 - Leave PR #32 tests green when `gates` is omitted
 - Refuse `徐姐` / `实习场记` / `章子怡` drafts; still lock `许静蕾` / `周姐` / `李老师`
+- Refuse `我没解释` / `不能解释自己为什么` / `他不写笔记`; still lock 场记本 / `我没说`; `"笔记"` stays out of `_HARD_GATE_LEAK_RE`
 
 ## 7. Files
 
 | Path | Change |
 |---|---|
-| `src/novel_agent/production/factory.py` | `LockGates`, POV, PASS veto, `has_hard_gate_leak` 实习场记/真名/X姐 |
+| `src/novel_agent/production/factory.py` | `LockGates`, POV, PASS veto, X姐/实习场记 leak, mechanism-naming |
 | `src/novel_agent/production/loop.py` | build `LockGates`; pass into picks; veto non-lockable Judge PASS |
 | `tests/unit/test_factory_gates.py` | POV + PASS veto + 徐姐/实习场记 fixtures |
 | `tests/workflow/test_chapter_loop.py` | MockProvider: PASS on leaky/first-person selected draft does not auto-lock |

@@ -497,3 +497,32 @@ def test_xujie_adjacency_and_intern_clapper_are_not_lockable() -> None:
     clean = _candidate("candidate_2", _linshuo_pad("兆薇从化妆间出来。"))
     picked = pick_sole_lockable_candidate([leaked, clean], [], ["林朔"], gates)
     assert picked is not None and picked.candidate_id == "candidate_2"
+
+
+MECH_C001 = "我没解释我为什么会知道这个焦段在这个距离上是对的。"
+MECH_C005A = "他不能解释自己为什么会按电视剧节拍贴。"
+MECH_C005B = "他不写笔记。"
+OK_NOTEBOOK = "他把场记本合上，通告单还在监视器边上。"
+
+
+def test_mechanism_naming_is_not_lockable_but_bare_notebook_is() -> None:
+    gates = LockGates(pov="林朔", required_names=["林朔"])
+    for phrase in (MECH_C001, MECH_C005A, MECH_C005B):
+        prose = _linshuo_pad(phrase)
+        assert is_usable_draft(prose)
+        assert is_lockable_draft(prose, [], ["林朔"], gates) is False
+
+    notebook = _linshuo_pad(OK_NOTEBOOK)
+    assert is_lockable_draft(notebook, [], ["林朔"], gates) is True
+    assert has_hard_gate_leak(OK_NOTEBOOK) is False
+    assert has_hard_gate_leak("他不写笔记") is False
+    assert is_lockable_draft(_linshuo_pad("他不写笔记。"), [], ["林朔"], gates) is False
+    assert "笔记" not in _HARD_GATE_LEAK_RE.pattern
+
+    unsaid = _linshuo_pad("林朔说，我没说今晚改机位。")
+    assert is_lockable_draft(unsaid, [], ["林朔"], gates) is True
+
+    leaked = _candidate("candidate_1", _linshuo_pad(MECH_C005B))
+    clean = _candidate("candidate_2", _linshuo_pad("兆薇从化妆间出来。"))
+    picked = pick_sole_lockable_candidate([leaked, clean], [], ["林朔"], gates)
+    assert picked is not None and picked.candidate_id == "candidate_2"

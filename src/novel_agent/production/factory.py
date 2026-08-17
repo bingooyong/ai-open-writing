@@ -75,6 +75,10 @@ _HARD_GATE_LEAK_RE = re.compile(r"穿越|耳鸣|真名|实习生|左眼花|左�
 _FORBIDDEN_REAL_NAME_RE = re.compile(r"章子怡|赵薇|周迅|徐静蕾|范冰冰|李冰冰|刘亦菲")
 # 变体姓+姐。周洵保留「周」,故不含周;不拦老师/师傅。
 _VARIANT_JIE_RE = re.compile(r"(章|赵|徐|范|李|刘)姐")
+# 点破机制的口吻。禁止把「笔记」折进 _HARD_GATE_LEAK_RE;不拦「我没说」。
+_MECHANISM_NAMING_RE = re.compile(
+    r"我没解释|没法解释|不能解释自己为什么|他不写笔记|我不写笔记|没有写笔记"
+)
 _CHAPTER_INDEX_RE = re.compile(r"c(\d+)", re.IGNORECASE)
 _WO_RE = re.compile(r"我(?!们)")
 
@@ -273,6 +277,11 @@ def has_hard_gate_leak(text: str) -> bool:
     return bool(_VARIANT_JIE_RE.search(blob))
 
 
+def has_mechanism_naming(text: str) -> bool:
+    """点破金手指机制的口吻,与硬门禁泄漏分开,禁止把「笔记」写进泄漏正则。"""
+    return bool(_MECHANISM_NAMING_RE.search(text or ""))
+
+
 def is_lockable_draft(
     text: str,
     boundaries: list[str],
@@ -287,6 +296,8 @@ def is_lockable_draft(
     if check_engineering_leak(text):
         return False
     if has_hard_gate_leak(text):
+        return False
+    if has_mechanism_naming(text):
         return False
     names = [n for n in (_effective_required_names(required_names, gates) or []) if n]
     if names and not any(n in (text or "") for n in names):
