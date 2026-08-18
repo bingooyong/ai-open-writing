@@ -367,6 +367,10 @@ async def plan_more(
     )
     if open_next:
         _lock_unit(planning, project_id, current_unit_id)
+    from novel_agent.annals.skeleton import extend_annals_for_outlines
+    from novel_agent.domain.repos.annals import AnnalsRepo
+
+    extend_annals_for_outlines(planning, AnnalsRepo(planning.s), project_id)
     planning.s.commit()
     memory_retrieval_for_session(planning.s).reindex(project_id)
     return PlanMoreResult(

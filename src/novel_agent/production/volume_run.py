@@ -43,6 +43,7 @@ class VolumeStopReason(StrEnum):
     MAX_CHAPTERS = "MAX_CHAPTERS"
     COMPLETE = "COMPLETE"
     CANCELLED = "CANCELLED"
+    NEEDS_ANNALS = "NEEDS_ANNALS"
 
 
 class VolumeRunError(Exception):
@@ -386,6 +387,17 @@ async def _run_occupied(
                 stop = VolumeStopReason.MAX_CHAPTERS
                 break
 
+            from novel_agent.annals.skeleton import chapter_needs_annals, ensure_annals_cover
+            from novel_agent.domain.repos.annals import AnnalsRepo
+
+            ensure_annals_cover(
+                planning, AnnalsRepo(session), project_id, auto_not_applicable_only=True
+            )
+            if chapter_needs_annals(planning, AnnalsRepo(session), project_id, nxt.chapter_key):
+                current = nxt.chapter_key
+                stop = VolumeStopReason.NEEDS_ANNALS
+                break
+
             current = nxt.chapter_key
             persist()
             try:
@@ -455,6 +467,7 @@ async def _run_occupied(
         VolumeStopReason.NEEDS_REPLAN,
         VolumeStopReason.STALE,
         VolumeStopReason.BUDGET,
+        VolumeStopReason.NEEDS_ANNALS,
     }:
         final_status = "paused"
     elif stop in {VolumeStopReason.MAX_CHAPTERS, VolumeStopReason.COMPLETE}:

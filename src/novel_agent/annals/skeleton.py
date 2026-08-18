@@ -242,3 +242,32 @@ def chapter_needs_annals(planning, annals, project_id: int, chapter_key: str) ->
         return True
     got_year = annals.get_year(project_id, year)
     return got_year is None or got_year[1] != "confirmed"
+
+
+def extend_annals_for_outlines(planning, annals, project_id: int) -> None:
+    got = annals.get_cover(project_id)
+    kernel_texts, time_locations, volume_texts = _span_texts(planning, project_id)
+    parsed = derive_story_span(
+        kernel_texts=kernel_texts, time_locations=time_locations, volume_texts=volume_texts
+    )
+    if parsed is None or got is None:
+        return
+    cover, status = got
+    if not cover.applicable:
+        return
+    start, end = parsed
+    if cover.span_start is not None and cover.span_end is not None:
+        start, end = widen_span((cover.span_start, cover.span_end), start, end)
+    hits = sorted(plot_hit_years(time_locations))
+    have = {card.year for card, _st in annals.list_years(project_id)}
+    for year in range(start, end + 1):
+        if year not in have:
+            density = "thick" if year in hits else "thin"
+            annals.upsert_year(
+                project_id, YearCard(year=year, density=density, climate=""), status="pending"
+            )
+    annals.upsert_cover(
+        project_id,
+        cover.model_copy(update={"span_start": start, "span_end": end, "plot_hit_years": hits}),
+        status=status,
+    )
