@@ -130,6 +130,21 @@ class PayoffBeatRecord(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_now)
 
 
+class AnnalsCardRecord(SQLModel, table=True):
+    __tablename__ = "annals_card"
+    __table_args__ = (UniqueConstraint("project_id", "kind", "card_key"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", index=True)
+    kind: str = Field(index=True)
+    card_key: str = Field(index=True)
+    year: int | None = Field(default=None, index=True)
+    status: str = Field(default="pending", index=True)
+    payload: dict = Field(sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+
 class IdentityAliasRecord(SQLModel, table=True):
     __tablename__ = "identity_alias"
     __table_args__ = (UniqueConstraint("project_id", "alias"),)

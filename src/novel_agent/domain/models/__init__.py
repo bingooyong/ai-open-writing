@@ -1,6 +1,7 @@
 """SQLModel 表定义。"""
 
 from novel_agent.domain.models.tables import (
+    AnnalsCardRecord,
     ApprovalRecord,
     CanonDeltaRecord,
     ChapterRecord,
@@ -27,6 +28,7 @@ from novel_agent.domain.models.tables import (
 )
 
 __all__ = [
+    "AnnalsCardRecord",
     "ApprovalRecord",
     "CanonDeltaRecord",
     "ChapterRecord",
