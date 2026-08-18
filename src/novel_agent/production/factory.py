@@ -94,6 +94,9 @@ class LockGates:
     card_names: list[str] | None = None
     schedule: list[tuple[int, str]] | None = None
     reveal_forbidden: list[str] | None = None
+    annals_year: int | None = None
+    forbidden_titles: list[str] | None = None
+    forbidden_section_phrases: list[str] | None = None
 
 
 def chapter_index_from_key(key: str) -> int | None:
@@ -317,6 +320,34 @@ def _unscheduled_character_blocks(text: str, gates: LockGates | None) -> bool:
     return False
 
 
+_TITLE_ALIASES = {"入殓师": ("入殓师", "入检师")}
+_CANNES_EARLY = ("年初", "1月", "2月", "3月")
+
+
+def _title_aliases(title: str) -> tuple[str, ...]:
+    return _TITLE_ALIASES.get(title, (title,))
+
+
+def _annals_blocks(text: str, gates: LockGates | None) -> bool:
+    if gates is None:
+        return False
+    blob = text or ""
+    for title in gates.forbidden_titles or []:
+        for alias in _title_aliases(title):
+            if alias and alias in blob:
+                return True
+    phrases = list(gates.forbidden_section_phrases or [])
+    if (
+        "戛纳年初" in phrases
+        and "戛纳" in blob
+        and any(token in blob for token in _CANNES_EARLY)
+    ):
+        return True
+    return any(
+        phrase and phrase != "戛纳年初" and phrase in blob for phrase in phrases
+    )
+
+
 def is_lockable_draft(
     text: str,
     boundaries: list[str],
@@ -337,6 +368,8 @@ def is_lockable_draft(
     if _body_cost_blocks(text, gates):
         return False
     if _unscheduled_character_blocks(text, gates):
+        return False
+    if _annals_blocks(text, gates):
         return False
     names = [n for n in (_effective_required_names(required_names, gates) or []) if n]
     if names and not any(n in (text or "") for n in names):

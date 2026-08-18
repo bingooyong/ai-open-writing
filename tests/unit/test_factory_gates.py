@@ -606,7 +606,12 @@ def test_unscheduled_character_too_early_is_not_lockable() -> None:
         schedule=SCHEDULE,
         reveal_forbidden=["许静蕾看过笔记"],
     )
-    assert is_lockable_draft(_linshuo_pad("许静蕾看过笔记。她把本子合上。"), [], ["林朔"], phrase_hit) is False
+    assert (
+        is_lockable_draft(
+            _linshuo_pad("许静蕾看过笔记。她把本子合上。"), [], ["林朔"], phrase_hit
+        )
+        is False
+    )
     assert is_lockable_draft(_linshuo_pad("许静蕾走进来。"), [], ["林朔"], phrase_hit) is True
 
     # 张紫衣从未进过 schedule 仍算未排期。
@@ -618,7 +623,12 @@ def test_unscheduled_character_too_early_is_not_lockable() -> None:
         schedule=SCHEDULE,
         reveal_forbidden=["张紫衣反派戏终局"],
     )
-    assert is_lockable_draft(_linshuo_pad("张紫衣背对着片场大门站着。"), [], ["林朔"], zhang) is False
+    assert (
+        is_lockable_draft(
+            _linshuo_pad("张紫衣背对着片场大门站着。"), [], ["林朔"], zhang
+        )
+        is False
+    )
 
     # 张紫衣已排期时，禁写项里带她的名字不封杀登场。
     zhang_on = LockGates(
@@ -629,7 +639,12 @@ def test_unscheduled_character_too_early_is_not_lockable() -> None:
         schedule=SCHEDULE + [(7, "反派戏张紫衣档期侧写张紫衣林朔")],
         reveal_forbidden=["张紫衣反派戏终局"],
     )
-    assert is_lockable_draft(_linshuo_pad("张紫衣背对着片场大门站着。"), [], ["林朔"], zhang_on) is True
+    assert (
+        is_lockable_draft(
+            _linshuo_pad("张紫衣背对着片场大门站着。"), [], ["林朔"], zhang_on
+        )
+        is True
+    )
 
     skipped = LockGates(
         pov="林朔",
@@ -644,3 +659,72 @@ def test_unscheduled_character_too_early_is_not_lockable() -> None:
     clean = _candidate("candidate_2", _linshuo_pad("兆薇从化妆间出来。"))
     picked = pick_sole_lockable_candidate([leaked, clean], [], ["林朔"], early)
     assert picked is not None and picked.candidate_id == "candidate_2"
+
+
+def _annals_gates(year: int, titles: list[str], phrases: list[str] | None = None) -> LockGates:
+    return LockGates(
+        required_names=["林朔"],
+        pov="林朔",
+        annals_year=year,
+        forbidden_titles=titles,
+        forbidden_section_phrases=phrases or ["柏林一种关注", "戛纳年初"],
+    )
+
+
+def test_future_title_活埋_not_lockable_in_2005() -> None:
+    gates = _annals_gates(2005, ["活埋", "小偷家族", "海边的曼彻斯特", "调音师", "入殓师"])
+    prose = _long_prose() + "林朔盯着监视器。他想起《活埋》。"
+    assert is_lockable_draft(prose, [], ["林朔"], gates) is False
+
+
+def test_future_title_thief_family_and_manchester() -> None:
+    gates = _annals_gates(2005, ["活埋", "小偷家族", "海边的曼彻斯特", "调音师", "入殓师"])
+    thief = _long_prose() + "林朔说《小偷家族》已经拿了金棕榈。"
+    manchester = _long_prose() + "林朔说《海边的曼彻斯特》拿了剧本奖。"
+    tuner = _long_prose() + "林朔说《调音师》那种听音的办法。"
+    assert is_lockable_draft(thief, [], ["林朔"], gates) is False
+    assert is_lockable_draft(manchester, [], ["林朔"], gates) is False
+    assert is_lockable_draft(tuner, [], ["林朔"], gates) is False
+
+
+def test_departures_typo_is_fenced() -> None:
+    gates = _annals_gates(2005, ["入殓师"])
+    assert is_lockable_draft(_long_prose() + "林朔提了入殓师。", [], ["林朔"], gates) is False
+    assert is_lockable_draft(_long_prose() + "林朔提了入检师。", [], ["林朔"], gates) is False
+
+
+def test_1997_event_horizon_not_fenced() -> None:
+    gates = _annals_gates(2005, ["活埋"])
+    prose = _long_prose() + "林朔说《黑洞》那种1997年的封闭空间。"
+    assert is_lockable_draft(prose, [], ["林朔"], gates) is True
+
+
+def test_lin_shuo_original_title_not_blocked() -> None:
+    gates = _annals_gates(2005, ["活埋"])
+    prose = _long_prose() + "林朔把《场记板》这个自己的名字写在通告上。"
+    assert is_lockable_draft(prose, [], ["林朔"], gates) is True
+
+
+def test_berlin_un_certain_regard_not_lockable() -> None:
+    gates = _annals_gates(2007, ["活埋"], ["柏林一种关注", "戛纳年初"])
+    prose = _long_prose() + "林朔站在柏林一种关注放映厅门口。"
+    assert is_lockable_draft(prose, [], ["林朔"], gates) is False
+
+
+def test_cannes_plus_early_year_not_lockable_but_cannes_alone_ok() -> None:
+    gates = _annals_gates(2008, ["活埋"], ["柏林一种关注", "戛纳年初"])
+    early = _long_prose() + "林朔去戛纳，年初机票就订了。"
+    may = _long_prose() + "林朔去戛纳，5月的阳光很白。"
+    assert is_lockable_draft(early, [], ["林朔"], gates) is False
+    assert is_lockable_draft(may, [], ["林朔"], gates) is True
+
+
+def test_clean_2005_prose_still_lockable() -> None:
+    gates = _annals_gates(2005, ["活埋", "小偷家族"])
+    prose = _long_prose() + "手贴上去的时候没有犹豫。林朔盯着监视器。"
+    assert is_lockable_draft(prose, [], ["林朔"], gates) is True
+
+
+def test_annals_gate_skipped_when_gates_omitted() -> None:
+    prose = _long_prose() + "他想起《活埋》。林朔盯着监视器。"
+    assert is_lockable_draft(prose, [], ["林朔"]) is True
