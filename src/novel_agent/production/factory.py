@@ -307,7 +307,9 @@ def _unscheduled_character_blocks(text: str, gates: LockGates | None) -> bool:
     for name in names:
         if name not in blob:
             continue
-        if any(name in item for item in forbidden):
+        # 禁写项是整句揭示，不是「名字出现在禁写项里就把人整章封杀」。
+        # 「许静蕾看过笔记」只拦那句揭示，不拦「许静蕾走进来」。
+        if any(item in blob for item in forbidden if name in item):
             return True
         first = _first_schedule(name, gates.schedule)
         if first is None or first > current + 1:

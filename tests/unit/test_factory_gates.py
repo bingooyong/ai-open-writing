@@ -597,15 +597,39 @@ def test_unscheduled_character_too_early_is_not_lockable() -> None:
     )
     assert is_lockable_draft(_linshuo_pad("樊冰屏把预算表放下。"), [], ["林朔"], fan) is True
 
-    forbidden = LockGates(
+    # 禁写项整句出现在正文里才拦；人名只是禁写项的子串不整章封杀。
+    phrase_hit = LockGates(
         pov="林朔",
         required_names=["林朔"],
-        chapter_index=4,
+        chapter_index=5,
         card_names=CARDS,
         schedule=SCHEDULE,
-        reveal_forbidden=["许静蕾/周洵登场"],
+        reveal_forbidden=["许静蕾看过笔记"],
     )
-    assert is_lockable_draft(_linshuo_pad("许静蕾走进来"), [], ["林朔"], forbidden) is False
+    assert is_lockable_draft(_linshuo_pad("许静蕾看过笔记。她把本子合上。"), [], ["林朔"], phrase_hit) is False
+    assert is_lockable_draft(_linshuo_pad("许静蕾走进来。"), [], ["林朔"], phrase_hit) is True
+
+    # 张紫衣从未进过 schedule 仍算未排期。
+    zhang = LockGates(
+        pov="林朔",
+        required_names=["林朔"],
+        chapter_index=9,
+        card_names=CARDS,
+        schedule=SCHEDULE,
+        reveal_forbidden=["张紫衣反派戏终局"],
+    )
+    assert is_lockable_draft(_linshuo_pad("张紫衣背对着片场大门站着。"), [], ["林朔"], zhang) is False
+
+    # 张紫衣已排期时，禁写项里带她的名字不封杀登场。
+    zhang_on = LockGates(
+        pov="林朔",
+        required_names=["林朔"],
+        chapter_index=9,
+        card_names=CARDS,
+        schedule=SCHEDULE + [(7, "反派戏张紫衣档期侧写张紫衣林朔")],
+        reveal_forbidden=["张紫衣反派戏终局"],
+    )
+    assert is_lockable_draft(_linshuo_pad("张紫衣背对着片场大门站着。"), [], ["林朔"], zhang_on) is True
 
     skipped = LockGates(
         pov="林朔",
