@@ -2,6 +2,7 @@
 
 from pydantic import Field
 
+from novel_agent.domain.schemas.annals import AnnalsSlice
 from novel_agent.domain.schemas.base import VersionedSchema
 from novel_agent.domain.schemas.character import CharacterCard
 from novel_agent.domain.schemas.outline import ChapterOutline, PlotUnitCard
@@ -53,6 +54,7 @@ class ChapterContextPackage(VersionedSchema):
     style_rules: str = Field(default="", description="作者批准的风格规则")
     prior_feedback: str = Field(default="", description="上一轮审校意见(修订时)")
     boundaries: list[str] = Field(default_factory=list, description="do_not_write 等内容边界")
+    annals: AnnalsSlice = Field(default_factory=lambda: AnnalsSlice(applicable=False))
 
     def has_provisional(self) -> bool:
         """是否依赖了提案态 canon(D15:用于 STALE 级联判定)。"""

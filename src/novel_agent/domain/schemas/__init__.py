@@ -1,5 +1,16 @@
 """跨 Agent 交换契约(Spec §5)。所有 Schema 携带 schema_version。"""
 
+from novel_agent.domain.schemas.annals import (
+    AnnalsCover,
+    AnnalsSlice,
+    AwardBeat,
+    FestivalTaxonomyCard,
+    MethodLibraryCard,
+    SourceRef,
+    TimelineAlignDebt,
+    TitleRelease,
+    YearCard,
+)
 from novel_agent.domain.schemas.base import (
     ChapterStatus,
     EntityStateType,
@@ -45,6 +56,9 @@ from novel_agent.domain.schemas.structure import (
 )
 
 __all__ = [
+    "AnnalsCover",
+    "AnnalsSlice",
+    "AwardBeat",
     "CanonDelta",
     "CanonFact",
     "ChapterContextPackage",
@@ -60,6 +74,7 @@ __all__ = [
     "EntityStateChange",
     "EntityStateType",
     "EvidenceRef",
+    "FestivalTaxonomyCard",
     "GoldenThreeChapter",
     "HardGate",
     "IdentityAlias",
@@ -67,6 +82,7 @@ __all__ = [
     "JudgeVerdict",
     "KernelCandidateSet",
     "LineDeltas",
+    "MethodLibraryCard",
     "MustAffect",
     "PayoffBeat",
     "PayoffScale",
@@ -81,13 +97,17 @@ __all__ = [
     "SceneCard",
     "SceneDraft",
     "Severity",
+    "SourceRef",
     "StoryBrief",
     "StoryKernel",
     "StructureBeat",
     "StructureMap",
     "ThreadStatus",
     "ThreadUpdate",
+    "TimelineAlignDebt",
+    "TitleRelease",
     "VerdictType",
     "VersionedSchema",
     "VoiceProfile",
+    "YearCard",
 ]
