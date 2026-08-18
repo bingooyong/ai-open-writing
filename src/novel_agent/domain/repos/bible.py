@@ -214,6 +214,10 @@ class BibleRepo:
         ).first()
         if has_chapter is not None:
             done.add("R5")
+        from novel_agent.domain.repos.annals import AnnalsRepo
+
+        if AnnalsRepo(self.s).r6_complete(project_id):
+            done.add("R6")
         return done
 
     def concept_judge_state(self, project_id: int) -> dict:

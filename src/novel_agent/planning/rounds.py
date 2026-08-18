@@ -45,7 +45,7 @@ from novel_agent.runtime.agents import (
     run_structure_planner,
 )
 
-ROUND_KINDS = ("R0", "R1", "R2", "R3", "R4", "R5")
+ROUND_KINDS = ("R0", "R1", "R2", "R3", "R4", "R5", "R6")
 ROUND_PROMPTS = {
     0: "确认创作简报(题材/受众可空,禁写项继承项目边界)?",
     1: "选定内核候选并写入?",
@@ -53,6 +53,7 @@ ROUND_PROMPTS = {
     3: "确认写入角色卡与初始关系?",
     4: "确认写入冲突系统与爽点?",
     5: "确认写入卷纲、剧情单元与滚动章纲?",
+    6: "确认写入年代志(故事年跨度的年卡 + 出处)?",
 }
 
 
@@ -154,8 +155,8 @@ async def confirm_round(
     chapters_needed: int = 5,
     skip_concept_judge: bool = False,
 ) -> dict[str, Any]:
-    if round_index < 0 or round_index > 5:
-        raise PlanningError("轮次必须是 0–5")
+    if round_index < 0 or round_index > 6:
+        raise PlanningError("轮次必须是 0–6")
     planning, bible, canon = _repos(session)
     done = bible.round_complete(project_id)
     kind = ROUND_KINDS[round_index]
@@ -332,6 +333,21 @@ async def _generate_artifact(
                 for key, cards in by_chapter.items()
             },
         }
+    if round_index == 6:
+        from novel_agent.annals.research import NullResearchPort
+        from novel_agent.annals.skeleton import _span_texts, build_skeleton, fill_skeleton
+
+        kernel_texts, time_locations, volume_texts = _span_texts(planning, project_id)
+        skeleton = fill_skeleton(
+            build_skeleton(
+                kernel_texts=kernel_texts,
+                time_locations=time_locations,
+                volume_texts=volume_texts,
+                locked_drafts=[],
+            ),
+            NullResearchPort(),
+        )
+        return skeleton.model_dump(mode="json")
     raise PlanningError(f"未知轮次 R{round_index}")
 
 
@@ -431,5 +447,16 @@ def _persist_artifact(
             planning.save_scene_cards(
                 project_id, aligned.chapter_key, by_chapter[outline.chapter_key]
             )
+        return
+    if round_index == 6:
+        from novel_agent.annals.skeleton import AnnalsSkeleton, persist_annals_skeleton
+        from novel_agent.domain.repos.annals import AnnalsRepo
+
+        persist_annals_skeleton(
+            planning,
+            AnnalsRepo(planning.s),
+            project_id,
+            AnnalsSkeleton.model_validate(artifact),
+        )
         return
     raise PlanningError(f"未知轮次 R{round_index}")

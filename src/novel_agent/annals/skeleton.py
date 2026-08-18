@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import Field
 
-from novel_agent.annals.research import ResearchPort
+from novel_agent.annals.research import NullResearchPort, ResearchPort
 from novel_agent.annals.span import derive_story_span, plot_hit_years, widen_span
 from novel_agent.annals.taxonomy import FESTIVAL_TAXONOMY, METHOD_LIBRARY_EXAMPLES
 from novel_agent.domain.schemas.annals import (
@@ -135,3 +135,93 @@ def confirm_errors(skeleton: AnnalsSkeleton) -> list[str]:
         if len(card.sources) < 1 or card.release_year <= 0:
             errors.append(f"unsourced method {card.film_title}")
     return errors
+
+def list_locked_draft_texts(session, project_id: int) -> list[tuple[str, str]]:
+    from novel_agent.domain.repos.planning import PlanningRepo
+    from novel_agent.domain.repos.production import ProductionRepo
+    from novel_agent.domain.schemas.base import ChapterStatus
+
+    planning = PlanningRepo(session)
+    production = ProductionRepo(session)
+    found: list[tuple[str, str]] = []
+    for chapter in planning.list_chapters(project_id):
+        if chapter.status != ChapterStatus.CANON_LOCKED:
+            continue
+        draft = production.latest_chapter_draft(project_id, chapter.chapter_key)
+        if draft is None:
+            continue
+        found.append((chapter.chapter_key, draft.content_text or ""))
+    return found
+
+
+def _span_texts(planning, project_id: int) -> tuple[list[str], list[str], list[str]]:
+    kernel = planning.get_approved_kernel(project_id)
+    kernel_texts = []
+    if kernel is not None:
+        kernel_texts = [
+            kernel.premise,
+            kernel.logline,
+            kernel.reader_promise,
+            *kernel.do_not_write,
+        ]
+    outlines = [
+        planning.get_outline(project_id, ch.chapter_key)
+        for ch in planning.list_chapters(project_id)
+    ]
+    time_locations = [item.time_location for item in outlines]
+    volume_texts: list[str] = []
+    for volume in planning.list_volumes(project_id):
+        volume_texts.append(volume.title or "")
+        volume_texts.append(str(volume.payload or ""))
+    return kernel_texts, time_locations, volume_texts
+
+
+def persist_annals_skeleton(planning, annals, project_id: int, skeleton: AnnalsSkeleton) -> None:
+    errors = confirm_errors(skeleton)
+    if errors:
+        from novel_agent.planning.chain import PlanningError
+
+        raise PlanningError("年代志未通过确认: " + "; ".join(errors))
+    status = "confirmed"
+    annals.upsert_cover(project_id, skeleton.cover, status=status)
+    for card in skeleton.year_cards:
+        annals.upsert_year(project_id, card, status=status)
+    annals.replace_taxonomy(project_id, list(skeleton.taxonomy), status=status)
+    annals.replace_methods(project_id, list(skeleton.methods), status=status)
+    annals.replace_debts(project_id, list(skeleton.debts), status=status)
+    if skeleton.cover.applicable:
+        kernel = planning.get_approved_kernel(project_id)
+        if kernel is not None:
+            patched = kernel.model_copy(
+                update={"do_not_write": patch_kernel_title_rule(list(kernel.do_not_write))}
+            )
+            rec = planning.save_kernel(project_id, patched)
+            planning.approve_kernel(project_id, rec.version)
+
+
+def ensure_annals_cover(
+    planning,
+    annals,
+    project_id: int,
+    *,
+    research: ResearchPort | None = None,
+    auto_not_applicable_only: bool = True,
+) -> AnnalsCover | None:
+    got = annals.get_cover(project_id)
+    if annals.r6_complete(project_id) and got is not None:
+        return got[0]
+    kernel_texts, time_locations, volume_texts = _span_texts(planning, project_id)
+    skeleton = build_skeleton(
+        kernel_texts=kernel_texts,
+        time_locations=time_locations,
+        volume_texts=volume_texts,
+        locked_drafts=[],
+    )
+    if not skeleton.cover.applicable:
+        persist_annals_skeleton(planning, annals, project_id, skeleton)
+        return skeleton.cover
+    if auto_not_applicable_only:
+        return got[0] if got else None
+    filled = fill_skeleton(skeleton, research or NullResearchPort())
+    persist_annals_skeleton(planning, annals, project_id, filled)
+    return filled.cover

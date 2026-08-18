@@ -1,4 +1,4 @@
-"""Story Bible 对话编排:R0→R5 单轮生成 + 人工确认,记忆为已确认产物。"""
+"""Story Bible 对话编排:R0→R6 单轮生成 + 人工确认,记忆为已确认产物。"""
 
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ async def run_bible_conversation(
     chapters_needed: int = 5,
     skip_concept_judge: bool = False,
 ) -> BibleResult:
-    """R0→R1→R2→Concept Judge→R3→R4→Judge→R5。
+    """R0→R1→R2→Concept Judge→R3→R4→Judge→R5→R6。
 
     已完成轮次跳过。每轮确认后立即 commit。R5 lint 失败不入库章纲。
     """
@@ -139,6 +139,7 @@ async def run_bible_conversation(
         gates,
         skipped,
     )
+    await _ensure_r6(planning, project_id, gates, skipped)
     if skip_concept_judge:
         skipped.append("concept_judge")
     return BibleResult(
@@ -370,3 +371,42 @@ async def _ensure_r5(
         )
     planning.s.commit()
     return unit.unit_id, keys
+
+async def _ensure_r6(
+    planning: PlanningRepo,
+    project_id: int,
+    gates: PlanningGates,
+    skipped: list[str],
+) -> None:
+    from novel_agent.annals.skeleton import (
+        _span_texts,
+        build_skeleton,
+        confirm_errors,
+        list_locked_draft_texts,
+        persist_annals_skeleton,
+    )
+    from novel_agent.domain.repos.annals import AnnalsRepo
+    from novel_agent.planning.rounds import ROUND_PROMPTS
+
+    annals = AnnalsRepo(planning.s)
+    if annals.r6_complete(project_id):
+        skipped.append("R6")
+        return
+    kernel_texts, time_locations, volume_texts = _span_texts(planning, project_id)
+    skeleton = build_skeleton(
+        kernel_texts=kernel_texts,
+        time_locations=time_locations,
+        volume_texts=volume_texts,
+        locked_drafts=list_locked_draft_texts(planning.s, project_id),
+    )
+    if not skeleton.cover.applicable:
+        persist_annals_skeleton(planning, annals, project_id, skeleton)
+        planning.s.commit()
+        return
+    if not gates.confirm(ROUND_PROMPTS[6]):
+        raise PlanningAborted("R6", project_id)
+    errors = confirm_errors(skeleton)
+    if errors:
+        raise PlanningError("年代志未通过确认: " + "; ".join(errors))
+    persist_annals_skeleton(planning, annals, project_id, skeleton)
+    planning.s.commit()

@@ -97,6 +97,12 @@ async def run_planning_chain(
         chapters_needed,
         skipped,
     )
+    from novel_agent.annals.skeleton import ensure_annals_cover
+    from novel_agent.domain.repos.annals import AnnalsRepo
+
+    ensure_annals_cover(
+        repo, AnnalsRepo(repo.s), project_id, auto_not_applicable_only=True
+    )
     return PlanningResult(
         project_id=project_id,
         kernel_version=kernel_version,

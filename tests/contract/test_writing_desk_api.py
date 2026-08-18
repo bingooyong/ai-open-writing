@@ -133,7 +133,7 @@ def test_create_with_spark_runs_auto_bible(client: TestClient) -> None:
     assert payload["conflicts"]
     assert payload["payoffs"]
     assert len(payload["outlines"]) == 5
-    assert set(payload["completed"]) == {"R0", "R1", "R2", "R3", "R4", "R5"}
+    assert set(payload["completed"]) == {"R0", "R1", "R2", "R3", "R4", "R5", "R6"}
     assert payload["pending"] is None
     assert payload["concept_judge"]["after_r2"]["verdict"] == "PASS"
     assert payload["concept_judge"]["after_r4"]["verdict"] == "PASS"
@@ -163,12 +163,12 @@ def test_interactive_round_confirm(client: TestClient) -> None:
     assert r1.json()["kernel"] is not None
     assert r1.json()["pending"]["round"] == 2
 
-    for n in (2, 3, 4, 5):
+    for n in (2, 3, 4, 5, 6):
         step = client.post(f"/projects/{pid}/bible/rounds/{n}/confirm")
         assert step.status_code == 200, step.text
     done = client.get(f"/projects/{pid}/bible")
     assert done.json()["pending"] is None
-    assert set(done.json()["completed"]) == {"R0", "R1", "R2", "R3", "R4", "R5"}
+    assert set(done.json()["completed"]) == {"R0", "R1", "R2", "R3", "R4", "R5", "R6"}
     assert len(done.json()["outlines"]) == 5
 
 

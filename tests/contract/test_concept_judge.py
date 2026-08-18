@@ -93,7 +93,7 @@ async def test_concept_judge_pass_allows_later_rounds(tmp_path) -> None:
         )
         session.commit()
         bible = BibleRepo(session)
-        assert bible.round_complete(project.id) == {"R0", "R1", "R2", "R3", "R4", "R5"}
+        assert bible.round_complete(project.id) == {"R0", "R1", "R2", "R3", "R4", "R5", "R6"}
         snap = bible.concept_judge_state(project.id)
         assert snap["after_r2"]["verdict"] == "PASS"
         assert snap["after_r4"]["verdict"] == "PASS"
@@ -324,7 +324,7 @@ async def test_chapters_3_yu_jin_map_does_not_die_at_r4(tmp_path) -> None:
         )
         session.commit()
         bible = BibleRepo(session)
-        assert bible.round_complete(project.id) == {"R0", "R1", "R2", "R3", "R4", "R5"}
+        assert bible.round_complete(project.id) == {"R0", "R1", "R2", "R3", "R4", "R5", "R6"}
         assert bible.concept_judge_state(project.id)["after_r4"]["verdict"] == "PASS"
         assert result.chapter_keys == ["v1c001", "v1c002", "v1c003"]
 
@@ -353,7 +353,7 @@ def test_cli_skip_concept_judge(tmp_path, monkeypatch: pytest.MonkeyPatch) -> No
         engine = build_engine(db_path)
         with session_scope(engine) as session:
             bible = BibleRepo(session)
-            assert bible.round_complete(1) == {"R0", "R1", "R2", "R3", "R4", "R5"}
+            assert bible.round_complete(1) == {"R0", "R1", "R2", "R3", "R4", "R5", "R6"}
             assert bible.concept_judge_state(1) == {"after_r2": None, "after_r4": None}
     finally:
         reset_settings_cache()

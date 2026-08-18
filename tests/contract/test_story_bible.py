@@ -193,6 +193,31 @@ def test_bible_repo_crud_and_round_complete(engine) -> None:
         assert bible.round_complete(pid) == {"R0", "R1", "R2", "R3", "R4", "R5"}
 
 
+def test_round_complete_adds_r6_on_not_applicable_cover(engine) -> None:
+    from novel_agent.domain.repos import AnnalsRepo
+    from novel_agent.domain.schemas.annals import AnnalsCover
+
+    with session_scope(engine) as session:
+        planning = PlanningRepo(session)
+        bible = BibleRepo(session)
+        pid = planning.create_project("说书人传奇", boundaries=["禁无代价全能"]).id
+        bible.save_brief(
+            pid,
+            StoryBrief(spark="说书人发现故事会成真", do_not_write=["禁无代价全能"]),
+        )
+        planning.save_kernel(pid, StoryKernel.model_validate(KERNEL))
+        planning.approve_kernel(pid, 1)
+        bible.save_structure_map(pid, StructureMap.model_validate(_structure_map()))
+        planning.upsert_character(pid, CharacterCard.model_validate(CHARACTER))
+        bible.replace_conflicts(pid, [Conflict.model_validate(_conflict())])
+        bible.replace_payoff_beats(pid, [PayoffBeat.model_validate(_payoff())])
+        planning.create_chapter(pid, ChapterOutline.model_validate(OUTLINE), order_index=1)
+        assert bible.round_complete(pid) == {"R0", "R1", "R2", "R3", "R4", "R5"}
+        assert "R6" not in bible.round_complete(pid)
+        AnnalsRepo(session).upsert_cover(pid, AnnalsCover(applicable=False), status="confirmed")
+        assert bible.round_complete(pid) == {"R0", "R1", "R2", "R3", "R4", "R5", "R6"}
+
+
 def test_bible_repo_alias_cycle_and_self_map_rejected(engine) -> None:
     with session_scope(engine) as session:
         planning = PlanningRepo(session)
@@ -489,7 +514,7 @@ async def test_bible_conversation_persists_full_r0_to_r5(engine) -> None:
         for key in result.chapter_keys:
             outline = planning.get_outline(project.id, key)
             assert outline.cited_conflict_ids or outline.cited_beat_ids
-        assert bible.round_complete(project.id) == {"R0", "R1", "R2", "R3", "R4", "R5"}
+        assert bible.round_complete(project.id) == {"R0", "R1", "R2", "R3", "R4", "R5", "R6"}
 
 
 async def test_bible_conversation_abort_r3_keeps_kernel(engine) -> None:
