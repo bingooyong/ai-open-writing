@@ -110,6 +110,15 @@ class ContextBuilder:
             boundaries=[*kernel.do_not_write, *project.boundaries],
             prior_feedback=prior_feedback,
         )
+        from novel_agent.annals.skeleton import ensure_annals_cover
+        from novel_agent.annals.slice import annals_slice_for_chapter
+        from novel_agent.domain.repos.annals import AnnalsRepo
+
+        annals = AnnalsRepo(self._planning.s)
+        ensure_annals_cover(self._planning, annals, project_id, auto_not_applicable_only=True)
+        package = package.model_copy(
+            update={"annals": annals_slice_for_chapter(annals, project_id, outline)}
+        )
         return self._trim(package, max_chars)
 
     @staticmethod

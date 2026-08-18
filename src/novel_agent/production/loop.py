@@ -255,6 +255,15 @@ async def run_chapter_loop(
     if chapter.status is ChapterStatus.EXPORTED:
         raise ChapterLoopError("章节已导出,单章循环不再推进")
 
+    if chapter.status is not ChapterStatus.CANON_LOCKED:
+        from novel_agent.annals.skeleton import chapter_needs_annals, ensure_annals_cover
+        from novel_agent.domain.repos.annals import AnnalsRepo
+
+        annals = AnnalsRepo(session)
+        ensure_annals_cover(planning, annals, project_id, auto_not_applicable_only=True)
+        if chapter_needs_annals(planning, annals, project_id, chapter_key):
+            raise ChapterLoopError("NEEDS_ANNALS")
+
     run = ops.find_resumable_run(project_id, "chapter_loop", chapter_key)
     if (
         run is not None
@@ -822,6 +831,8 @@ async def _n6(
         candidates = [draft_from_record(production.get_draft(item)) for item in ids]
         package = ctx_factory()
         names = [card.name for card in package.characters if card.name]
+        from novel_agent.annals.taxonomy import FORBIDDEN_SECTION_PHRASES
+
         gates = LockGates(
             required_names=names,
             pov=package.outline.pov,
@@ -829,6 +840,11 @@ async def _n6(
             card_names=names,
             schedule=_lock_schedule(PlanningRepo(ops.s), project_id),
             reveal_forbidden=list(package.outline.reveal_forbidden),
+            annals_year=package.annals.story_year,
+            forbidden_titles=list(package.annals.title_fence),
+            forbidden_section_phrases=(
+                list(FORBIDDEN_SECTION_PHRASES) if package.annals.applicable else None
+            ),
         )
         raw: JudgeVerdict | None = None
         try:

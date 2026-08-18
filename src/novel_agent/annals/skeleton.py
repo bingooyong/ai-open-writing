@@ -3,7 +3,7 @@ from __future__ import annotations
 from pydantic import Field
 
 from novel_agent.annals.research import NullResearchPort, ResearchPort
-from novel_agent.annals.span import derive_story_span, plot_hit_years, widen_span
+from novel_agent.annals.span import derive_story_span, parse_story_year, plot_hit_years, widen_span
 from novel_agent.annals.taxonomy import FESTIVAL_TAXONOMY, METHOD_LIBRARY_EXAMPLES
 from novel_agent.domain.schemas.annals import (
     AnnalsCover,
@@ -225,3 +225,20 @@ def ensure_annals_cover(
     filled = fill_skeleton(skeleton, research or NullResearchPort())
     persist_annals_skeleton(planning, annals, project_id, filled)
     return filled.cover
+
+
+def chapter_needs_annals(planning, annals, project_id: int, chapter_key: str) -> bool:
+    got = annals.get_cover(project_id)
+    if got is None:
+        return True
+    cover, status = got
+    if status != "confirmed":
+        return True
+    if not cover.applicable:
+        return False
+    outline = planning.get_outline(project_id, chapter_key)
+    year = parse_story_year(outline.time_location)
+    if year is None:
+        return True
+    got_year = annals.get_year(project_id, year)
+    return got_year is None or got_year[1] != "confirmed"
