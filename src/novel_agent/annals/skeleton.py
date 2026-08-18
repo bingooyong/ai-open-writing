@@ -136,6 +136,7 @@ def confirm_errors(skeleton: AnnalsSkeleton) -> list[str]:
             errors.append(f"unsourced method {card.film_title}")
     return errors
 
+
 def list_locked_draft_texts(session, project_id: int) -> list[tuple[str, str]]:
     from novel_agent.domain.repos.planning import PlanningRepo
     from novel_agent.domain.repos.production import ProductionRepo
@@ -227,6 +228,17 @@ def ensure_annals_cover(
     return filled.cover
 
 
+def overlay_confirmed_years(skeleton: AnnalsSkeleton, annals, project_id: int) -> AnnalsSkeleton:
+    years: list[YearCard] = []
+    for card in skeleton.year_cards:
+        got = annals.get_year(project_id, card.year)
+        if got is not None and got[1] == "confirmed":
+            years.append(got[0])
+        else:
+            years.append(card)
+    return skeleton.model_copy(update={"year_cards": years})
+
+
 def chapter_needs_annals(planning, annals, project_id: int, chapter_key: str) -> bool:
     got = annals.get_cover(project_id)
     if got is None:
@@ -235,7 +247,8 @@ def chapter_needs_annals(planning, annals, project_id: int, chapter_key: str) ->
     if status != "confirmed":
         return True
     if not cover.applicable:
-        return False
+        outline = planning.get_outline(project_id, chapter_key)
+        return parse_story_year(outline.time_location) is not None
     outline = planning.get_outline(project_id, chapter_key)
     year = parse_story_year(outline.time_location)
     if year is None:
@@ -254,6 +267,23 @@ def extend_annals_for_outlines(planning, annals, project_id: int) -> None:
         return
     cover, status = got
     if not cover.applicable:
+        skeleton = build_skeleton(
+            kernel_texts=kernel_texts,
+            time_locations=time_locations,
+            volume_texts=volume_texts,
+            locked_drafts=[],
+        )
+        if not skeleton.cover.applicable:
+            return
+        annals.upsert_cover(project_id, skeleton.cover, status="pending")
+        have = {card.year for card, _st in annals.list_years(project_id)}
+        for card in skeleton.year_cards:
+            if card.year not in have:
+                annals.upsert_year(
+                    project_id,
+                    card.model_copy(update={"climate": ""}),
+                    status="pending",
+                )
         return
     start, end = parsed
     if cover.span_start is not None and cover.span_end is not None:

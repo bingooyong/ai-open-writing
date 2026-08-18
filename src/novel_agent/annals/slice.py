@@ -1,14 +1,21 @@
 from novel_agent.annals.span import parse_story_year
-from novel_agent.domain.schemas.annals import AnnalsSlice, MethodLibraryCard
+from novel_agent.domain.schemas.annals import AnnalsSlice, MethodLibraryCard, TitleRelease
 from novel_agent.domain.schemas.outline import ChapterOutline
 
 
-def title_fence(methods: list[MethodLibraryCard], story_year: int) -> list[str]:
+def title_fence(
+    methods: list[MethodLibraryCard],
+    story_year: int,
+    title_releases: list[TitleRelease] | None = None,
+) -> list[str]:
     fenced: list[str] = []
     for card in methods:
         year = card.speak_as_existing_from_year or card.release_year
         if year > story_year and card.film_title not in fenced:
             fenced.append(card.film_title)
+    for item in title_releases or []:
+        if item.release_year > story_year and item.film_title not in fenced:
+            fenced.append(item.film_title)
     return fenced
 
 
@@ -42,6 +49,6 @@ def annals_slice_for_chapter(annals, project_id: int, outline: ChapterOutline) -
         year_card=year_card,
         festival_notes=notes,
         method_library=methods,
-        title_fence=title_fence(methods, year),
+        title_fence=title_fence(methods, year, year_card.title_releases),
         timeline_debts=debts,
     )

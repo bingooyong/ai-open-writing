@@ -335,7 +335,14 @@ async def _generate_artifact(
         }
     if round_index == 6:
         from novel_agent.annals.research import NullResearchPort
-        from novel_agent.annals.skeleton import _span_texts, build_skeleton, fill_skeleton
+        from novel_agent.annals.skeleton import (
+            _span_texts,
+            build_skeleton,
+            fill_skeleton,
+            list_locked_draft_texts,
+            overlay_confirmed_years,
+        )
+        from novel_agent.domain.repos.annals import AnnalsRepo
 
         kernel_texts, time_locations, volume_texts = _span_texts(planning, project_id)
         skeleton = fill_skeleton(
@@ -343,10 +350,11 @@ async def _generate_artifact(
                 kernel_texts=kernel_texts,
                 time_locations=time_locations,
                 volume_texts=volume_texts,
-                locked_drafts=[],
+                locked_drafts=list_locked_draft_texts(planning.s, project_id),
             ),
             NullResearchPort(),
         )
+        skeleton = overlay_confirmed_years(skeleton, AnnalsRepo(planning.s), project_id)
         return skeleton.model_dump(mode="json")
     raise PlanningError(f"未知轮次 R{round_index}")
 

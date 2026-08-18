@@ -1,6 +1,10 @@
+from test_schemas import CHARACTER, OUTLINE, SCENE, UNIT
+
 from novel_agent.annals.slice import annals_slice_for_chapter, title_fence  # noqa: F401
-from novel_agent.annals.taxonomy import METHOD_LIBRARY_EXAMPLES
-from novel_agent.domain.schemas.annals import MethodLibraryCard
+from novel_agent.annals.taxonomy import METHOD_LIBRARY_EXAMPLES, seed_source
+from novel_agent.domain.schemas import ChapterContextPackage
+from novel_agent.domain.schemas.annals import AnnalsSlice, MethodLibraryCard, TitleRelease, YearCard
+from novel_agent.runtime.agents import _ctx_text
 
 
 def test_title_fence_2005_includes_buried_not_1997() -> None:
@@ -125,3 +129,68 @@ def test_builder_applicable_missing_year_card_raises(tmp_path) -> None:
             max_chars=required + 10,
         )
         assert trimmed.annals.title_fence == fence
+
+
+def test_title_fence_includes_year_card_title_releases() -> None:
+    fence = title_fence(
+        [
+            MethodLibraryCard(
+                film_title="黑洞",
+                release_year=1997,
+                speak_as_existing_from_year=1997,
+                craft="x",
+            )
+        ],
+        2005,
+        title_releases=[
+            TitleRelease(film_title="某片", release_year=2012),
+            TitleRelease(film_title="早年片", release_year=1997),
+        ],
+    )
+    assert "某片" in fence
+    assert "早年片" not in fence
+    assert "黑洞" not in fence
+
+
+def _package(**over: object) -> ChapterContextPackage:
+    data = dict(
+        chapter_key="v1c001",
+        canon_version="canon_v0",
+        task_brief="写第一章",
+        outline=OUTLINE,
+        scene_cards=[SCENE, {**SCENE, "scene_id": "v1c001_s2"}],
+        kernel_summary="说书人故事成真",
+        volume_summary="第一卷",
+        unit_card=UNIT,
+        characters=[CHARACTER],
+        boundaries=["禁写项X"],
+    )
+    data.update(over)
+    return ChapterContextPackage.model_validate(data)
+
+
+def test_ctx_text_includes_annals_slice_when_applicable() -> None:
+    climate = "厂里还在用胶片"
+    package = _package(
+        annals=AnnalsSlice(
+            applicable=True,
+            story_year=2005,
+            year_card=YearCard(
+                year=2005, density="thick", climate=climate, sources=[seed_source("2005")]
+            ),
+            festival_notes=["cannes: mid-May; not 年初"],
+            method_library=list(METHOD_LIBRARY_EXAMPLES),
+            title_fence=["活埋"],
+        )
+    )
+    text = _ctx_text(package)
+    assert "# 年代志" in text
+    assert "2005" in text
+    assert climate in text
+    assert "活埋" in text
+    assert "craft-only" in text
+    assert text.index("# 硬约束") < text.index("# 年代志") < text.index("# 本卷")
+
+
+def test_ctx_text_omits_annals_when_not_applicable() -> None:
+    assert "# 年代志" not in _ctx_text(_package())

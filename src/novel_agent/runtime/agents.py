@@ -18,6 +18,7 @@ from typing import Generic, TypeVar, assert_never
 from pydantic import BaseModel, ConfigDict, Field
 
 from novel_agent.domain.schemas import (
+    AnnalsSlice,
     CanonDelta,
     ChapterContextPackage,
     ChapterOutline,
@@ -94,6 +95,36 @@ class CognitiveTask(StrEnum):
     CANON_CURATING = "canon_curating"
 
 
+def _annals_ctx_text(annals: AnnalsSlice) -> str | None:
+    """Writer-facing 年代志 slice. Omit when not applicable; never dump unsourced awards."""
+    if not annals.applicable:
+        return None
+    lines = ["# 年代志"]
+    if annals.story_year is not None:
+        lines.append(f"故事年 = {annals.story_year}")
+    card = annals.year_card
+    if card is not None:
+        if card.density:
+            lines.append(f"密度: {card.density}")
+        if card.climate:
+            lines.append(f"气候: {card.climate}")
+    if annals.festival_notes:
+        lines.append("节庆:")
+        lines.extend(f"- {note}" for note in annals.festival_notes)
+    craft_only = "未上映片名只可当方法，禁止作为已存在作品说出 / craft-only"
+    if annals.method_library:
+        lines.append(f"方法库（{craft_only}）:")
+        for method in annals.method_library:
+            lines.append(f"- {method.film_title} ({method.release_year}): {method.craft}")
+    if annals.title_fence:
+        lines.append("禁作为已存在作品说出 / craft-only:")
+        lines.extend(f"- {title}" for title in annals.title_fence)
+    if annals.timeline_debts:
+        lines.append("时间线债务:")
+        lines.extend(f"- {item}" for item in annals.timeline_debts)
+    return "\n".join(lines)
+
+
 def _ctx_text(ctx: ChapterContextPackage) -> str:
     """上下文包 → 注入文本(顺序对齐 PRD §12.2)。"""
     parts = [
@@ -103,12 +134,19 @@ def _ctx_text(ctx: ChapterContextPackage) -> str:
         + "\n".join(
             f"- {'[提案态] ' if f.provisional else ''}{f.content}" for f in ctx.hard_constraints
         ),
-        f"# 本卷\n{ctx.volume_summary}",
-        f"# 剧情单元\n{json.dumps(ctx.unit_card.model_dump(), ensure_ascii=False)}",
-        f"# 章纲\n{json.dumps(ctx.outline.model_dump(), ensure_ascii=False)}",
-        "# 场景卡\n"
-        + "\n".join(json.dumps(c.model_dump(), ensure_ascii=False) for c in ctx.scene_cards),
     ]
+    annals_block = _annals_ctx_text(ctx.annals)
+    if annals_block:
+        parts.append(annals_block)
+    parts.extend(
+        [
+            f"# 本卷\n{ctx.volume_summary}",
+            f"# 剧情单元\n{json.dumps(ctx.unit_card.model_dump(), ensure_ascii=False)}",
+            f"# 章纲\n{json.dumps(ctx.outline.model_dump(), ensure_ascii=False)}",
+            "# 场景卡\n"
+            + "\n".join(json.dumps(c.model_dump(), ensure_ascii=False) for c in ctx.scene_cards),
+        ]
+    )
     if ctx.retrieval_facts:
         parts.append(
             "# 检索到的相关事实\n" + "\n".join(f"- {item}" for item in ctx.retrieval_facts)
