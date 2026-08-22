@@ -47,11 +47,36 @@ def test_old_value_assertion(env) -> None:
     engine, pid = env
     with session_scope(engine) as s:
         CanonRepo(s).append_entity_state(pid, "ch_su", "position", "临安", "开局", "v1c001")
-    with session_scope(engine) as s, pytest.raises(CanonConflict, match="旧值断言"):
-        CanonWriter(s, pid).stage_provisional(
-            _delta("v1c002", state_type="position", old_value="汴京", new_value="西域"),
-            "idem-ov",
+    with session_scope(engine) as s:
+        conflicts = CanonWriter(s, pid).validate(
+            _delta("v1c002", state_type="position", old_value="汴京", new_value="西域")
         )
+        assert any("旧值断言" in item for item in conflicts)
+
+
+def test_heal_old_values_overwrites_stale_llm_claim(env) -> None:
+    engine, pid = env
+    stale = _delta("v1c002", state_type="position", old_value="汴京", new_value="西域")
+    with session_scope(engine) as s:
+        CanonRepo(s).append_entity_state(pid, "ch_su", "position", "临安", "开局", "v1c001")
+        writer = CanonWriter(s, pid)
+        healed = writer._heal_old_values(stale)
+        assert healed.character_state_changes[0].old_value == "临安"
+        writer.stage_provisional(stale, "idem-heal-stage")
+        states = CanonRepo(s).latest_entity_states(pid, include_provisional=True)
+        assert states[("ch_su", "position")].value == "西域"
+
+    with session_scope(engine) as s:
+        CanonRepo(s).append_entity_state(pid, "ch_su", "status", "茶楼说书", "开局", "v1c001")
+        OpsRepo(s).save_approval(pid, "chapter", "v1c003", "approved")
+        writer = CanonWriter(s, pid)
+        writer.finalize(
+            _delta("v1c003", old_value="已入书局", new_value="被执事盯上"),
+            "idem-heal-final",
+            "v1c003",
+        )
+        as_of = CanonRepo(s).latest_entity_states(pid, as_of_chapter_key="v1c003")
+        assert as_of[("ch_su", "status")].value == "被执事盯上"
 
 
 def test_finalize_requires_approval(env) -> None:

@@ -20,7 +20,7 @@ from novel_agent.planning.chain import PlanningGates
 from novel_agent.planning.conversation import run_bible_conversation
 from novel_agent.planning.mock_fixtures import register_planning_defaults
 from novel_agent.planning.volume import plan_more
-from novel_agent.production.loop import ChapterLoopResult
+from novel_agent.production.loop import ChapterLoopError, ChapterLoopResult
 from novel_agent.production.mock_fixtures import register_chapter_loop_defaults
 from novel_agent.production.volume_run import (
     KIND,
@@ -351,6 +351,35 @@ async def test_volume_skips_already_parked_human_review_chapter(
         assert written == ["v1c002", "v1c003"]
         assert result.chapter_keys == ["v1c002", "v1c003"]
         assert planning.get_chapter(pid, "v1c001").status is ChapterStatus.HUMAN_REVIEW
+    finally:
+        session.close()
+
+
+async def test_volume_keep_going_survives_n3_scene_parse(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session, deps, planning, pid = await _bibled(tmp_path)
+
+    async def parse_then_lock(session: Session, project_id: int, chapter_key: str):
+        if chapter_key == "v1c001":
+            raise ChapterLoopError(
+                "节点 n3_draft 失败: StructuredOutputError: 两段式解析失败(修复后仍不合法)"
+            )
+        PlanningRepo(session).set_status(project_id, chapter_key, ChapterStatus.CANON_LOCKED)
+        session.commit()
+        return _loop_result(project_id, chapter_key, ChapterStatus.CANON_LOCKED)
+
+    written = _patch_loop(monkeypatch, parse_then_lock)
+    try:
+        result = await run_volume(
+            session, deps, pid, budget_usd=1.0, yes=True, max_chapters=3, keep_going=True
+        )
+        session.commit()
+        assert written[0] == "v1c001"
+        assert "v1c002" in written
+        assert result.status != "failed"
+        assert planning.get_chapter(pid, "v1c002").status is ChapterStatus.CANON_LOCKED
+        assert planning.get_chapter(pid, "v1c001").status is ChapterStatus.PLANNED
     finally:
         session.close()
 

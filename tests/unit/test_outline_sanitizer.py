@@ -4,7 +4,12 @@ from test_schemas import OUTLINE
 
 from novel_agent.domain.schemas import ChapterOutline
 from novel_agent.lint.bible import lint_outline_citations, sanitize_outline
-from novel_agent.planning.volume import apply_inherited_spoilers
+from novel_agent.planning.volume import (
+    apply_inherited_spoilers,
+    coerce_outline_citations,
+    continuation_recap,
+    redact_remaining_spoilers,
+)
 
 
 def _outline(**overrides: object) -> ChapterOutline:
@@ -91,3 +96,54 @@ def test_apply_inherited_spoilers_strips_leak_tokens() -> None:
     assert "主角主人真名" in forbidden
     assert "穿越身份" in forbidden
     assert "反噬设定" not in forbidden
+
+
+def test_coerce_outline_citations_maps_invented_ids() -> None:
+    outline = _outline(
+        cited_conflict_ids=["c2_借技法反噬", "c001"],
+        cited_beat_ids=["b1_救场立身份", "unknown_beat"],
+    )
+    coerced = coerce_outline_citations(
+        outline,
+        known_conflict_ids={"c001", "c002"},
+        known_beat_ids={"b001", "b002"},
+    )
+    assert coerced.cited_conflict_ids == ["c002", "c001"]
+    assert coerced.cited_beat_ids == ["b001"]
+    assert "c2_借技法反噬" not in coerced.cited_conflict_ids
+    assert "unknown_beat" not in coerced.cited_beat_ids
+
+    empty_known = coerce_outline_citations(
+        _outline(cited_conflict_ids=[], cited_beat_ids=["b1_救场立身份"]),
+        known_conflict_ids={"c001"},
+        known_beat_ids={"b001"},
+    )
+    assert empty_known.cited_beat_ids == ["b001"]
+    assert empty_known.cited_conflict_ids == ["c001"]
+
+
+def test_redact_remaining_spoilers_from_visible_fields() -> None:
+    outline = _outline(
+        title="书局主人真名现身",
+        core_event="当场喊出书局主人真名并借技法",
+        exit_hook="钩子:书局主人真名还没走",
+        key_choice="是否公开书局主人真名",
+    )
+    redacted = redact_remaining_spoilers(outline, ["书局主人真名"])
+    assert "书局主人真名" not in redacted.title
+    assert "书局主人真名" not in redacted.core_event
+    assert "书局主人真名" not in redacted.exit_hook
+    assert "书局主人真名" not in redacted.key_choice
+    assert redacted.core_event.strip()
+    assert redacted.exit_hook.strip()
+    assert redacted.key_choice.strip()
+
+
+def test_continuation_recap_includes_recent_ends() -> None:
+    recap = continuation_recap(
+        [_outline(chapter_key="v1c005", title="救人", end_state="代价显形")],
+        canon_notes="ch_su.status=已知评书会成真 (committed v1c001)",
+    )
+    assert "v1c005" in recap
+    assert "代价显形" in recap
+    assert "ch_su.status" in recap

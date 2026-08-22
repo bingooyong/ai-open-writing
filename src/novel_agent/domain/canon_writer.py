@@ -50,6 +50,35 @@ class CanonWriter:
 
     # ---- 校验 ----
 
+    def _heal_old_values(
+        self, delta: CanonDelta, include_provisional: bool = True
+    ) -> CanonDelta:
+        """用最新实体态覆盖 LLM 过期的 old_value,避免旧值断言误杀。"""
+        current = self.canon.latest_entity_states(
+            self.project_id,
+            include_provisional=include_provisional,
+            as_of_chapter_key=delta.chapter_key,
+        )
+
+        def heal(changes: list[EntityStateChange]) -> list[EntityStateChange]:
+            healed: list[EntityStateChange] = []
+            for change in changes:
+                cur = current.get((change.entity_id, change.state_type.value))
+                if change.old_value and cur and cur.value != change.old_value:
+                    healed.append(change.model_copy(update={"old_value": cur.value}))
+                else:
+                    healed.append(change)
+            return healed
+
+        return delta.model_copy(
+            update={
+                "new_facts": heal(delta.new_facts),
+                "character_state_changes": heal(delta.character_state_changes),
+                "knowledge_changes": heal(delta.knowledge_changes),
+                "resource_changes": heal(delta.resource_changes),
+            }
+        )
+
     def validate(self, delta: CanonDelta, include_provisional: bool = True) -> list[str]:
         """返回冲突清单;空 = 通过。批次内校验须叠加 provisional(D15)。"""
         current = self.canon.latest_entity_states(
@@ -151,6 +180,7 @@ class CanonWriter:
         existing = self.canon.get_by_idempotency_key(idempotency_key)
         if existing:
             return existing
+        delta = self._heal_old_values(delta, include_provisional=True)
         conflicts = self.validate(delta, include_provisional=True)
         if conflicts:
             raise CanonConflict(conflicts)
@@ -177,6 +207,7 @@ class CanonWriter:
             rec = existing
         else:
             # 单章模式:校验(只对已提交态)后直接落正式
+            delta = self._heal_old_values(delta, include_provisional=False)
             conflicts = self.validate(delta, include_provisional=False)
             if conflicts:
                 raise CanonConflict(conflicts)
