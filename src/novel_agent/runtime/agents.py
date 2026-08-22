@@ -839,6 +839,7 @@ async def run_outline_planner(
     unit_id: str | None = None,
     spoiler_notes: str = "",
     canon_notes: str = "",
+    repair_notes: str = "",
 ) -> tuple[PlotUnitCard, list[ChapterOutline], dict[str, list[SceneCard]]]:
     """单元卡(若未给)+ 章纲若干 + 每章场景卡。"""
     spec = deps.prompt("outline_planner")
@@ -858,6 +859,8 @@ async def run_outline_planner(
         extra_parts.append(f"# 禁释继承\n{spoiler_notes.strip()}")
     if canon_notes.strip():
         extra_parts.append(f"# 正史与临时增量\n{canon_notes.strip()}")
+    if repair_notes.strip():
+        extra_parts.append(f"# 修订要求\n{repair_notes.strip()}")
     extra = "\n\n".join(extra_parts)
     req = ModelRequest(
         system=spec.render(schema=schema, volume_id=volume_id, n=str(chapters_needed)),

@@ -16,7 +16,12 @@ from novel_agent.domain.schemas import ChapterStatus, VerdictType
 from novel_agent.gateway import MockProvider, ModelGateway
 from novel_agent.planning.chain import PlanningGates, run_planning_chain
 from novel_agent.planning.mock_fixtures import register_planning_defaults
-from novel_agent.production.loop import ChapterLoopGates, run_chapter_loop
+from novel_agent.production.loop import (
+    ChapterLoopGates,
+    _fallback_canon_delta,
+    _protagonist_entity_id,
+    run_chapter_loop,
+)
 from novel_agent.production.mock_fixtures import (
     LOCATABLE_QUOTE,
     SCENE_1,
@@ -705,3 +710,98 @@ def test_mock_chapter_fixtures_are_valid_payloads() -> None:
     payload = json.loads(verdict_json("PASS"))
     assert payload["verdict"] == "PASS"
     assert LOCATABLE_QUOTE
+
+
+async def test_n7_structured_output_error_keeps_original_draft(tmp_path) -> None:
+    mock = MockProvider()
+    judge_calls = {"n": 0}
+
+    def judge_handler(_req):
+        judge_calls["n"] += 1
+        if judge_calls["n"] == 1:
+            return verdict_json(
+                "REVISE_LOCAL",
+                accepted_issue="continuity_1",
+                revision_scope=["v1c001_s1"],
+                hard_gates=["canon_conflict"],
+            )
+        return verdict_json("PASS")
+
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    mock.register("judge", judge_handler)
+    mock.register("reviser", lambda _req: "{")
+    try:
+        result = await run_chapter_loop(
+            session, deps, project_id, "v1c001", gates=ChapterLoopGates.auto()
+        )
+        session.commit()
+        assert result.status is ChapterStatus.CANON_LOCKED
+        assert sum(1 for role, _req in mock.calls if role == "reviser") >= 1
+        locked = ProductionRepo(session).get_draft(result.draft_id)
+        assert "他明白评书已经把西市写进了现实" not in locked.content_text
+        assert "苏晚生心里发冷，第一次觉得评书和现实对上了" in locked.content_text
+        assert PlanningRepo(session).get_chapter(project_id, "v1c001").status is (
+            ChapterStatus.CANON_LOCKED
+        )
+    finally:
+        session.close()
+
+
+async def test_n9_curator_fallback_uses_real_protagonist(tmp_path) -> None:
+    mock = MockProvider()
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    mock.register("canon_curator", lambda _req: "{")
+    try:
+        result = await run_chapter_loop(
+            session, deps, project_id, "v1c001", gates=ChapterLoopGates.auto()
+        )
+        session.commit()
+        assert result.status is ChapterStatus.CANON_LOCKED
+        protagonist = _protagonist_entity_id(PlanningRepo(session), project_id)
+        assert protagonist == "ch_su"
+        assert protagonist != "ch_lin"
+        fallback = _fallback_canon_delta("v1c001", "canon_v0", protagonist)
+        assert fallback.new_facts[0].entity_id == "ch_su"
+        assert fallback.new_facts[0].entity_id != "ch_lin"
+        deltas = CanonRepo(session).list_deltas(project_id)
+        assert deltas
+        entity_ids = []
+        for rec in deltas:
+            payload = rec.payload or {}
+            for change in payload.get("new_facts") or []:
+                entity_ids.append(change.get("entity_id"))
+            for change in payload.get("character_state_changes") or []:
+                entity_ids.append(change.get("entity_id"))
+        assert "ch_su" in entity_ids
+        assert "ch_lin" not in entity_ids
+    finally:
+        session.close()
+
+
+async def test_failed_run_resume_does_not_reset_approved(tmp_path) -> None:
+    mock = MockProvider()
+    session, deps, mock, project_id = await _planned(tmp_path, mock=mock)
+    first = await run_chapter_loop(
+        session, deps, project_id, "v1c001", gates=ChapterLoopGates.hold()
+    )
+    session.commit()
+    assert first.status is ChapterStatus.HUMAN_REVIEW
+    planning = PlanningRepo(session)
+    ops = OpsRepo(session)
+    ops.save_approval(project_id, "chapter", "v1c001", "approved")
+    transition(planning, project_id, "v1c001", ChapterStatus.APPROVED)
+    ops.update_workflow(first.workflow_run_id, status="failed", current_node="n9_canon_commit")
+    session.commit()
+
+    writer_calls_before = sum(1 for role, _req in mock.calls if role == "writer_a")
+    try:
+        second = await run_chapter_loop(
+            session, deps, project_id, "v1c001", gates=ChapterLoopGates.auto()
+        )
+        session.commit()
+        assert planning.get_chapter(project_id, "v1c001").status is ChapterStatus.CANON_LOCKED
+        assert second.status is ChapterStatus.CANON_LOCKED
+        writer_calls_after = sum(1 for role, _req in mock.calls if role == "writer_a")
+        assert writer_calls_after == writer_calls_before
+    finally:
+        session.close()

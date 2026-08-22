@@ -120,6 +120,10 @@ async def test_plan_more_after_five_locked_adds_next_v1_slice(tmp_path) -> None:
             for node in unit["chapters"]
         ]
         assert "v1c006" in chapter_keys
+        mock = deps.gateway.providers["mock"]
+        recap_users = [req.user for role, req in mock.calls if role == "conflict_planner"]
+        assert recap_users
+        assert any("前文收束" in user or "v1c005" in user for user in recap_users)
     finally:
         session.close()
 

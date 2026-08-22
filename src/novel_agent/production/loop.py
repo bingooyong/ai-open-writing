@@ -14,7 +14,7 @@ from sqlmodel import Session
 
 from novel_agent.config import Settings
 from novel_agent.context.context_builder import ContextBuilder
-from novel_agent.domain.canon_writer import CanonWriter
+from novel_agent.domain.canon_writer import CanonConflict, CanonWriter
 from novel_agent.domain.models import DraftVersionRecord
 from novel_agent.domain.repos import CanonRepo, OpsRepo, PlanningRepo, ProductionRepo
 from novel_agent.domain.schemas import (
@@ -134,6 +134,47 @@ def draft_from_record(rec: DraftVersionRecord) -> DraftCandidate:
 
 def _is_structured_output_error(exc: BaseException) -> bool:
     return "StructuredOutputError" in type(exc).__name__ or "StructuredOutputError" in str(exc)
+
+
+def _protagonist_entity_id(planning: PlanningRepo, project_id: int) -> str:
+    characters = planning.list_characters(project_id)
+    for card in characters:
+        if "主角" in (card.story_function or ""):
+            return card.character_id
+    if characters:
+        return characters[0].character_id
+    return "ch_unknown"
+
+
+def _void_n6_for_draft(ops: OpsRepo, workflow_run_id: int, draft_id: int | None) -> None:
+    """n7 回退原稿后作废该稿的 n6,避免幂等复用同一条 REVISE 裁决。"""
+    if draft_id is None:
+        return
+    prefix = f"{draft_id}|"
+    for rec in ops.node_history(workflow_run_id):
+        if rec.node_name != "n6_judge" or rec.status != "succeeded":
+            continue
+        key = rec.idempotency_key or ""
+        if key.startswith(prefix) and rec.id is not None:
+            ops.finish_node(rec.id, "voided", rec.output_snapshot, error="n7 fallback rejudge")
+
+
+def _fallback_canon_delta(chapter_key: str, canon_ver: str, entity_id: str) -> CanonDelta:
+    return CanonDelta.model_validate(
+        {
+            "chapter_key": chapter_key,
+            "base_canon_version": canon_ver,
+            "new_facts": [
+                {
+                    "entity_id": entity_id,
+                    "state_type": "status",
+                    "old_value": "",
+                    "new_value": "本章已落",
+                    "reason": f"{chapter_key} 正史抽取回退",
+                }
+            ],
+        }
+    )
 
 
 def sanitize_verdict(
@@ -288,7 +329,11 @@ async def run_chapter_loop(
             last is not None
             and last.status == "failed"
             and chapter.status
-            not in {ChapterStatus.CANON_LOCKED, ChapterStatus.EXPORTED}
+            not in {
+                ChapterStatus.CANON_LOCKED,
+                ChapterStatus.EXPORTED,
+                ChapterStatus.APPROVED,
+            }
             and not pass_hold
         ):
             ops.void_succeeded_nodes_for_chapter(chapter_key)
@@ -991,7 +1036,15 @@ async def _n7(
             instructions=verdict.reasoning_summary,
         )
         package = ctx_factory(prior_feedback=verdict.reasoning_summary)
-        revised = await run_reviser(deps, original, order, issues, package)
+        try:
+            revised = await run_reviser(deps, original, order, issues, package)
+        except StructuredOutputError:
+            _void_n6_for_draft(ops, state.workflow_run_id, state.draft_id)
+            return {
+                "draft_id": state.draft_id,
+                "verdict_id": record.id,
+                "fallback": "original",
+            }
         rec = production.create_draft(
             project_id,
             chapter_key,
@@ -1070,8 +1123,16 @@ async def _n9(
         draft = draft_from_record(production.get_draft(state.draft_id))  # type: ignore[arg-type]
         package = ctx_factory()
         canon_ver = canon_repo.current_canon_version(project_id)
-        delta = await run_canon_curator(deps, draft, package, canon_ver)
-        rec = writer.finalize(delta, key, chapter_key)
+        try:
+            delta = await run_canon_curator(deps, draft, package, canon_ver)
+            rec = writer.finalize(delta, key, chapter_key)
+        except (StructuredOutputError, CanonConflict):
+            fallback = _fallback_canon_delta(
+                chapter_key,
+                canon_ver,
+                _protagonist_entity_id(PlanningRepo(ops.s), project_id),
+            )
+            rec = writer.finalize(fallback, key, chapter_key)
         return {"delta_id": rec.id, "idempotency_key": key}
 
     return await run_node_async(

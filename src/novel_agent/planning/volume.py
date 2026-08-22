@@ -174,6 +174,111 @@ def apply_inherited_spoilers(
     return updated
 
 
+_CITED_NUM = re.compile(r"^([A-Za-z]+)(\d+)")
+_REDACTED = "（已遮蔽）"
+_RECAP_FIELDS = ("title", "core_event", "exit_hook", "key_choice")
+
+
+def continuation_recap(
+    previous_outlines: Sequence[ChapterOutline],
+    *,
+    canon_notes: str = "",
+) -> str:
+    """把已规划章的收束压成续写回顾,供圣经切片策划对齐前文。"""
+    lines: list[str] = []
+    if previous_outlines:
+        lines.append("前文收束:")
+        for outline in previous_outlines[-5:]:
+            title = outline.title or outline.chapter_key
+            lines.append(
+                f"- {outline.chapter_key} {title}: {outline.core_event} → {outline.end_state}"
+            )
+            if outline.exit_hook:
+                lines.append(f"  钩子: {outline.exit_hook}")
+    notes = canon_notes.strip()
+    if notes and notes != "(尚无正史实体状态)":
+        lines.append("正史要点:")
+        lines.append(notes)
+    return "\n".join(lines)
+
+
+def _map_citation(raw: str, known: set[str]) -> str | None:
+    if raw in known:
+        return raw
+    match = _CITED_NUM.match(raw)
+    if match:
+        prefix, num = match.group(1), int(match.group(2))
+        hits = [
+            kid
+            for kid in known
+            if (km := _CITED_NUM.match(kid))
+            and km.group(1).lower() == prefix.lower()
+            and int(km.group(2)) == num
+        ]
+        if hits:
+            return sorted(hits)[0]
+        padded = f"{prefix}{num:03d}"
+        if padded in known:
+            return padded
+    for kid in known:
+        if raw.startswith(kid) or kid.startswith(raw):
+            return kid
+    return None
+
+
+def coerce_citation_ids(cited: Sequence[str], known: set[str]) -> list[str]:
+    """把模型发明的冲突/爽点 id 收成圣经里已有的 id。"""
+    if not known:
+        return [item for item in cited if item]
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in cited:
+        if not raw:
+            continue
+        mapped = _map_citation(raw, known)
+        if mapped and mapped not in seen:
+            seen.add(mapped)
+            out.append(mapped)
+    if not out:
+        out.append(sorted(known)[0])
+    return out
+
+
+def coerce_outline_citations(
+    outline: ChapterOutline,
+    known_conflict_ids: set[str],
+    known_beat_ids: set[str],
+) -> ChapterOutline:
+    return outline.model_copy(
+        update={
+            "cited_conflict_ids": coerce_citation_ids(
+                outline.cited_conflict_ids, known_conflict_ids
+            ),
+            "cited_beat_ids": coerce_citation_ids(outline.cited_beat_ids, known_beat_ids),
+        }
+    )
+
+
+def redact_remaining_spoilers(
+    outline: ChapterOutline, remaining_forbidden: Sequence[str]
+) -> ChapterOutline:
+    """从章纲可见字段抹掉仍被禁止的透剧词。"""
+    secrets = [item for item in remaining_forbidden if item]
+    if not secrets:
+        return outline
+    required = {"core_event", "exit_hook", "key_choice"}
+    updates: dict[str, str] = {}
+    for name in _RECAP_FIELDS:
+        text = getattr(outline, name)
+        for secret in secrets:
+            if secret in text:
+                text = text.replace(secret, "……")
+        if name in required and not text.strip():
+            text = _REDACTED
+        updates[name] = text
+    return outline.model_copy(update=updates)
+
+
 def _canon_notes(canon: CanonRepo, project_id: int) -> str:
     states = canon.latest_entity_states(project_id, include_provisional=True)
     if not states:
@@ -310,9 +415,11 @@ async def plan_more(
     remaining_forbidden, _allowed = collect_spoiler_state(previous_outlines)
     spoiler_notes = "\n".join(f"- {item}" for item in remaining_forbidden) or "(无)"
     current_unit = planning.get_unit(project_id, current_unit_id) if reuse_unit else None
+    canon_notes = _canon_notes(canon, project_id)
+    recap = continuation_recap(previous_outlines, canon_notes=canon_notes)
 
     conflicts, beats = await _extend_bible_slice(
-        bible, deps, project_id, kernel, characters, keys
+        bible, deps, project_id, kernel, characters, keys, repair_notes=recap
     )
     all_keys = [chapter.chapter_key for chapter in existing] + keys
     unit, outlines, by_chapter = await run_outline_planner(
@@ -325,11 +432,20 @@ async def plan_more(
         chapter_keys=keys,
         unit_id=unit_id,
         spoiler_notes=spoiler_notes,
-        canon_notes=_canon_notes(canon, project_id),
+        canon_notes=canon_notes,
+        repair_notes=recap,
     )
     aligned, scenes = _align_slice(outlines, by_chapter, keys, volume_id, unit_id)
     aligned = apply_inherited_spoilers(aligned, remaining_forbidden)
-    aligned = [sanitize_outline(outline) for outline in aligned]
+    known_conflicts = {item.conflict_id for item in conflicts}
+    known_beats = {item.beat_id for item in beats}
+    aligned = [
+        redact_remaining_spoilers(
+            coerce_outline_citations(sanitize_outline(outline), known_conflicts, known_beats),
+            remaining_forbidden,
+        )
+        for outline in aligned
+    ]
     citations = [
         (outline.chapter_key, outline.cited_conflict_ids, outline.cited_beat_ids)
         for outline in [*previous_outlines, *aligned]
@@ -396,12 +512,14 @@ async def _extend_bible_slice(
     kernel: StoryKernel,
     characters: list[CharacterCard],
     keys: list[str],
+    *,
+    repair_notes: str = "",
 ) -> tuple[list[Conflict], list[PayoffBeat]]:
     characters_text = json.dumps(
         [card.model_dump() for card in characters], ensure_ascii=False
     )
     incoming_conflicts = await run_conflict_planner(
-        deps, _kernel_text(kernel), characters_text, keys
+        deps, _kernel_text(kernel), characters_text, keys, repair_notes=repair_notes
     )
     existing_conflicts = bible.list_conflicts(project_id)
     conflicts = _merge_by_id(existing_conflicts, incoming_conflicts, "conflict_id")
@@ -410,6 +528,7 @@ async def _extend_bible_slice(
         _kernel_text(kernel),
         _dump([item.model_dump() for item in incoming_conflicts]),
         keys,
+        repair_notes=repair_notes,
     )
     existing_beats = bible.list_payoff_beats(project_id)
     max_order = max((beat.order_index for beat in existing_beats), default=0)

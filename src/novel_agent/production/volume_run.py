@@ -161,17 +161,28 @@ def _blocker_reason(status: ChapterStatus) -> VolumeStopReason | None:
 
 
 def _next_unfinished(
-    chapters: list[ChapterRecord], *, keep_going: bool = False
+    chapters: list[ChapterRecord],
+    *,
+    keep_going: bool = False,
+    skip_keys: set[str] | None = None,
 ) -> ChapterRecord | None:
     skip = set(_DONE)
+    skipped = skip_keys or set()
     if keep_going:
         skip.add(ChapterStatus.NEEDS_REPLAN)
         skip.add(ChapterStatus.HUMAN_REVIEW)
         skip.add(ChapterStatus.ADVERSARIAL_REVIEW)
     for chapter in chapters:
+        if chapter.chapter_key in skipped:
+            continue
         if chapter.status not in skip:
             return chapter
     return None
+
+
+def _is_n3_scene_parse_error(exc: BaseException) -> bool:
+    text = str(exc)
+    return "n3_draft" in text or "两段式解析" in text
 
 
 def _require_budget(budget_usd: float) -> None:
@@ -310,6 +321,7 @@ async def _run_occupied(
     stop = VolumeStopReason.COMPLETE
     current = ""
     workflow_id = run.id
+    skipped_keys: set[str] = set()
 
     def spent_now() -> float:
         return round(max(0.0, ops.spent_usd(project_id) - spent_at_start), 6)
@@ -344,7 +356,9 @@ async def _run_occupied(
                 break
 
             chapters = planning.list_chapters(project_id)
-            nxt = _next_unfinished(chapters, keep_going=keep_going)
+            nxt = _next_unfinished(
+                chapters, keep_going=keep_going, skip_keys=skipped_keys
+            )
             if nxt is not None:
                 blocked = _blocker_reason(nxt.status)
                 if blocked is not None:
@@ -374,7 +388,9 @@ async def _run_occupied(
                     break
                 chapters = planning.list_chapters(project_id)
 
-            nxt = _next_unfinished(chapters, keep_going=keep_going)
+            nxt = _next_unfinished(
+                chapters, keep_going=keep_going, skip_keys=skipped_keys
+            )
             if nxt is None:
                 stop = VolumeStopReason.COMPLETE
                 break
@@ -427,6 +443,10 @@ async def _run_occupied(
                     max_chapters,
                 )
             except ChapterLoopError as exc:
+                if keep_going and _is_n3_scene_parse_error(exc):
+                    skipped_keys.add(nxt.chapter_key)
+                    current = ""
+                    continue
                 persist(status="failed", reason=str(exc))
                 raise VolumeRunError(str(exc)) from exc
 
