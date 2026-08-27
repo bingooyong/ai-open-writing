@@ -27,6 +27,7 @@ class StylePack(BaseModel):
 
     id: str = Field(min_length=1)
     label: str = Field(min_length=1)
+    mid_style: str = Field(default="", description="中风格中文名(镜头短句/职业白描/…)")
     profile: StyleProfile = Field(default_factory=StyleProfile)
     rules: str = ""
     samples: list[str] = Field(default_factory=list)

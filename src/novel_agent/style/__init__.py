@@ -3,7 +3,11 @@
 from novel_agent.style.loader import (
     UnknownStylePack,
     list_builtin_pack_ids,
+    list_frozen_pack_ids,
+    list_frozen_packs,
     load_builtin_pack,
+    load_frozen_pack,
+    resolve_pack_id,
 )
 from novel_agent.style.schema import (
     StylePack,
@@ -19,7 +23,11 @@ __all__ = [
     "UnknownStylePack",
     "compile_style_rules",
     "list_builtin_pack_ids",
+    "list_frozen_pack_ids",
+    "list_frozen_packs",
     "load_builtin_pack",
+    "load_frozen_pack",
     "parse_style_pack",
+    "resolve_pack_id",
     "style_rules_from_settings",
 ]

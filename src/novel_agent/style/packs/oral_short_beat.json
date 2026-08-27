@@ -1,6 +1,7 @@
 {
   "id": "oral_short_beat",
   "label": "一句一段·镜头短句",
+  "mid_style": "镜头短句",
   "profile": {
     "paragraph_unit": "sentence",
     "avg_sentence_chars": [8, 22],

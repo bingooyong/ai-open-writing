@@ -58,7 +58,7 @@ from novel_agent.production.volume_run import (
     status_from_run,
     volume_is_active,
 )
-from novel_agent.style import parse_style_pack
+from novel_agent.style import UnknownStylePack, load_frozen_pack, parse_style_pack
 from novel_agent.workflow.errors import WorkflowPaused
 
 router = APIRouter()
@@ -185,6 +185,12 @@ def patch_project(
 ) -> dict[str, object]:
     planning = PlanningRepo(session)
     require_project(planning, project_id)
+    if body.pack is not None:
+        try:
+            frozen = load_frozen_pack(body.pack)
+        except UnknownStylePack as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        rec = planning.update_project_style(project_id, frozen.model_dump(mode="json"))
     if body.style is not None:
         try:
             rec = planning.update_project_style(project_id, body.style)

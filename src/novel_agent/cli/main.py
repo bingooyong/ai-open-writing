@@ -13,7 +13,7 @@
   Stage 2      retrieve / retrieve-eval
   M4           smoke-stage0
   Stage 1      serve
-  风格包        style show / style set
+  风格包        style list / style show / style set
 """
 
 import asyncio
@@ -83,7 +83,8 @@ from novel_agent.style import (
     StylePack,
     UnknownStylePack,
     compile_style_rules,
-    load_builtin_pack,
+    list_frozen_packs,
+    load_frozen_pack,
     parse_style_pack,
 )
 from novel_agent.verification.m26_smoke import (
@@ -135,6 +136,13 @@ def _open_planning() -> tuple[Session, PlanningRepo]:
     return session, PlanningRepo(session)
 
 
+@style_app.command("list")
+def style_list() -> None:
+    """列出全部冻结中风格包(id + label)。"""
+    for pack in list_frozen_packs():
+        typer.echo(f"{pack.id}\t{pack.label}")
+
+
 @style_app.command("show")
 def style_show(
     project: Annotated[int, typer.Option("--project", "--project-id", help="项目 id")],
@@ -163,7 +171,7 @@ def style_show(
 @style_app.command("set")
 def style_set(
     project: Annotated[int, typer.Option("--project", "--project-id", help="项目 id")],
-    pack: Annotated[str | None, typer.Option("--pack", help="内置风格包 id")] = None,
+    pack: Annotated[str | None, typer.Option("--pack", help="冻结风格包 id 或中文别名")] = None,
     rules_file: Annotated[
         Path | None, typer.Option("--rules-file", help="JSON 风格包或覆盖 rules 的文本")
     ] = None,
@@ -175,7 +183,7 @@ def style_set(
     payload: dict
     if pack:
         try:
-            payload = load_builtin_pack(pack).model_dump(mode="json")
+            payload = load_frozen_pack(pack).model_dump(mode="json")
         except UnknownStylePack as exc:
             typer.echo(f"拒绝: {exc}", err=True)
             raise typer.Exit(2) from None
