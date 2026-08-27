@@ -24,6 +24,8 @@ class ProjectPatch(BaseModel):
     spark: str | None = None
     enable_writer_b: bool | None = None
     enable_reader_advocate: bool | None = None
+    style: dict | None = None
+    pack: str | None = None
 
 
 class RoundConfirm(BaseModel):

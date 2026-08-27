@@ -13,6 +13,7 @@
   Stage 2      retrieve / retrieve-eval
   M4           smoke-stage0
   Stage 1      serve
+  风格包        style list / style show / style set
 """
 
 import asyncio
@@ -78,6 +79,14 @@ from novel_agent.production.review import (
 from novel_agent.production.runtime import build_production_deps
 from novel_agent.production.volume_run import VolumeBusyError, VolumeRunError, run_volume
 from novel_agent.runtime.agents import AgentDeps
+from novel_agent.style import (
+    StylePack,
+    UnknownStylePack,
+    compile_style_rules,
+    list_frozen_packs,
+    load_frozen_pack,
+    parse_style_pack,
+)
 from novel_agent.verification.m26_smoke import (
     SmokeExecutionError,
     SmokeGateError,
@@ -88,6 +97,8 @@ from novel_agent.verification.stage0_smoke import run_stage0_smoke
 from novel_agent.workflow.errors import WorkflowPaused
 
 app = typer.Typer(help="本地优先的 AI 长篇小说创作智能体(阶段0)", no_args_is_help=True)
+style_app = typer.Typer(help="项目写作风格包", no_args_is_help=True)
+app.add_typer(style_app, name="style")
 
 
 @app.command()
@@ -115,6 +126,103 @@ def doctor() -> None:
         f"预算: 单章最大调用 {s.max_calls_per_chapter} 次;"
         f"修订轮次上限 {s.max_revision_rounds}(固定)"
     )
+
+
+def _open_planning() -> tuple[Session, PlanningRepo]:
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    session = Session(engine)
+    return session, PlanningRepo(session)
+
+
+@style_app.command("list")
+def style_list() -> None:
+    """列出全部冻结中风格包(id + label)。"""
+    for pack in list_frozen_packs():
+        typer.echo(f"{pack.id}\t{pack.label}")
+
+
+@style_app.command("show")
+def style_show(
+    project: Annotated[int, typer.Option("--project", "--project-id", help="项目 id")],
+) -> None:
+    """打印项目当前风格包(空则 (empty))。"""
+    session, repo = _open_planning()
+    try:
+        try:
+            rec = repo.get_project(project)
+        except NoResultFound:
+            typer.echo(f"拒绝: 项目不存在 project_id={project}", err=True)
+            raise typer.Exit(2) from None
+        raw = rec.settings if isinstance(rec.settings, dict) else {}
+        pack = parse_style_pack(raw.get("style"))
+        if pack is None:
+            typer.echo("style=(empty)")
+            return
+        typer.echo(f"id={pack.id}")
+        typer.echo(f"label={pack.label}")
+        compiled = compile_style_rules(pack)
+        typer.echo(compiled or "(empty rules)")
+    finally:
+        session.close()
+
+
+@style_app.command("set")
+def style_set(
+    project: Annotated[int, typer.Option("--project", "--project-id", help="项目 id")],
+    pack: Annotated[str | None, typer.Option("--pack", help="冻结风格包 id 或中文别名")] = None,
+    rules_file: Annotated[
+        Path | None, typer.Option("--rules-file", help="JSON 风格包或覆盖 rules 的文本")
+    ] = None,
+) -> None:
+    """写入项目风格包:--pack 选内置包,可选 --rules-file 覆盖。"""
+    if pack is None and rules_file is None:
+        typer.echo("拒绝: 需要 --pack 或 --rules-file", err=True)
+        raise typer.Exit(2)
+    payload: dict
+    if pack:
+        try:
+            payload = load_frozen_pack(pack).model_dump(mode="json")
+        except UnknownStylePack as exc:
+            typer.echo(f"拒绝: {exc}", err=True)
+            raise typer.Exit(2) from None
+    else:
+        payload = {}
+    if rules_file is not None:
+        if not rules_file.is_file():
+            typer.echo(f"拒绝: 文件不存在 {rules_file}", err=True)
+            raise typer.Exit(2)
+        text = rules_file.read_text(encoding="utf-8")
+        stripped = text.lstrip()
+        if stripped.startswith("{"):
+            try:
+                payload = StylePack.model_validate_json(text).model_dump(mode="json")
+            except ValidationError as exc:
+                typer.echo(f"拒绝: rules-file JSON 无法解析为风格包: {exc}", err=True)
+                raise typer.Exit(2) from None
+        elif pack:
+            payload["rules"] = text
+        else:
+            typer.echo("拒绝: 纯文本 --rules-file 需要同时指定 --pack", err=True)
+            raise typer.Exit(2)
+    session, repo = _open_planning()
+    try:
+        try:
+            repo.get_project(project)
+        except NoResultFound:
+            typer.echo(f"拒绝: 项目不存在 project_id={project}", err=True)
+            raise typer.Exit(2) from None
+        try:
+            repo.update_project_style(project, payload)
+        except ValueError as exc:
+            typer.echo(f"拒绝: {exc}", err=True)
+            raise typer.Exit(2) from None
+        session.commit()
+        stored = parse_style_pack(repo.get_project(project).settings.get("style"))
+        typer.echo(f"style={stored.id if stored else '(empty)'}")
+    finally:
+        session.close()
 
 
 @app.command()

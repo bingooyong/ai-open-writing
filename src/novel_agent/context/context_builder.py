@@ -11,6 +11,7 @@ from novel_agent.domain.schemas import (
     ThreadStatus,
 )
 from novel_agent.memory.protocol import MemoryRetrieval
+from novel_agent.style import style_rules_from_settings
 
 
 class ContextBuilder:
@@ -46,6 +47,9 @@ class ContextBuilder:
         kernel = self._planning.get_approved_kernel(project_id)
         if kernel is None:
             raise ValueError("无法构建上下文: 缺少已批准故事内核")
+        resolved_style = style_rules.strip() if style_rules else ""
+        if not resolved_style:
+            resolved_style = style_rules_from_settings(project.settings)
 
         outline = self._planning.get_outline(project_id, chapter_key)
         scene_cards = self._planning.list_scene_cards(project_id, chapter_key)
@@ -106,7 +110,7 @@ class ContextBuilder:
                 )
                 for thread in self._canon.list_threads(project_id)
             ],
-            style_rules=style_rules,
+            style_rules=resolved_style,
             boundaries=[*kernel.do_not_write, *project.boundaries],
             prior_feedback=prior_feedback,
         )

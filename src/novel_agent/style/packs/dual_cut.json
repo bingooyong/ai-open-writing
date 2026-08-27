@@ -1,0 +1,20 @@
+{
+  "id": "dual_cut",
+  "label": "双线切开",
+  "mid_style": "双线切开",
+  "profile": {
+    "paragraph_unit": "sentence",
+    "avg_sentence_chars": [8, 22],
+    "punch_line_max_chars": 8,
+    "dialogue_ratio_hint": 0.45,
+    "narrator_distance": "close_camera",
+    "interior": "short_judgment",
+    "time_place": "isolated_lines",
+    "result_first": true
+  },
+  "rules": "叙述服从本规则；场景卡只决定发生什么，不决定口吻。\n- 中风格：双线切开。这边把事做完，空一行，切到另一边接到信息。\n- 若场景卡只有一个 POV：不要进对方心里。用电话、门缝、监视器、他听得见的嘴把第二现场拉进他的耳朵。\n- 若场景卡给了第二 POV：用「与此同时」或空行切开，各跟各的镜头，不要串戏。\n- 反应是信息到位，不是打脸。禁止围观众震惊连环、亮身份碾压。\n- 句式跟镜头短句：一句一段，结果前置。\n- 仍遵守项目禁写。",
+  "samples": [
+    "林朔把板还回去。\n\n「明天你跟 A 机。」\n\n他应了一声。\n\n手还是凉的。\n\n与此同时。棚外。\n\n老郑把第六根烟按灭。\n\n对着制片电话那边说：「明天 A 机换人。就场记。」",
+    "电话打过去，响了一声就接了。\n\n「许老师。」\n\n「粗剪我看过了。」\n\n她没说好。\n\n也没说不好。\n\n「晚上来一趟。」"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "craft_baimiao",
+  "label": "职业白描",
+  "mid_style": "职业白描",
+  "profile": {
+    "paragraph_unit": "short_graph",
+    "avg_sentence_chars": [12, 28],
+    "punch_line_max_chars": 10,
+    "dialogue_ratio_hint": 0.25,
+    "narrator_distance": "object_camera",
+    "interior": "implied",
+    "time_place": "in_sentence",
+    "result_first": false
+  },
+  "rules": "叙述服从本规则；场景卡只决定发生什么，不决定口吻。\n- 中风格：职业白描。用看得见的物件和工序把戏推下去：烟、场记板、监视器、胶带、脚下的烟蒂。\n- 一段可以两到四句，仍要具体。禁止一段只有抽象判断。\n- 不要说明理。不要写机位为什么对、场租怎么算、术语科普。让物件自己发生。\n- 心里话少而贴着动作，不单独开心理段。\n- 禁止公文、纪要、联签、骑缝腔。职业流不是办事流程。\n- 服从章纲 POV。仍遵守项目禁写。",
+  "samples": [
+    "红塔山烧到一半。灰快掉进灯罩的金属网里。老郑站在棚门口，第五根烟。林朔把场记板夹在腋下，第三十二场的墨迹还没干。",
+    "监视器左上角贴着「郑铎专用」。他把磁带倒回去一段。主演从左到右的走位在屏上跑，焦点跑掉的那条跑在后头。他没说为什么。把板递过去：「郑哥，这场切两段。」"
+  ]
+}

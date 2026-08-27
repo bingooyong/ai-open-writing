@@ -1,0 +1,20 @@
+{
+  "id": "dialogue_scene",
+  "label": "对话场",
+  "mid_style": "对话场",
+  "profile": {
+    "paragraph_unit": "speech",
+    "avg_sentence_chars": [8, 20],
+    "punch_line_max_chars": 6,
+    "dialogue_ratio_hint": 0.7,
+    "narrator_distance": "stage_direction",
+    "interior": "none",
+    "time_place": "isolated_lines",
+    "result_first": true
+  },
+  "rules": "叙述服从本规则；场景卡只决定发生什么，不决定口吻。\n- 中风格：对话场。对白承担场面。叙述只当舞台提示：谁坐下、谁倒茶、谁把盒子放下。\n- 对白占比要高。禁止用叙述覆述人家刚说过的话。\n- 心里话极少。判断放进对白的停顿、反问、不接话里。\n- 一句一段仍适用于叙述提示；对白可以连续。\n- 禁止公文腔。仍遵守 POV 与项目禁写。",
+  "samples": [
+    "「郑哥，这场切两段。」\n\n老郑没回头。\n\n「第二句尾音不能压在推拉里。」\n\n「你说什么？」\n\n「第一段给脸。第二段切门框。」\n\n他把场记板递过去。\n\n老郑接了。\n\n「明天你跟 A 机。」",
+    "「你这场的视点是谁？」\n\n「她。」\n\n「哪一分钟？」\n\n「第七到第九。她看门，不看人。」\n\n磁带放在桌上。\n\n她没再问。"
+  ]
+}

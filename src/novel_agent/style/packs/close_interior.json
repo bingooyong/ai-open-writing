@@ -1,0 +1,20 @@
+{
+  "id": "close_interior",
+  "label": "心理密距",
+  "mid_style": "心理密距",
+  "profile": {
+    "paragraph_unit": "sentence",
+    "avg_sentence_chars": [10, 24],
+    "punch_line_max_chars": 8,
+    "dialogue_ratio_hint": 0.3,
+    "narrator_distance": "psychic_close",
+    "interior": "free_indirect",
+    "time_place": "isolated_lines",
+    "result_first": false
+  },
+  "rules": "叙述服从本规则；场景卡只决定发生什么，不决定口吻。\n- 中风格：心理密距。判断贴着 POV 走，像他自己在想，但仍是第三人称。\n- 心里话只留判断，不写论文。连续心理不超过三句，就回动作。\n- 严禁写「前世」「穿越」「系统」「反噬」「毁解释」。他懂，只写他看见了什么。\n- 不要用心理替代场面。先有眼睛前的东西，才有一句判断。\n- 仍遵守项目禁写与 POV。",
+  "samples": [
+    "灰掉在鞋面上。\n\n他没拍。\n\n这场会废。\n\n不是感觉。是看见的。\n\n「郑哥，这场切两段。」",
+    "她问视点是谁。\n\n他知道答对了会怎么样。\n\n不说。\n\n「第七分钟到第九分钟。她看门。」"
+  ]
+}
