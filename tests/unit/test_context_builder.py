@@ -138,3 +138,51 @@ def test_build_budget_discards_low_priority_context_before_required_inputs(tmp_p
         assert one_cut.retrieval_facts == ["b" * 20]
     finally:
         session.__exit__(None, None, None)
+
+
+def test_build_loads_style_from_project_settings_when_arg_empty(tmp_path) -> None:
+    from novel_agent.style import load_builtin_pack
+
+    session, planning, canon, project_id = _prepared_repos(tmp_path)
+    try:
+        pack = load_builtin_pack("oral_short_beat")
+        planning.update_project_style(project_id, pack.model_dump())
+        package = ContextBuilder(planning, canon).build(
+            project_id, "v1c001", task_brief="写第一章", volume_summary="第一卷摘要"
+        )
+        assert "默认一句一段" in package.style_rules
+        assert "节奏样例" in package.style_rules
+        assert "林朔" in package.style_rules
+    finally:
+        session.__exit__(None, None, None)
+
+
+def test_build_explicit_style_rules_override_project_pack(tmp_path) -> None:
+    from novel_agent.style import load_builtin_pack
+
+    session, planning, canon, project_id = _prepared_repos(tmp_path)
+    try:
+        planning.update_project_style(project_id, load_builtin_pack("oral_short_beat").model_dump())
+        package = ContextBuilder(planning, canon).build(
+            project_id,
+            "v1c001",
+            task_brief="写第一章",
+            volume_summary="第一卷摘要",
+            style_rules="克制叙述",
+        )
+        assert package.style_rules == "克制叙述"
+    finally:
+        session.__exit__(None, None, None)
+
+
+def test_build_invalid_project_style_does_not_crash(tmp_path) -> None:
+    session, planning, canon, project_id = _prepared_repos(tmp_path)
+    try:
+        rec = planning.get_project(project_id)
+        rec.settings = {"style": {"not": "a pack"}}
+        package = ContextBuilder(planning, canon).build(
+            project_id, "v1c001", task_brief="写第一章", volume_summary="第一卷摘要"
+        )
+        assert package.style_rules == ""
+    finally:
+        session.__exit__(None, None, None)

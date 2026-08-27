@@ -22,3 +22,16 @@ def test_writer_and_reviser_forbid_placeholder_scene_tag() -> None:
     reviser = (DEFAULT_PROMPTS_DIR / "reviser.md").read_text(encoding="utf-8")
     for body in (writer, reviser):
         assert "SCENE 标记必须用场景卡上的 id（如 v1c001_s1），禁止写「场景id」二字。" in body
+
+
+def test_writer_prompt_obeys_style_rules_when_present() -> None:
+    writer = (DEFAULT_PROMPTS_DIR / "writer.md").read_text(encoding="utf-8")
+    assert "若上下文含风格规则，叙述口吻必须服从；场景卡只决定情节" in writer
+
+
+def test_prose_prompt_branches_on_nonempty_style_rules() -> None:
+    prose = (DEFAULT_PROMPTS_DIR / "prose.md").read_text(encoding="utf-8")
+    assert "若风格规则非空" in prose
+    assert "书面长句" in prose
+    assert "不做风格洁癖" in prose
+    assert "否则" in prose

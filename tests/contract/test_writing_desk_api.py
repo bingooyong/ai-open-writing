@@ -81,6 +81,41 @@ def test_patch_extra_reviewer_flags(client: TestClient) -> None:
     assert fetched.json()["enable_writer_b"] is False
 
 
+def test_patch_style_roundtrip_and_survives_flag_patch(client: TestClient) -> None:
+    from novel_agent.style import load_builtin_pack
+
+    created = client.post(
+        "/projects",
+        json={"title": "风格开关", "spark": "说书人发现故事会成真", "auto_bible": False},
+    )
+    pid = created.json()["id"]
+    assert created.json().get("style") in (None, {})
+    pack = load_builtin_pack("oral_short_beat").model_dump()
+    patched = client.patch(f"/projects/{pid}", json={"style": pack})
+    assert patched.status_code == 200, patched.text
+    style = patched.json()["style"]
+    assert style["id"] == "oral_short_beat"
+    assert style["label"]
+    assert "默认一句一段" in style["rules"]
+    flags = client.patch(f"/projects/{pid}", json={"enable_writer_b": False})
+    assert flags.status_code == 200, flags.text
+    assert flags.json()["enable_writer_b"] is False
+    assert flags.json()["style"]["id"] == "oral_short_beat"
+    fetched = client.get(f"/projects/{pid}")
+    assert fetched.json()["style"]["id"] == "oral_short_beat"
+    assert "默认一句一段" in fetched.json()["style"]["rules"]
+
+
+def test_patch_invalid_style_is_400(client: TestClient) -> None:
+    created = client.post(
+        "/projects",
+        json={"title": "坏风格", "spark": "说书人发现故事会成真", "auto_bible": False},
+    )
+    pid = created.json()["id"]
+    bad = client.patch(f"/projects/{pid}", json={"style": {"id": "broken"}})
+    assert bad.status_code == 400, bad.text
+
+
 def test_unknown_project_is_404(client: TestClient) -> None:
     assert client.get("/projects/99").status_code == 404
     assert client.get("/projects/99/bible").status_code == 404
@@ -250,6 +285,31 @@ def test_cli_doctor_prints_api_url(tmp_path, monkeypatch: pytest.MonkeyPatch) ->
     assert "127.0.0.1" in result.output
     assert "desk_url:" in result.output
     assert "18765" in result.output
+
+
+def test_cli_style_show_and_set(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from novel_agent.domain.db import build_engine, create_all, session_scope
+    from novel_agent.domain.repos import PlanningRepo
+
+    db_path = tmp_path / "cli-style.db"
+    monkeypatch.setenv("NOVEL_DB_PATH", str(db_path))
+    reset_settings_cache()
+    engine = build_engine(db_path)
+    create_all(engine)
+    with session_scope(engine) as session:
+        project = PlanningRepo(session).create_project("风格CLI")
+        pid = project.id
+    empty = CliRunner().invoke(cli_app, ["style", "show", "--project", str(pid)])
+    assert empty.exit_code == 0, empty.output
+    set_result = CliRunner().invoke(
+        cli_app, ["style", "set", "--project", str(pid), "--pack", "oral_short_beat"]
+    )
+    assert set_result.exit_code == 0, set_result.output
+    shown = CliRunner().invoke(cli_app, ["style", "show", "--project", str(pid)])
+    reset_settings_cache()
+    assert shown.exit_code == 0, shown.output
+    assert "oral_short_beat" in shown.output
+    assert "默认一句一段" in shown.output
 
 
 def test_cli_serve_help() -> None:

@@ -130,6 +130,20 @@ async def test_writer_two_part_assembly(deps) -> None:
     assert draft.chapter_summary == "说书人卷入失火案"
 
 
+async def test_writer_context_includes_style_heading_when_rules_present(deps) -> None:
+    ctx = _ctx().model_copy(update={"style_rules": "STYLE_SENTINEL"})
+    await run_writer(deps, ctx, writer_id="writer_a")
+    req = [request for role, request in deps.mock.calls if role == "writer_a"][-1]
+    assert "# 风格规则" in req.user
+    assert "STYLE_SENTINEL" in req.user
+
+
+async def test_writer_context_omits_style_heading_when_rules_empty(deps) -> None:
+    await run_writer(deps, _ctx(), writer_id="writer_a")
+    req = [request for role, request in deps.mock.calls if role == "writer_a"][-1]
+    assert "# 风格规则" not in req.user
+
+
 async def test_writer_format_instructions_use_real_scene_ids(deps) -> None:
     captured: dict[str, str] = {}
 

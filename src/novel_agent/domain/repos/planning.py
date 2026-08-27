@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime
 
+from pydantic import ValidationError
+from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import Session, select
 
 from novel_agent.domain.models import (
@@ -21,6 +23,7 @@ from novel_agent.domain.schemas import (
     SceneCard,
     StoryKernel,
 )
+from novel_agent.style import StylePack
 
 
 class PlanningRepo:
@@ -70,16 +73,30 @@ class PlanningRepo:
         if spark is not None:
             rec.spark = spark
         if enable_writer_b is not None or enable_reader_advocate is not None:
-            current = rec.settings if isinstance(rec.settings, dict) else {}
-            merged = {
-                "enable_writer_b": bool(current.get("enable_writer_b", True)),
-                "enable_reader_advocate": bool(current.get("enable_reader_advocate", True)),
-            }
+            current = dict(rec.settings) if isinstance(rec.settings, dict) else {}
             if enable_writer_b is not None:
-                merged["enable_writer_b"] = enable_writer_b
+                current["enable_writer_b"] = enable_writer_b
             if enable_reader_advocate is not None:
-                merged["enable_reader_advocate"] = enable_reader_advocate
-            rec.settings = merged
+                current["enable_reader_advocate"] = enable_reader_advocate
+            rec.settings = current
+            flag_modified(rec, "settings")
+        rec.updated_at = datetime.now(UTC)
+        self.s.add(rec)
+        return rec
+
+    def update_project_style(self, project_id: int, style: dict) -> ProjectRecord:
+        """全量替换 settings.style;非法包抛 ValueError,不改库。"""
+        try:
+            pack = StylePack.model_validate(style)
+        except ValidationError as exc:
+            raise ValueError("style 无法解析为风格包") from exc
+        if not pack.id.strip() or not pack.label.strip():
+            raise ValueError("style 无法解析为风格包")
+        rec = self.get_project(project_id)
+        current = dict(rec.settings) if isinstance(rec.settings, dict) else {}
+        current["style"] = pack.model_dump(mode="json")
+        rec.settings = current
+        flag_modified(rec, "settings")
         rec.updated_at = datetime.now(UTC)
         self.s.add(rec)
         return rec

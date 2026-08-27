@@ -354,6 +354,9 @@ async def run_chapter_loop(
         check_chapter_budget(ops, chapter_key, settings, state.workflow_run_id)
 
     def ctx(*, prior_feedback: str = "") -> ChapterContextPackage:
+        # style_rules 由 ContextBuilder 从 project.settings["style"] 装载,不必在此传入。
+        # 不填 previous_ending:末卷锁定章常带公文/骑缝腔,当 few-shot 会污染新章口吻;
+        # 风格样例在 style pack,连续性走正史/检索,不走上一章原文尾巴。
         outline = planning.get_outline(project_id, chapter_key)
         package = builder.build(
             project_id,

@@ -32,6 +32,7 @@ from novel_agent.planning.outline_tree import assemble_outline_tree
 from novel_agent.planning.rounds import bible_snapshot, confirm_round, generate_pending_round
 from novel_agent.planning.runtime import build_planning_deps
 from novel_agent.planning.settings import desk_settings
+from novel_agent.style import parse_style_pack
 from novel_agent.planning.volume import PlanMoreError, plan_more
 from novel_agent.production.batch import BatchError, resume_project, run_write_batch
 from novel_agent.production.export import ExportSpecError, build_export
@@ -65,6 +66,8 @@ router = APIRouter()
 
 def _project_out(rec: ProjectRecord, completed: list[str] | None = None) -> dict[str, object]:
     flags = desk_settings(rec)
+    raw_settings = rec.settings if isinstance(rec.settings, dict) else {}
+    pack = parse_style_pack(raw_settings.get("style"))
     return {
         "id": rec.id,
         "title": rec.title,
@@ -75,6 +78,7 @@ def _project_out(rec: ProjectRecord, completed: list[str] | None = None) -> dict
         "completed_rounds": completed or [],
         "enable_writer_b": flags["enable_writer_b"],
         "enable_reader_advocate": flags["enable_reader_advocate"],
+        "style": pack.model_dump(mode="json") if pack else None,
     }
 
 
@@ -189,6 +193,11 @@ def patch_project(
         enable_writer_b=body.enable_writer_b,
         enable_reader_advocate=body.enable_reader_advocate,
     )
+    if body.style is not None:
+        try:
+            rec = planning.update_project_style(project_id, body.style)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     completed = sorted(BibleRepo(session).round_complete(project_id))
     return _project_out(rec, completed)
 
