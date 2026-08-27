@@ -32,6 +32,5 @@ def test_writer_prompt_obeys_style_rules_when_present() -> None:
 def test_prose_prompt_branches_on_nonempty_style_rules() -> None:
     prose = (DEFAULT_PROMPTS_DIR / "prose.md").read_text(encoding="utf-8")
     assert "若风格规则非空" in prose
-    assert "书面长句" in prose
-    assert "不做风格洁癖" in prose
-    assert "否则" in prose
+    assert "书面长句、一段三句以上、说明书式调度、公文腔" in prose
+    assert "否则不做风格洁癖" in prose

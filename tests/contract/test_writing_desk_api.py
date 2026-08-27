@@ -112,8 +112,15 @@ def test_patch_invalid_style_is_400(client: TestClient) -> None:
         json={"title": "坏风格", "spark": "说书人发现故事会成真", "auto_bible": False},
     )
     pid = created.json()["id"]
-    bad = client.patch(f"/projects/{pid}", json={"style": {"id": "broken"}})
+    assert created.json()["enable_writer_b"] is True
+    bad = client.patch(
+        f"/projects/{pid}",
+        json={"enable_writer_b": False, "style": {"id": "broken"}},
+    )
     assert bad.status_code == 400, bad.text
+    fetched = client.get(f"/projects/{pid}")
+    assert fetched.json()["enable_writer_b"] is True
+    assert fetched.json().get("style") in (None, {})
 
 
 def test_unknown_project_is_404(client: TestClient) -> None:

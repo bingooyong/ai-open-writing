@@ -332,6 +332,14 @@ async def test_professional_reviewers_receive_minimum_role_context(deps) -> None
     assert character_id not in requests[ReviewerRole.PROSE].user
     assert "STYLE_SENTINEL" not in requests[ReviewerRole.PLOT].user
     assert "STYLE_SENTINEL" in requests[ReviewerRole.PROSE].user
+    assert "# 风格规则" in requests[ReviewerRole.PROSE].user
+
+
+async def test_prose_reviewer_omits_style_heading_when_rules_empty(deps) -> None:
+    draft = await run_writer(deps, _ctx(), writer_id="writer_a")
+    await run_reviewer(deps, ReviewerRole.PROSE, draft, _ctx())
+    req = [request for role, request in deps.mock.calls if role == ReviewerRole.PROSE][-1]
+    assert "# 风格规则" not in req.user
 
 
 async def test_reviser_and_canon_curator(deps) -> None:

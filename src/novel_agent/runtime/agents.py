@@ -254,9 +254,11 @@ def _review_ctx_text(role: ReviewerRole, ctx: ChapterContextPackage) -> str:
             parts.append(boundaries)
             return "\n\n".join(parts)
         case ReviewerRole.PROSE:
-            return "\n\n".join(
-                [task, f"# 风格规则\n{ctx.style_rules}", boundaries]
-            )
+            parts = [task]
+            if ctx.style_rules:
+                parts.append(f"# 风格规则\n{ctx.style_rules}")
+            parts.append(boundaries)
+            return "\n\n".join(parts)
         case ReviewerRole.READER_ADVOCATE:
             return "\n\n".join(
                 [
