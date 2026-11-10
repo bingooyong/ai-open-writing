@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import Session, select
 
 from novel_agent.domain.models import (
@@ -21,6 +22,7 @@ from novel_agent.domain.schemas import (
     SceneCard,
     StoryKernel,
 )
+from novel_agent.style import StylePack, list_frozen_pack_ids, load_frozen_pack, parse_style_pack
 
 
 class PlanningRepo:
@@ -52,6 +54,35 @@ class PlanningRepo:
     def list_projects(self) -> list[ProjectRecord]:
         return list(self.s.exec(select(ProjectRecord).order_by(ProjectRecord.id)).all())  # type: ignore[arg-type]
 
+    def _merge_settings(self, rec: ProjectRecord, patch: dict) -> None:
+        current = dict(rec.settings) if isinstance(rec.settings, dict) else {}
+        current.update(patch)
+        rec.settings = current
+        rec.updated_at = datetime.now(UTC)
+        flag_modified(rec, "settings")
+        self.s.add(rec)
+
+    def get_project_style(self, project_id: int) -> dict | None:
+        rec = self.get_project(project_id)
+        raw = rec.settings if isinstance(rec.settings, dict) else {}
+        pack = parse_style_pack(raw.get("style"))
+        return pack.model_dump(mode="json") if pack else None
+
+    def set_project_style(self, project_id: int, style: StylePack | dict) -> ProjectRecord:
+        rec = self.get_project(project_id)
+        pack = style if isinstance(style, StylePack) else parse_style_pack(style)
+        if pack is None:
+            raise ValueError("风格配置无效")
+        self._merge_settings(rec, {"style": pack.model_dump(mode="json")})
+        return rec
+
+    def set_project_style_pack(self, project_id: int, pack_id: str) -> ProjectRecord:
+        pack = load_frozen_pack(pack_id)
+        if pack is None:
+            known = ", ".join(list_frozen_pack_ids()) or "(无)"
+            raise ValueError(f"未知风格包: {pack_id}; 可用: {known}")
+        return self.set_project_style(project_id, pack)
+
     def update_project(
         self,
         project_id: int,
@@ -61,6 +92,7 @@ class PlanningRepo:
         spark: str | None = None,
         enable_writer_b: bool | None = None,
         enable_reader_advocate: bool | None = None,
+        style: StylePack | dict | None = None,
     ) -> ProjectRecord:
         rec = self.get_project(project_id)
         if title is not None:
@@ -69,17 +101,18 @@ class PlanningRepo:
             rec.genre = genre
         if spark is not None:
             rec.spark = spark
-        if enable_writer_b is not None or enable_reader_advocate is not None:
-            current = rec.settings if isinstance(rec.settings, dict) else {}
-            merged = {
-                "enable_writer_b": bool(current.get("enable_writer_b", True)),
-                "enable_reader_advocate": bool(current.get("enable_reader_advocate", True)),
-            }
-            if enable_writer_b is not None:
-                merged["enable_writer_b"] = enable_writer_b
-            if enable_reader_advocate is not None:
-                merged["enable_reader_advocate"] = enable_reader_advocate
-            rec.settings = merged
+        settings_patch: dict = {}
+        if enable_writer_b is not None:
+            settings_patch["enable_writer_b"] = enable_writer_b
+        if enable_reader_advocate is not None:
+            settings_patch["enable_reader_advocate"] = enable_reader_advocate
+        if style is not None:
+            pack = style if isinstance(style, StylePack) else parse_style_pack(style)
+            if pack is None:
+                raise ValueError("风格配置无效")
+            settings_patch["style"] = pack.model_dump(mode="json")
+        if settings_patch:
+            self._merge_settings(rec, settings_patch)
         rec.updated_at = datetime.now(UTC)
         self.s.add(rec)
         return rec

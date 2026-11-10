@@ -11,6 +11,7 @@ from novel_agent.domain.schemas import (
     ThreadStatus,
 )
 from novel_agent.memory.protocol import MemoryRetrieval
+from novel_agent.style import compile_style_rules
 
 
 class ContextBuilder:
@@ -43,6 +44,9 @@ class ContextBuilder:
     ) -> ChapterContextPackage:
         """构建并在给定字符预算内裁剪最低优先级文本上下文。"""
         project = self._planning.get_project(project_id)
+        if not str(style_rules or "").strip():
+            raw = project.settings if isinstance(project.settings, dict) else {}
+            style_rules = compile_style_rules(raw.get("style"))
         kernel = self._planning.get_approved_kernel(project_id)
         if kernel is None:
             raise ValueError("无法构建上下文: 缺少已批准故事内核")

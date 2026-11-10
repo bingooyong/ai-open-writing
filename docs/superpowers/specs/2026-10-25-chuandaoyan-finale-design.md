@@ -62,3 +62,10 @@
 2. Write-lock v34 → push private canon
 3. Same for v35 → v36 → v37
 4. Update this Page/spec checklist as each volume locks
+
+## Checklist
+
+- [x] v34 黄金三刀 locked 2026-10-25
+- [x] v35 钱口松动 locked 2026-10-25
+- [x] v36 杀青夜 locked 2026-10-25
+- [x] v37 她开口了 locked 2026-10-25

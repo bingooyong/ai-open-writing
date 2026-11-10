@@ -220,6 +220,31 @@ class CanonWriter:
         self._reindex()
         return rec
 
+    def _heal_old_values(self, delta: CanonDelta, include_provisional: bool) -> CanonDelta:
+        """LLM 常把 old_value 写成更早的状态;用当前正史覆盖后再校验。"""
+        current = self.canon.latest_entity_states(
+            self.project_id,
+            include_provisional=include_provisional,
+            as_of_chapter_key=delta.chapter_key,
+        )
+
+        def fix(change: EntityStateChange) -> EntityStateChange:
+            cur = current.get((change.entity_id, change.state_type.value))
+            if change.old_value and cur is not None and cur.value != change.old_value:
+                return change.model_copy(update={"old_value": cur.value})
+            return change
+
+        return delta.model_copy(
+            update={
+                "new_facts": [fix(item) for item in delta.new_facts],
+                "character_state_changes": [
+                    fix(item) for item in delta.character_state_changes
+                ],
+                "knowledge_changes": [fix(item) for item in delta.knowledge_changes],
+                "resource_changes": [fix(item) for item in delta.resource_changes],
+            }
+        )
+
     def _reindex(self) -> None:
         retrieval = self.retrieval or memory_retrieval_for_session(self.s)
         retrieval.reindex(self.project_id)

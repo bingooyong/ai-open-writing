@@ -36,3 +36,7 @@ logs/
 # 写作台前端
 apps/web/node_modules/
 apps/web/dist/
+
+# 正史导出/评测缓存不入库（小说 IP 只进私仓）
+export/
+.repo-agent-eval/

@@ -279,6 +279,593 @@ def redact_remaining_spoilers(
     return outline.model_copy(update=updates)
 
 
+def _continuation_brief(
+    kernel: StoryKernel,
+    previous_outlines: Sequence[ChapterOutline],
+    keys: Sequence[str],
+) -> str:
+    tail = previous_outlines[-3:] if previous_outlines else []
+    tail_txt = "；".join(
+        f"{item.chapter_key} {item.title} [{item.time_location}]: {item.core_event}"
+        for item in tail
+    ) or "(无)"
+    last_time = ""
+    if previous_outlines:
+        last = previous_outlines[-1]
+        last_time = last.time_location or ""
+    return (
+        "续写同一项目，禁止另开无关类型/无关人物的新故事。\n"
+        "POV 必须是林朔。女角色只用变体名：张紫衣/兆薇/周洵/许静蕾/樊冰屏/黎冰屏/柳奕妃。"
+        "禁止系统面板。禁止无关刑侦/宫廷/检察官切片。\n"
+        f"内核 logline: {kernel.logline}\n"
+        f"已规划末三章: {tail_txt}\n"
+        f"上一章时间地点: {last_time or '(空)'}。新章 time_location 必须接在此之后，"
+        "禁止跳回 2005，也禁止跳回 2012 年 9 月中旬之前。当前故事已在 2012 年 9 月中旬"
+        "（v27c010：更远再又再再再再再再再再一层仍不烧那一页；退回函第四项仍空；圆点仍是三个未并入秋档场次总表；"
+        "周洵反打母版EDL秋档归档双签条未写入母版EDL、名字仍未批；脏角色秋档可见层抽检回执联签已挡、书面三条在可见层；"
+        "柜号对照秋档对柜终盘未做、未对柜；秋档人力再缓；内袋秋档终封骑缝未盖、只许外夹层盖；"
+        "钥匙对柜十七次加急托管秋档转档已挡回；分镜笔记仍合着没烧；机要柜仍上锁、钥匙在林朔手里；张紫衣那句话仍未出口）；"
+        "本卷从 9 月中旬之后续写更远再又再再再再再再再再再一层的片场债，可推进到 2012 年 9 月下旬–2012 年 12 月中旬的冬档终审联签/冬档原件袋移交签收/圆点并冬档场次总表/母版EDL冬档归档双签/冬档可见层抽检回执联签/冬档对柜终盘/冬档人力配额/冬档终封骑缝/十八次加急托管冬档转档后果（必要时可自然落入 2013 年初，禁止跳回 2005），"
+        "禁止错季，禁止跳回窗口内五月程序回执阶段、五月前夜、柏林窗口材料阶段、7–9 月窗口后余震、9 月下旬–11 月更往后片场债、11 月下旬–2010 年 1 月上旬再往后片场债、1 月中旬–3 月上旬继续往后片场债、3 月中旬–5 月上旬更远片场债、5 月中旬–7 月上旬再更远片场债、7 月中旬–9 月上旬更远一层片场债、9 月中旬–11 月上旬再远一层片场债、11 月中旬–2011 年 1 月上旬更远再一层片场债、2011 年 1 月中旬–3 月上旬更远又一层片场债、2011 年 3 月中旬–5 月上旬更远再又一层片场债、2011 年 5 月中旬–7 月上旬更远再又再一层片场债、2011 年 7 月中旬–9 月上旬更远再又再再一层片场债、2011 年 9 月中旬–11 月上旬更远再又再再再一层片场债、2011 年 11 月中旬–12 月下旬更远再又再再再再一层片场债、2012 年 1 月上旬–2 月中旬更远再又再再再再再一层年关档片场债、2012 年 2 月下旬–4 月中旬更远再又再再再再再再一层春档片场债、2012 年 4 月下旬–6 月中旬更远再又再再再再再再再一层夏档片场债，或 2012 年 6 月下旬–9 月中旬更远再又再再再再再再再再一层秋档片场债已写过的重复节点。"
+        "单元名：戛纳窗口（可写材料/窗口程序回执余波，禁止最终奖项）；柏林全景（禁止把柏林写成「一种关注」）；"
+        "威尼斯地平线（禁止「威尼斯一种关注」）。真实片名单只可引用年代志已放行且故事月已上映者；2012 年 9–12 月勿把未上映片（如《活埋》）写成已映口碑——2010/2011/2012 title_releases=[]。\n"
+        "开场必须承接：更远再又再再再再再再再再一层节点已过、退回函第四项仍空；机要柜钥匙在林朔手里；机要柜仍上锁在二楼；"
+        "分镜笔记合着没烧在左内袋；张紫衣那句话仍未出口；圆点仍是三个；反打名字仍未批；脏角色书面三条在可见层；柜号对照未对柜；秋档对柜终盘未做；对柜十七次加急托管秋档转档已挡回。\n"
+        "承接债务：更远再又再再再再再再再再再一层的片场债与退回函第四项冬档终审联签；开机钱骑缝三联/冬档原件袋移交签收；周洵反打空栏母版EDL冬档归档双签；柳奕妃脏角色冬档可见层抽检回执联签；"
+        "材料袋柜号对照冬档对柜终盘；钥匙对柜十八次加急托管冬档转档；合着的分镜笔记会不会被烧/被看见；张紫衣未出口的那句话；机要柜钥匙归属。"
+        "本卷禁止把烧笔记或机要柜提前兑现。\n"
+        "禁止 HeliosChain/Kestrel/何夕/代币纪元/加密/地铁崩盘等错故事。\n"
+        f"新章节键: {','.join(keys)}。"
+        "冲突 payoff_chapter_key 与爽点 chapter_key 必须落在这些键上。\n"
+        "章纲 cited_conflict_ids/cited_beat_ids 必须引用本次冲突/爽点规划给出的 id，"
+        "禁止自造对不上的 id。\n"
+        "章纲 title/core_event/exit_hook/key_choice 禁止出现禁释清单中的原句。"
+    )
+
+
+def _coerce_outline_citations(
+    outlines: Sequence[ChapterOutline],
+    conflicts: Sequence[Conflict],
+    beats: Sequence[PayoffBeat],
+) -> list[ChapterOutline]:
+    known_c = {item.conflict_id for item in conflicts}
+    known_b = {item.beat_id for item in beats}
+    c_by_ch: dict[str, list[str]] = {}
+    for item in conflicts:
+        if item.payoff_chapter_key:
+            c_by_ch.setdefault(item.payoff_chapter_key, []).append(item.conflict_id)
+    b_by_ch: dict[str, list[str]] = {}
+    for item in beats:
+        if item.chapter_key:
+            b_by_ch.setdefault(item.chapter_key, []).append(item.beat_id)
+    updated: list[ChapterOutline] = []
+    for outline in outlines:
+        cids = [cid for cid in outline.cited_conflict_ids if cid in known_c]
+        bids = [bid for bid in outline.cited_beat_ids if bid in known_b]
+        if not cids:
+            cids = c_by_ch.get(outline.chapter_key, [])[:1]
+        if not cids and not bids:
+            bids = b_by_ch.get(outline.chapter_key, [])[:1]
+        if not cids and not bids:
+            fallback_c = c_by_ch.get(outline.chapter_key) or sorted(known_c)
+            cids = fallback_c[:1]
+        updated.append(
+            outline.model_copy(update={"cited_conflict_ids": cids, "cited_beat_ids": bids})
+        )
+    return updated
+
+
+_FESTIVAL_FENCES = (
+    ("柏林一种关注", "柏林全景"),
+    ("威尼斯一种关注", "威尼斯地平线"),
+)
+
+
+def _fence_text(text: str) -> str:
+    for src, dst in _FESTIVAL_FENCES:
+        text = text.replace(src, dst)
+    return text
+
+
+def _fence_outlines_and_scenes(
+    outlines: Sequence[ChapterOutline],
+    scenes: dict[str, list[SceneCard]],
+    previous_outlines: Sequence[ChapterOutline],
+) -> tuple[list[ChapterOutline], dict[str, list[SceneCard]]]:
+    last_time = previous_outlines[-1].time_location if previous_outlines else ""
+    shift_2005 = (("2008" in last_time) or ("2009" in last_time)) and "2005" not in last_time
+    # After Oct 2008: keep planner from slipping to early-2008 festival windows.
+    post_oct_2008 = ("2008" in last_time) and (
+        "10 月" in last_time or "11 月" in last_time or "12 月" in last_time
+    )
+    # After Jan 2009 (v4c010): never slip back before 2009-01.
+    post_jan_2009 = "2009" in last_time
+    # After mid-July 2009 (v8c010): never slip back to May–early July window-interior.
+    post_jul_mid_2009 = ("2009" in last_time) and (
+        "7 月中旬" in last_time or "7月中旬" in last_time or "七月中旬" in last_time
+        or "7 月下旬" in last_time or "7月下旬" in last_time
+        or "8 月" in last_time or "8月" in last_time
+        or "9 月" in last_time or "9月" in last_time
+        or "10 月" in last_time or "10月" in last_time
+        or "11 月" in last_time or "11月" in last_time
+    )
+    # After mid-Sep 2009 (v9c010): never slip back before Sep mid / into Jul–early Sep aftermath.
+    post_sep_mid_2009 = ("2009" in last_time) and (
+        "9 月中旬" in last_time or "9月中旬" in last_time or "九月中旬" in last_time
+        or "9 月下旬" in last_time or "9月下旬" in last_time
+        or "10 月" in last_time or "10月" in last_time
+        or "11 月" in last_time or "11月" in last_time
+    )
+    # After mid-Nov 2009 (v10c010): never slip back before Nov mid / into Sep–early Nov aftermath.
+    post_nov_mid_2009 = ("2009" in last_time) and (
+        "11 月中旬" in last_time or "11月中旬" in last_time or "十一月中旬" in last_time
+        or "11 月下旬" in last_time or "11月下旬" in last_time
+        or "12 月" in last_time or "12月" in last_time
+        or "2010" in last_time
+    )
+    # After early-Jan 2010 (v11c010): never slip back before Jan mid / into 2009 Nov–Dec / early Jan.
+    post_jan_early_2010 = ("2010" in last_time) and (
+        "1 月上旬" in last_time or "1月上旬" in last_time or "一月上旬" in last_time
+        or "1 月中旬" in last_time or "1月中旬" in last_time
+        or "1 月下旬" in last_time or "1月下旬" in last_time
+        or "2 月" in last_time or "2月" in last_time
+        or "3 月" in last_time or "3月" in last_time
+    )
+    # After early-Mar 2010 (v12c010): never slip back before Mar mid / into Jan–early Mar.
+    post_mar_early_2010 = ("2010" in last_time) and (
+        "3 月上旬" in last_time or "3月上旬" in last_time or "三月上旬" in last_time
+        or "3 月中旬" in last_time or "3月中旬" in last_time
+        or "3 月下旬" in last_time or "3月下旬" in last_time
+        or "4 月" in last_time or "4月" in last_time
+        or "5 月" in last_time or "5月" in last_time
+    )
+    # After early-May 2010 (v13c010): never slip back before May mid / into Mar–early May.
+    post_may_early_2010 = ("2010" in last_time) and (
+        "5 月上旬" in last_time or "5月上旬" in last_time or "五月上旬" in last_time
+        or "5 月中旬" in last_time or "5月中旬" in last_time
+        or "5 月下旬" in last_time or "5月下旬" in last_time
+        or "6 月" in last_time or "6月" in last_time
+        or "7 月" in last_time or "7月" in last_time
+    )
+    # After early-July 2010 (v14c010): never slip back before July mid / into May–early July.
+    post_jul_early_2010 = ("2010" in last_time) and (
+        "7 月上旬" in last_time or "7月上旬" in last_time or "七月上旬" in last_time
+        or "7 月中旬" in last_time or "7月中旬" in last_time
+        or "7 月下旬" in last_time or "7月下旬" in last_time
+        or "8 月" in last_time or "8月" in last_time
+        or "9 月" in last_time or "9月" in last_time
+    )
+    # After early-Sep 2010 (v15c010): never slip back before Sep mid / into Jul–early Sep.
+    post_sep_early_2010 = ("2010" in last_time) and (
+        "9 月上旬" in last_time or "9月上旬" in last_time or "九月上旬" in last_time
+        or "9 月中旬" in last_time or "9月中旬" in last_time
+        or "9 月下旬" in last_time or "9月下旬" in last_time
+        or "10 月" in last_time or "10月" in last_time
+        or "11 月" in last_time or "11月" in last_time
+    )
+    # After early-Nov 2010 (v16c010): never slip back before Nov mid / into Sep–early Nov.
+    post_nov_early_2010 = (
+        ("2010" in last_time) and (
+            "11 月上旬" in last_time or "11月上旬" in last_time or "十一月上旬" in last_time
+            or "11 月中旬" in last_time or "11月中旬" in last_time
+            or "11 月下旬" in last_time or "11月下旬" in last_time
+            or "12 月" in last_time or "12月" in last_time
+        )
+    ) or ("2011" in last_time)
+    # After early-Jan 2011 (v17c010): never slip back before Jan mid / into 2010 Nov–Dec / early Jan 2011.
+    post_jan_early_2011 = ("2011" in last_time) and (
+        "1 月上旬" in last_time or "1月上旬" in last_time or "一月上旬" in last_time
+        or "1 月中旬" in last_time or "1月中旬" in last_time
+        or "1 月下旬" in last_time or "1月下旬" in last_time
+        or "2 月" in last_time or "2月" in last_time
+        or "3 月" in last_time or "3月" in last_time
+    )
+    # After early-Mar 2011 (v18c010): never slip back before Mar mid / into Jan–early Mar 2011.
+    post_mar_early_2011 = ("2011" in last_time) and (
+        "3 月上旬" in last_time or "3月上旬" in last_time or "三月上旬" in last_time
+        or "3 月中旬" in last_time or "3月中旬" in last_time
+        or "3 月下旬" in last_time or "3月下旬" in last_time
+        or "4 月" in last_time or "4月" in last_time
+        or "5 月" in last_time or "5月" in last_time
+    )
+    # After early-May 2011 (v19c010): never slip back before May mid / into Mar–early May 2011.
+    post_may_early_2011 = ("2011" in last_time) and (
+        "5 月上旬" in last_time or "5月上旬" in last_time or "五月上旬" in last_time
+        or "5 月中旬" in last_time or "5月中旬" in last_time
+        or "5 月下旬" in last_time or "5月下旬" in last_time
+        or "6 月" in last_time or "6月" in last_time
+        or "7 月" in last_time or "7月" in last_time
+    )
+    # After early-July 2011 (v20c010): never slip back before July mid / into May–early July 2011.
+    post_jul_early_2011 = ("2011" in last_time) and (
+        "7 月上旬" in last_time or "7月上旬" in last_time or "七月上旬" in last_time
+        or "7 月中旬" in last_time or "7月中旬" in last_time
+        or "7 月下旬" in last_time or "7月下旬" in last_time
+        or "8 月" in last_time or "8月" in last_time
+        or "9 月" in last_time or "9月" in last_time
+    )
+    # After early-Sep 2011 (v21c010): never slip back before Sep mid / into Jul–early Sep 2011.
+    post_sep_early_2011 = ("2011" in last_time) and (
+        "9 月上旬" in last_time or "9月上旬" in last_time or "九月上旬" in last_time
+        or "9 月中旬" in last_time or "9月中旬" in last_time
+        or "9 月下旬" in last_time or "9月下旬" in last_time
+        or "10 月" in last_time or "10月" in last_time
+        or "11 月" in last_time or "11月" in last_time
+    )
+    # After early-Nov 2011 (v22c010): never slip back before Nov mid / into Sep–early Nov 2011.
+    post_nov_early_2011 = ("2011" in last_time) and (
+        "11 月上旬" in last_time or "11月上旬" in last_time or "十一月上旬" in last_time
+        or "11 月中旬" in last_time or "11月中旬" in last_time
+        or "11 月下旬" in last_time or "11月下旬" in last_time
+        or "12 月" in last_time or "12月" in last_time
+    )
+    # After late-Dec 2011 (v23c010): never slip back before 2012 Jan / into 2011 Nov–Dec.
+    post_dec_late_2011 = (
+        ("2012" in last_time)
+        or (
+            ("2011" in last_time)
+            and (
+                "12 月下旬" in last_time or "12月下旬" in last_time or "十二月下旬" in last_time
+                or "12 月中旬" in last_time or "12月中旬" in last_time
+                or "12 月" in last_time or "12月" in last_time
+            )
+        )
+    )
+    # After mid-Feb 2012 (v24c010): never slip back before late Feb / into Jan–mid Feb 年关档.
+    post_feb_mid_2012 = ("2012" in last_time) and (
+        "2 月中旬" in last_time or "2月中旬" in last_time or "二月中旬" in last_time
+        or "2 月下旬" in last_time or "2月下旬" in last_time
+        or "3 月" in last_time or "3月" in last_time
+        or "4 月" in last_time or "4月" in last_time
+    )
+    # After mid-Apr 2012 (v25c010): never slip back before late Apr / into Feb–mid Apr 春档.
+    post_apr_mid_2012 = ("2012" in last_time) and (
+        "4 月中旬" in last_time or "4月中旬" in last_time or "四月中旬" in last_time
+        or "4 月下旬" in last_time or "4月下旬" in last_time
+        or "5 月" in last_time or "5月" in last_time
+        or "6 月" in last_time or "6月" in last_time
+    )
+    # After mid-Jun 2012 (v26c010): never slip back before late Jun / into Apr–mid Jun 夏档.
+    post_jun_mid_2012 = ("2012" in last_time) and (
+        "6 月中旬" in last_time or "6月中旬" in last_time or "六月中旬" in last_time
+        or "6 月下旬" in last_time or "6月下旬" in last_time
+        or "7 月" in last_time or "7月" in last_time
+        or "8 月" in last_time or "8月" in last_time
+        or "9 月" in last_time or "9月" in last_time
+    )
+    # After mid-Sep 2012 (v27c010): never slip back before late Sep / into Jun–mid Sep 秋档.
+    post_sep_mid_2012 = ("2012" in last_time) and (
+        "9 月中旬" in last_time or "9月中旬" in last_time or "九月中旬" in last_time
+        or "9 月下旬" in last_time or "9月下旬" in last_time
+        or "10 月" in last_time or "10月" in last_time
+        or "11 月" in last_time or "11月" in last_time
+        or "12 月" in last_time or "12月" in last_time
+    ) or ("2013" in last_time)
+
+    def _fix_time(tl: str) -> str:
+        tl = _fence_text(tl)
+        if shift_2005 or post_jan_2009:
+            # remap early years forward; 2005/06/07/08 slips become 2009
+            if post_jan_2009:
+                for y in ("2005", "2006", "2007", "2008"):
+                    tl = tl.replace(y, "2009")
+            else:
+                tl = tl.replace("2005", "2008")
+        if post_jul_mid_2009:
+            # map May–early July 2009 slips forward past v8c010
+            for m in ("1 月", "2 月", "3 月", "4 月", "5 月", "6 月"):
+                if f"2009 年 {m}" in tl or f"2009年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2009 年 {m}", "2009 年 7 月下旬")
+                    tl = tl.replace(f"2009年{m.replace(' ','')}", "2009年7月下旬")
+            for early in ("7 月上旬", "7月上旬", "7 月中旬", "7月中旬"):
+                if early in tl and "7 月下旬" not in tl and "7月下旬" not in tl:
+                    tl = tl.replace(early, "7 月下旬")
+        if post_sep_mid_2009:
+            # map Jul–early Sep 2009 slips forward past v9c010
+            for m in ("1 月", "2 月", "3 月", "4 月", "5 月", "6 月", "7 月", "8 月"):
+                if f"2009 年 {m}" in tl or f"2009年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2009 年 {m}", "2009 年 9 月下旬")
+                    tl = tl.replace(f"2009年{m.replace(' ','')}", "2009年9月下旬")
+            for early in ("9 月上旬", "9月上旬", "9 月中旬", "9月中旬"):
+                if early in tl and "9 月下旬" not in tl and "9月下旬" not in tl:
+                    tl = tl.replace(early, "9 月下旬")
+        if post_nov_mid_2009:
+            # map Jan–early Nov 2009 slips forward past v10c010; keep 2010 if already there
+            if "2010" not in tl:
+                for m in ("1 月", "2 月", "3 月", "4 月", "5 月", "6 月", "7 月", "8 月", "9 月", "10 月"):
+                    if f"2009 年 {m}" in tl or f"2009年{m.replace(' ','')}" in tl:
+                        tl = tl.replace(f"2009 年 {m}", "2009 年 11 月下旬")
+                        tl = tl.replace(f"2009年{m.replace(' ','')}", "2009年11月下旬")
+                for early in ("11 月上旬", "11月上旬", "11 月中旬", "11月中旬"):
+                    if early in tl and "11 月下旬" not in tl and "11月下旬" not in tl:
+                        tl = tl.replace(early, "11 月下旬")
+        if post_jan_early_2010:
+            # map any 2009 / early-Jan 2010 slips forward past v11c010
+            if "2009" in tl:
+                tl = tl.replace("2009", "2010")
+            for early in ("1 月上旬", "1月上旬", "一月上旬"):
+                if early in tl and "1 月中旬" not in tl and "1月中旬" not in tl:
+                    tl = tl.replace(early, "1 月中旬")
+        if post_mar_early_2010 and not post_may_early_2010:
+            # map any 2009 / Jan–early-Mar 2010 slips forward past v12c010
+            if "2009" in tl:
+                tl = tl.replace("2009", "2010")
+            for m in ("1 月", "2 月"):
+                if f"2010 年 {m}" in tl or f"2010年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2010 年 {m}", "2010 年 3 月中旬")
+                    tl = tl.replace(f"2010年{m.replace(' ','')}", "2010年3月中旬")
+            for early in ("3 月上旬", "3月上旬", "三月上旬"):
+                if early in tl and "3 月中旬" not in tl and "3月中旬" not in tl:
+                    tl = tl.replace(early, "3 月中旬")
+        if post_may_early_2010 and not post_jul_early_2010:
+            # map any 2009 / Jan–early-May 2010 slips forward past v13c010
+            if "2009" in tl:
+                tl = tl.replace("2009", "2010")
+            for m in ("1 月", "2 月", "3 月", "4 月"):
+                if f"2010 年 {m}" in tl or f"2010年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2010 年 {m}", "2010 年 5 月中旬")
+                    tl = tl.replace(f"2010年{m.replace(' ','')}", "2010年5月中旬")
+            for early in ("5 月上旬", "5月上旬", "五月上旬"):
+                if early in tl and "5 月中旬" not in tl and "5月中旬" not in tl:
+                    tl = tl.replace(early, "5 月中旬")
+        if post_jul_early_2010 and not post_sep_early_2010:
+            # map any 2009 / Jan–early-July 2010 slips forward past v14c010
+            if "2009" in tl:
+                tl = tl.replace("2009", "2010")
+            for m in ("1 月", "2 月", "3 月", "4 月", "5 月", "6 月"):
+                if f"2010 年 {m}" in tl or f"2010年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2010 年 {m}", "2010 年 7 月中旬")
+                    tl = tl.replace(f"2010年{m.replace(' ','')}", "2010年7月中旬")
+            for early in ("7 月上旬", "7月上旬", "七月上旬"):
+                if early in tl and "7 月中旬" not in tl and "7月中旬" not in tl:
+                    tl = tl.replace(early, "7 月中旬")
+        if post_sep_early_2010 and not post_nov_early_2010:
+            # map any 2009 / Jan–early-Sep 2010 slips forward past v15c010
+            if "2009" in tl:
+                tl = tl.replace("2009", "2010")
+            for m in ("1 月", "2 月", "3 月", "4 月", "5 月", "6 月", "7 月", "8 月"):
+                if f"2010 年 {m}" in tl or f"2010年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2010 年 {m}", "2010 年 9 月中旬")
+                    tl = tl.replace(f"2010年{m.replace(' ','')}", "2010年9月中旬")
+            for early in ("9 月上旬", "9月上旬", "九月上旬"):
+                if early in tl and "9 月中旬" not in tl and "9月中旬" not in tl:
+                    tl = tl.replace(early, "9 月中旬")
+        if post_nov_early_2010 and not post_jan_early_2011:
+            # map any 2009 / Jan–early-Nov 2010 slips forward past v16c010
+            if "2009" in tl:
+                tl = tl.replace("2009", "2010")
+            for m in ("1 月", "2 月", "3 月", "4 月", "5 月", "6 月", "7 月", "8 月", "9 月", "10 月"):
+                if f"2010 年 {m}" in tl or f"2010年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2010 年 {m}", "2010 年 11 月中旬")
+                    tl = tl.replace(f"2010年{m.replace(' ','')}", "2010年11月中旬")
+            for early in ("11 月上旬", "11月上旬", "十一月上旬"):
+                if early in tl and "11 月中旬" not in tl and "11月中旬" not in tl:
+                    tl = tl.replace(early, "11 月中旬")
+        if post_jan_early_2011 and not post_mar_early_2011:
+            # map any 2009/2010 / early-Jan 2011 slips forward past v17c010
+            if "2009" in tl:
+                tl = tl.replace("2009", "2011")
+            if "2010" in tl:
+                tl = tl.replace("2010", "2011")
+            for early in ("1 月上旬", "1月上旬", "一月上旬"):
+                if early in tl and "1 月中旬" not in tl and "1月中旬" not in tl:
+                    tl = tl.replace(early, "1 月中旬")
+        if post_mar_early_2011 and not post_may_early_2011:
+            # map any 2009/2010 / Jan–early-Mar 2011 slips forward past v18c010
+            if "2009" in tl:
+                tl = tl.replace("2009", "2011")
+            if "2010" in tl:
+                tl = tl.replace("2010", "2011")
+            for m in ("1 月", "2 月"):
+                if f"2011 年 {m}" in tl or f"2011年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2011 年 {m}", "2011 年 3 月中旬")
+                    tl = tl.replace(f"2011年{m.replace(' ','')}", "2011年3月中旬")
+            for early in ("3 月上旬", "3月上旬", "三月上旬"):
+                if early in tl and "3 月中旬" not in tl and "3月中旬" not in tl:
+                    tl = tl.replace(early, "3 月中旬")
+        if post_may_early_2011 and not post_jul_early_2011:
+            # map any 2009/2010 / Mar–early-May 2011 slips forward past v19c010
+            if "2009" in tl:
+                tl = tl.replace("2009", "2011")
+            if "2010" in tl:
+                tl = tl.replace("2010", "2011")
+            for m in ("1 月", "2 月", "3 月", "4 月"):
+                if f"2011 年 {m}" in tl or f"2011年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2011 年 {m}", "2011 年 5 月中旬")
+                    tl = tl.replace(f"2011年{m.replace(' ','')}", "2011年5月中旬")
+            for early in ("5 月上旬", "5月上旬", "五月上旬"):
+                if early in tl and "5 月中旬" not in tl and "5月中旬" not in tl:
+                    tl = tl.replace(early, "5 月中旬")
+        if post_jul_early_2011 and not post_sep_early_2011:
+            # map any 2009/2010 / May–early-July 2011 slips forward past v20c010
+            if "2009" in tl:
+                tl = tl.replace("2009", "2011")
+            if "2010" in tl:
+                tl = tl.replace("2010", "2011")
+            for m in ("1 月", "2 月", "3 月", "4 月", "5 月", "6 月"):
+                if f"2011 年 {m}" in tl or f"2011年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2011 年 {m}", "2011 年 7 月中旬")
+                    tl = tl.replace(f"2011年{m.replace(' ','')}", "2011年7月中旬")
+            for early in ("7 月上旬", "7月上旬", "七月上旬"):
+                if early in tl and "7 月中旬" not in tl and "7月中旬" not in tl:
+                    tl = tl.replace(early, "7 月中旬")
+        if post_sep_early_2011 and not post_nov_early_2011:
+            # map any 2009/2010 / Jul–early-Sep 2011 slips forward past v21c010
+            if "2009" in tl:
+                tl = tl.replace("2009", "2011")
+            if "2010" in tl:
+                tl = tl.replace("2010", "2011")
+            for m in ("1 月", "2 月", "3 月", "4 月", "5 月", "6 月", "7 月", "8 月"):
+                if f"2011 年 {m}" in tl or f"2011年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2011 年 {m}", "2011 年 9 月中旬")
+                    tl = tl.replace(f"2011年{m.replace(' ','')}", "2011年9月中旬")
+            for early in ("9 月上旬", "9月上旬", "九月上旬"):
+                if early in tl and "9 月中旬" not in tl and "9月中旬" not in tl:
+                    tl = tl.replace(early, "9 月中旬")
+        if post_nov_early_2011 and not post_dec_late_2011:
+            # map any 2009/2010 / Jan–early-Nov 2011 slips forward past v22c010
+            if "2009" in tl:
+                tl = tl.replace("2009", "2011")
+            if "2010" in tl:
+                tl = tl.replace("2010", "2011")
+            for m in ("1 月", "2 月", "3 月", "4 月", "5 月", "6 月", "7 月", "8 月", "9 月", "10 月"):
+                if f"2011 年 {m}" in tl or f"2011年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2011 年 {m}", "2011 年 11 月中旬")
+                    tl = tl.replace(f"2011年{m.replace(' ','')}", "2011年11月中旬")
+            for early in ("11 月上旬", "11月上旬", "十一月上旬"):
+                if early in tl and "11 月中旬" not in tl and "11月中旬" not in tl:
+                    tl = tl.replace(early, "11 月中旬")
+        if post_dec_late_2011 and not post_feb_mid_2012:
+            # map any 2009/2010/2011 slips forward past v23c010 into early 2012
+            if "2009" in tl:
+                tl = tl.replace("2009", "2012")
+            if "2010" in tl:
+                tl = tl.replace("2010", "2012")
+            if "2011" in tl:
+                tl = tl.replace("2011", "2012")
+            for m in ("3 月", "4 月", "5 月", "6 月", "7 月", "8 月", "9 月", "10 月", "11 月", "12 月"):
+                if f"2012 年 {m}" in tl or f"2012年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2012 年 {m}", "2012 年 1 月上旬")
+                    tl = tl.replace(f"2012年{m.replace(' ','')}", "2012年1月上旬")
+        if post_feb_mid_2012 and not post_apr_mid_2012:
+            # map any 2009/2010/2011 / Jan–early-Feb 2012 slips forward past v24c010 into 春档
+            if "2009" in tl:
+                tl = tl.replace("2009", "2012")
+            if "2010" in tl:
+                tl = tl.replace("2010", "2012")
+            if "2011" in tl:
+                tl = tl.replace("2011", "2012")
+            for m in ("1 月",):
+                if f"2012 年 {m}" in tl or f"2012年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2012 年 {m}", "2012 年 2 月下旬")
+                    tl = tl.replace(f"2012年{m.replace(' ','')}", "2012年2月下旬")
+            for early in ("2 月上旬", "2月上旬", "二月上旬", "2 月中旬", "2月中旬", "二月中旬"):
+                if early in tl and "2 月下旬" not in tl and "2月下旬" not in tl:
+                    tl = tl.replace(early, "2 月下旬")
+            for m in ("5 月", "6 月", "7 月", "8 月", "9 月", "10 月", "11 月", "12 月"):
+                if f"2012 年 {m}" in tl or f"2012年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2012 年 {m}", "2012 年 3 月上旬")
+                    tl = tl.replace(f"2012年{m.replace(' ','')}", "2012年3月上旬")
+        if post_apr_mid_2012 and not post_jun_mid_2012:
+            # map any 2009/2010/2011 / Jan–early-Apr 2012 slips forward past v25c010 into 夏档
+            if "2009" in tl:
+                tl = tl.replace("2009", "2012")
+            if "2010" in tl:
+                tl = tl.replace("2010", "2012")
+            if "2011" in tl:
+                tl = tl.replace("2011", "2012")
+            for m in ("1 月", "2 月", "3 月"):
+                if f"2012 年 {m}" in tl or f"2012年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2012 年 {m}", "2012 年 4 月下旬")
+                    tl = tl.replace(f"2012年{m.replace(' ','')}", "2012年4月下旬")
+            for early in ("4 月上旬", "4月上旬", "四月上旬", "4 月中旬", "4月中旬", "四月中旬"):
+                if early in tl and "4 月下旬" not in tl and "4月下旬" not in tl:
+                    tl = tl.replace(early, "4 月下旬")
+            for m in ("7 月", "8 月", "9 月", "10 月", "11 月", "12 月"):
+                if f"2012 年 {m}" in tl or f"2012年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2012 年 {m}", "2012 年 5 月上旬")
+                    tl = tl.replace(f"2012年{m.replace(' ','')}", "2012年5月上旬")
+        if post_jun_mid_2012 and not post_sep_mid_2012:
+            # map any 2009/2010/2011 / Jan–early-Jun 2012 slips forward past v26c010 into 秋档
+            if "2009" in tl:
+                tl = tl.replace("2009", "2012")
+            if "2010" in tl:
+                tl = tl.replace("2010", "2012")
+            if "2011" in tl:
+                tl = tl.replace("2011", "2012")
+            for m in ("1 月", "2 月", "3 月", "4 月", "5 月"):
+                if f"2012 年 {m}" in tl or f"2012年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2012 年 {m}", "2012 年 6 月下旬")
+                    tl = tl.replace(f"2012年{m.replace(' ','')}", "2012年6月下旬")
+            for early in ("6 月上旬", "6月上旬", "六月上旬", "6 月中旬", "6月中旬", "六月中旬"):
+                if early in tl and "6 月下旬" not in tl and "6月下旬" not in tl:
+                    tl = tl.replace(early, "6 月下旬")
+            for m in ("10 月", "11 月", "12 月"):
+                if f"2012 年 {m}" in tl or f"2012年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2012 年 {m}", "2012 年 7 月上旬")
+                    tl = tl.replace(f"2012年{m.replace(' ','')}", "2012年7月上旬")
+        if post_sep_mid_2012:
+            # map any 2009/2010/2011 / Jan–mid-Sep 2012 slips forward past v27c010 into 冬档
+            if "2009" in tl:
+                tl = tl.replace("2009", "2012")
+            if "2010" in tl:
+                tl = tl.replace("2010", "2012")
+            if "2011" in tl:
+                tl = tl.replace("2011", "2012")
+            for m in ("1 月", "2 月", "3 月", "4 月", "5 月", "6 月", "7 月", "8 月"):
+                if f"2012 年 {m}" in tl or f"2012年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2012 年 {m}", "2012 年 9 月下旬")
+                    tl = tl.replace(f"2012年{m.replace(' ','')}", "2012年9月下旬")
+            for early in ("9 月上旬", "9月上旬", "九月上旬", "9 月中旬", "9月中旬", "九月中旬"):
+                if early in tl and "9 月下旬" not in tl and "9月下旬" not in tl:
+                    tl = tl.replace(early, "9 月下旬")
+        if post_oct_2008 and not post_jan_2009:
+            # map obvious pre-October 2008 slips forward into late 2008
+            for m in ("1 月", "2 月", "3 月", "4 月", "5 月", "6 月", "7 月", "8 月", "9 月"):
+                if f"2008 年 {m}" in tl or f"2008年{m.replace(' ','')}" in tl:
+                    tl = tl.replace(f"2008 年 {m}", "2008 年 10 月下旬")
+                    tl = tl.replace(f"2008年{m.replace(' ','')}", "2008年10月下旬")
+            if "2007" in tl:
+                tl = tl.replace("2007", "2008")
+            if "2006" in tl:
+                tl = tl.replace("2006", "2008")
+        return tl
+
+    fenced: list[ChapterOutline] = []
+    for outline in outlines:
+        data = outline.model_dump()
+        for field in (
+            "core_event",
+            "title",
+            "exit_hook",
+            "key_choice",
+            "time_location",
+            "start_state",
+            "end_state",
+            "entry_point",
+            "protagonist_goal",
+        ):
+            if isinstance(data.get(field), str):
+                data[field] = _fence_text(data[field])
+        if isinstance(data.get("time_location"), str):
+            data["time_location"] = _fix_time(data["time_location"])
+        fenced.append(ChapterOutline.model_validate(data))
+    new_scenes: dict[str, list[SceneCard]] = {}
+    for key, cards in scenes.items():
+        remapped: list[SceneCard] = []
+        for card in cards:
+            payload = card.model_dump()
+            for field in ("time", "location", "goal", "obstacle", "turning_point", "outcome", "exit_hook"):
+                if isinstance(payload.get(field), str):
+                    payload[field] = _fence_text(payload[field])
+            if isinstance(payload.get("time"), str):
+                payload["time"] = _fix_time(payload["time"])
+            remapped.append(SceneCard.model_validate(payload))
+        new_scenes[key] = remapped
+    return fenced, new_scenes
+
+
+def _redact_remaining_spoilers(
+    outlines: Sequence[ChapterOutline], remaining_forbidden: Sequence[str]
+) -> list[ChapterOutline]:
+    secrets = [item for item in remaining_forbidden if item]
+    if not secrets:
+        return list(outlines)
+    fields = ("core_event", "title", "exit_hook", "key_choice")
+    updated: list[ChapterOutline] = []
+    for outline in outlines:
+        changes: dict[str, str] = {}
+        for field in fields:
+            text = getattr(outline, field) or ""
+            original = text
+            for secret in secrets:
+                if secret in text:
+                    text = text.replace(secret, "")
+            if text != original:
+                changes[field] = text
+        updated.append(outline.model_copy(update=changes) if changes else outline)
+    return updated
+
 def _canon_notes(canon: CanonRepo, project_id: int) -> str:
     states = canon.latest_entity_states(project_id, include_provisional=True)
     if not states:
@@ -417,6 +1004,7 @@ async def plan_more(
     current_unit = planning.get_unit(project_id, current_unit_id) if reuse_unit else None
     canon_notes = _canon_notes(canon, project_id)
     recap = continuation_recap(previous_outlines, canon_notes=canon_notes)
+    recap = recap + "\n\n" + _continuation_brief(kernel, previous_outlines, keys)
 
     conflicts, beats = await _extend_bible_slice(
         bible, deps, project_id, kernel, characters, keys, repair_notes=recap
@@ -446,6 +1034,7 @@ async def plan_more(
         )
         for outline in aligned
     ]
+    aligned, scenes = _fence_outlines_and_scenes(aligned, scenes, previous_outlines)
     citations = [
         (outline.chapter_key, outline.cited_conflict_ids, outline.cited_beat_ids)
         for outline in [*previous_outlines, *aligned]

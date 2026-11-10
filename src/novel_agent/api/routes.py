@@ -58,6 +58,7 @@ from novel_agent.production.volume_run import (
     status_from_run,
     volume_is_active,
 )
+from novel_agent.style import parse_style_pack
 from novel_agent.workflow.errors import WorkflowPaused
 
 router = APIRouter()
@@ -65,6 +66,8 @@ router = APIRouter()
 
 def _project_out(rec: ProjectRecord, completed: list[str] | None = None) -> dict[str, object]:
     flags = desk_settings(rec)
+    raw = rec.settings if isinstance(rec.settings, dict) else {}
+    pack = parse_style_pack(raw.get("style"))
     return {
         "id": rec.id,
         "title": rec.title,
@@ -75,6 +78,7 @@ def _project_out(rec: ProjectRecord, completed: list[str] | None = None) -> dict
         "completed_rounds": completed or [],
         "enable_writer_b": flags["enable_writer_b"],
         "enable_reader_advocate": flags["enable_reader_advocate"],
+        "style": pack.model_dump(mode="json") if pack else None,
     }
 
 
@@ -181,14 +185,18 @@ def patch_project(
 ) -> dict[str, object]:
     planning = PlanningRepo(session)
     require_project(planning, project_id)
-    rec = planning.update_project(
-        project_id,
-        title=body.title,
-        genre=body.genre,
-        spark=body.spark,
-        enable_writer_b=body.enable_writer_b,
-        enable_reader_advocate=body.enable_reader_advocate,
-    )
+    try:
+        rec = planning.update_project(
+            project_id,
+            title=body.title,
+            genre=body.genre,
+            spark=body.spark,
+            enable_writer_b=body.enable_writer_b,
+            enable_reader_advocate=body.enable_reader_advocate,
+            style=body.style,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     completed = sorted(BibleRepo(session).round_complete(project_id))
     return _project_out(rec, completed)
 

@@ -78,6 +78,7 @@ from novel_agent.production.review import (
 from novel_agent.production.runtime import build_production_deps
 from novel_agent.production.volume_run import VolumeBusyError, VolumeRunError, run_volume
 from novel_agent.runtime.agents import AgentDeps
+from novel_agent.style import ALIASES, compile_style_rules, list_frozen_pack_ids, load_frozen_pack
 from novel_agent.verification.m26_smoke import (
     SmokeExecutionError,
     SmokeGateError,
@@ -1182,6 +1183,85 @@ def retrieve_eval(
     report_path.write_text(text, encoding="utf-8")
     typer.echo(text.rstrip())
     typer.echo(f"report={report_path}")
+
+
+style_app = typer.Typer(help="项目写作风格配置", no_args_is_help=True)
+
+
+def _open_planning(project_id: int) -> tuple:
+    settings = get_settings()
+    engine = build_engine(settings.db_path)
+    create_all(engine)
+    session = Session(engine)
+    repo = PlanningRepo(session)
+    try:
+        repo.get_project(project_id)
+    except NoResultFound:
+        session.close()
+        typer.echo(f"拒绝: 项目不存在 project_id={project_id}", err=True)
+        raise typer.Exit(2) from None
+    return session, repo
+
+
+@style_app.command("list")
+def style_list() -> None:
+    """列出仓库冻结风格包（id / 中文别名 / 标签）。"""
+    id_to_alias = {canonical: alias for alias, canonical in ALIASES.items()}
+    for pack_id in list_frozen_pack_ids():
+        pack = load_frozen_pack(pack_id)
+        if pack is None:
+            continue
+        alias = id_to_alias.get(pack.id, pack.mid_style or "")
+        typer.echo(f"{pack.id}\t{alias}\t{pack.label}")
+
+
+@style_app.command("show")
+def style_show(
+    project: Annotated[int, typer.Option("--project", "--project-id", help="项目 id")],
+) -> None:
+    """打印项目当前风格包。"""
+    session, repo = _open_planning(project)
+    try:
+        stored = repo.get_project_style(project)
+        if stored is None:
+            typer.echo("未配置风格")
+            return
+        typer.echo(json.dumps(stored, ensure_ascii=False, indent=2))
+        compiled = compile_style_rules(stored)
+        if compiled:
+            typer.echo("")
+            typer.echo(compiled)
+    finally:
+        session.close()
+
+
+@style_app.command("set")
+def style_set(
+    project: Annotated[int, typer.Option("--project", "--project-id", help="项目 id")],
+    pack: Annotated[
+        str,
+        typer.Option("--pack", help="冻结风格包 id 或中文别名,如 oral_short_beat / 镜头短句"),
+    ],
+) -> None:
+    """把冻结风格包写入 project.settings.style,保留其它 settings 键。"""
+    pack_id = pack.strip()
+    frozen = load_frozen_pack(pack_id)
+    if frozen is None:
+        known = ", ".join(list_frozen_pack_ids()) or "(无)"
+        typer.echo(f"拒绝: 未知风格包 {pack_id}; 可用: {known}", err=True)
+        raise typer.Exit(2)
+    session, repo = _open_planning(project)
+    try:
+        repo.set_project_style(project, frozen)
+        session.commit()
+        typer.echo(f"project_id={project}")
+        typer.echo(f"style={frozen.id}")
+        typer.echo(f"label={frozen.label}")
+    finally:
+        session.close()
+
+
+app.add_typer(style_app, name="style")
 
 
 if __name__ == "__main__":

@@ -151,6 +151,7 @@ async def call_structured(
 # ---------- D16 两段式协议 ----------
 
 _SCENE_RE = re.compile(r"<<<SCENE:(?P<sid>[^>]+)>>>\s*(?P<body>.*?)\s*<<<END>>>", re.DOTALL)
+_SCENE_OPEN_RE = re.compile(r"<<<SCENE:(?P<sid>[^>]+)>>>")
 _META_RE = re.compile(r"<<<META>>>\s*(?P<meta>.*)\s*$", re.DOTALL)
 _PLACEHOLDER_SCENE_IDS = frozenset(
     {
@@ -192,6 +193,15 @@ def parse_two_part(text: str, expected_scene_ids: list[str]) -> tuple[dict[str, 
         (match.group("sid").strip(), match.group("body").strip())
         for match in _SCENE_RE.finditer(text)
     ]
+    if not blocks:
+        opens = list(_SCENE_OPEN_RE.finditer(text))
+        for index, match in enumerate(opens):
+            start = match.end()
+            end = opens[index + 1].start() if index + 1 < len(opens) else len(text)
+            body = text[start:end]
+            body = re.sub(r"<<<END>>>.*", "", body, flags=re.DOTALL)
+            body = re.sub(r"<<<META>>>.*", "", body, flags=re.DOTALL)
+            blocks.append((match.group("sid").strip(), body.strip()))
     expected_set = set(expected_scene_ids)
     scenes: dict[str, str] = {}
     assigned_real: set[str] = set()
@@ -215,7 +225,18 @@ def parse_two_part(text: str, expected_scene_ids: list[str]) -> tuple[dict[str, 
         _keep_last_nonempty(scenes, target, body)
 
     missing = [sid for sid in expected_scene_ids if sid not in scenes]
-    if missing or extras:
+    if missing:
+        leftover = [
+            body
+            for scene_id, body in blocks
+            if scene_id not in expected_set
+            and scene_id not in _PLACEHOLDER_SCENE_IDS
+            and body
+        ]
+        for body, target in zip(leftover, missing, strict=False):
+            _keep_last_nonempty(scenes, target, body)
+        missing = [sid for sid in expected_scene_ids if sid not in scenes]
+    if missing:
         raise TwoPartParseError(f"场景 id 不匹配: 缺失={missing} 多余={extras}")
     empty = [sid for sid, body in scenes.items() if not body]
     if empty:
@@ -223,7 +244,7 @@ def parse_two_part(text: str, expected_scene_ids: list[str]) -> tuple[dict[str, 
 
     meta_match = _META_RE.search(text)
     if not meta_match:
-        raise TwoPartParseError("缺少 <<<META>>> 段")
+        return scenes, {"chapter_summary": "", "deviation_notes": ""}
     # META 段截到 SCENE 标记之外(防御 META 在中间的畸形输出)
     raw = meta_match.group("meta").strip()
     try:

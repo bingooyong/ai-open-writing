@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from novel_agent.production.loop import ChapterLoopResult
+from novel_agent.style import StylePack
 
 
 class ProjectCreate(BaseModel):
@@ -24,6 +25,7 @@ class ProjectPatch(BaseModel):
     spark: str | None = None
     enable_writer_b: bool | None = None
     enable_reader_advocate: bool | None = None
+    style: StylePack | None = None
 
 
 class RoundConfirm(BaseModel):

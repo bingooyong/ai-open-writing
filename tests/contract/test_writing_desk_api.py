@@ -504,3 +504,35 @@ def test_export_channel_query_returns_file(client: TestClient) -> None:
 
     bad = client.get(f"/projects/{pid}/export?channel=wechat")
     assert bad.status_code == 400
+
+
+def test_patch_style_and_preserve_on_flags(client: TestClient) -> None:
+    from novel_agent.style import load_frozen_pack
+
+    created = client.post(
+        "/projects",
+        json={"title": "风格台", "spark": "说书人发现故事会成真", "auto_bible": False},
+    )
+    assert created.status_code == 200, created.text
+    pid = created.json()["id"]
+    assert created.json()["style"] is None
+
+    pack = load_frozen_pack("oral_short_beat")
+    assert pack is not None
+    patched = client.patch(
+        f"/projects/{pid}",
+        json={"style": pack.model_dump(mode="json")},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["style"]["id"] == "oral_short_beat"
+
+    flags = client.patch(
+        f"/projects/{pid}",
+        json={"enable_writer_b": False, "enable_reader_advocate": False},
+    )
+    assert flags.status_code == 200, flags.text
+    assert flags.json()["enable_writer_b"] is False
+    assert flags.json()["style"]["id"] == "oral_short_beat"
+    fetched = client.get(f"/projects/{pid}")
+    assert fetched.json()["style"]["id"] == "oral_short_beat"
+    assert fetched.json()["enable_reader_advocate"] is False

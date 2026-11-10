@@ -441,6 +441,13 @@ def enforce_lockable_verdict(
             else "Judge 拒绝 PASS,但仅一稿合规且无硬门禁泄漏:选用该候选,继续锁定。"
         )
         return synthesize_pass_verdict(sole, reason=reason)
+    # Multiple lockable drafts + bad/missing selected_candidate: pick longest (same as empty-packet).
+    best = pick_lockable_candidate(candidates, boundaries, required_names, gates)
+    if best is not None and verdict.verdict in {VerdictType.PASS, VerdictType.HUMAN_REVIEW}:
+        return synthesize_pass_verdict(
+            best,
+            reason="Judge 所选稿不可锁或无效,但存在合规候选:选用最长合规稿,继续锁定。",
+        )
     if verdict.verdict is VerdictType.PASS:
         return verdict.model_copy(
             update={
